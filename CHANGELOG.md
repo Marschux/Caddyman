@@ -1,5 +1,9 @@
 # Changelog
 
+## 2026-10-09 00:52
+- fix: changelog hook only runs when the current branch is pushed
+
+
 ## 0.6.0 - 2026-10-09
 
 First release.
