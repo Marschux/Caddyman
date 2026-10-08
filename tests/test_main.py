@@ -593,6 +593,98 @@ class TestCertificates(RouteTest):
         self.assertIn("internal CA instead of your ACME CA", page)
 
 
+class TestLogs(RouteTest):
+    LINES = [
+        '{"level":"info","ts":1791500000.5,"logger":"admin.api","msg":"received request","uri":"/config/"}',
+        '{"level":"info","ts":1791500001,"logger":"tls.obtain","msg":"acquiring lock","identifier":"pdf.lab.test"}',
+        '{"level":"error","ts":1791500002,"logger":"tls.obtain","msg":"will retry","error":"pdf.lab.test: no challenge"}',
+        '{"level":"warn","ts":1791500003,"logger":"http","msg":"HTTP/2 skipped"}',
+        "not json at all <script>alert(1)</script>",
+    ]
+
+    def setUp(self):
+        super().setUp()
+        self.logs = os.path.join(self.dir.name, "logs")
+        os.mkdir(self.logs)
+        os.mkdir(os.path.join(self.logs, "sub.log"))  # a directory, not a log
+        self.write("old.log", ['{"level":"info","ts":1,"logger":"old","msg":"from the rotated file"}'], mtime=1000)
+        self.write("notes.txt", ["never listed"])
+        self.write("caddy.log", self.LINES, mtime=2000)
+        main.save_hosts([{**self.host, "log_dir": self.logs}])
+
+    def write(self, name, lines, mtime=None):
+        path = os.path.join(self.logs, name)
+        with open(path, "w", encoding="utf-8", newline="\n") as handle:
+            handle.write("\n".join(lines) + "\n")
+        if mtime:
+            os.utime(path, (mtime, mtime))
+
+    def test_newest_file_newest_line_first(self):
+        page = self.client.get("/logs").text
+        self.assertNotIn("from the rotated file", page)
+        self.assertNotIn("notes.txt", page)
+        self.assertNotIn("sub.log", page)
+        self.assertLess(page.index("HTTP/2 skipped"), page.index("acquiring lock"))
+        self.assertIn("2026-10-08", page)  # the epoch time as a date
+        self.assertIn("&lt;script&gt;", page)  # a line that is not JSON is shown, escaped
+        self.assertNotIn("<script>alert", page)
+        self.assertIn("from the rotated file", self.client.get("/logs?file=old.log").text)
+
+    def test_filters(self):
+        errors = self.client.get("/logs?level=error").text
+        self.assertIn("will retry", errors)
+        self.assertNotIn("acquiring lock", errors)
+        self.assertNotIn("not json at all", errors)
+        warnings = self.client.get("/logs?level=warn").text
+        self.assertIn("will retry", warnings)
+        self.assertIn("HTTP/2 skipped", warnings)
+        named = self.client.get("/logs?q=PDF.lab.test").text
+        self.assertIn("acquiring lock", named)
+        self.assertNotIn("HTTP/2 skipped", named)
+        self.assertNotIn("received request", self.client.get("/logs?quiet=1").text)
+        self.assertIn("Nothing matches", self.client.get("/logs?q=nowhere").text)
+
+    def test_only_files_from_the_listing_are_opened(self):
+        for name in ("../Caddyfile", "notes.txt", "/etc/passwd", "sub.log"):
+            page = self.client.get("/logs", params={"file": name}).text
+            self.assertIn("HTTP/2 skipped", page)  # falls back to the newest log
+            self.assertNotIn("never listed", page)
+            self.assertNotIn("stepca", page)
+
+    def test_only_the_end_of_a_large_file_is_read(self):
+        self.patch(main, "LOG_TAIL_BYTES", 200)
+        filler = ['{"level":"info","ts":2,"logger":"x","msg":"filler line number %04d"}' % i for i in range(50)]
+        self.write("caddy.log", ["FIRST LINE OF THE FILE", *filler, '{"level":"info","ts":3,"logger":"x","msg":"the last one"}'])
+        lines = main.read_log_tail(main.Path(self.logs) / "caddy.log")
+        self.assertEqual(main.parse_log_line(lines[-1])["msg"], "the last one")
+        self.assertLess(len(lines), 5)
+        self.assertTrue(all(line.startswith("{") for line in lines))  # no half line at the start
+
+    def test_without_a_log_directory_the_page_explains_the_setup(self):
+        main.save_hosts([self.host])
+        page = self.client.get("/logs").text
+        self.assertIn("log caddyman", page)
+        self.assertIn("/var/log/caddy:ro", page)
+        labels = [check["label"] for check in main.preflight(self.host)]
+        self.assertNotIn("Log directory has log files", labels)
+
+    def test_caddy_elsewhere_has_no_logs_here(self):
+        host = {**self.host, "storage": "managed", "log_dir": self.logs}
+        self.assertEqual(main.log_files(host), [])
+
+    def test_status_checks_the_directory_once_it_is_set(self):
+        host = {**self.host, "log_dir": self.logs}
+        self.patch(main.httpx, "get", mock.Mock(return_value=mock.Mock(status_code=200, content=b"")))
+        checks = lambda h: {check["label"]: check["ok"] for check in main.preflight(h)}  # noqa: E731
+        self.assertTrue(checks(host)["Log directory has log files"])
+        self.assertFalse(checks({**host, "log_dir": self.dir.name + "/missing"})["Log directory has log files"])
+
+    def test_failed_certificate_links_to_its_log(self):
+        self.create()
+        self.served.side_effect = main.ssl.SSLError("alert")
+        self.assertIn("/logs?q=pdf.lab.test", self.client.get("/").text)
+
+
 class TestBackup(RouteTest):
     def setUp(self):
         super().setUp()

@@ -240,3 +240,14 @@ fieldset.choice input { position: absolute; opacity: 0; pointer-events: none; }
 	h1 { font-size: 28px; letter-spacing: -0.6px; }
 	table { display: block; overflow-x: auto; }
 }
+
+.filters select { width: auto; }
+.filters input[name="q"] { width: auto; flex: 1; min-width: 200px; }
+.filters label.check { margin: 0; color: var(--ink-muted); }
+table.log { margin-top: 8px; font-size: 13px; line-height: 1.5; }
+table.log th, table.log td { padding: 9px 14px; vertical-align: top; }
+table.log td code { display: block; margin-top: 2px; color: var(--ink-subtle); overflow-wrap: anywhere; font-size: 12px; }
+.level { font-weight: 600; text-transform: uppercase; font-size: 12px; letter-spacing: 0.2px; color: var(--ink-subtle); }
+.level.info { color: var(--ink-muted); }
+.level.warn { color: var(--warn); }
+.level.error { color: var(--error); }

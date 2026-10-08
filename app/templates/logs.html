@@ -1,0 +1,70 @@
+{% extends "base.html" %}
+{% block title %}Logs - Caddyman{% endblock %}
+{% block content %}
+<div class="heading">
+	<h1>Logs</h1>
+</div>
+
+{% if not log_dir %}
+{% if host.storage == "managed" %}
+<p class="empty">This Caddy runs on another machine and shares no files with Caddyman, so its log cannot be shown here.
+	Look at it there: <code>docker logs caddy</code></p>
+{% else %}
+<p class="empty">Caddy's log is where it says why a certificate did not arrive. To read it here, three things are needed:</p>
+<section>
+	<h2>1. Let Caddy write its log to a file</h2>
+	<p class="empty">In the global options block of the base Caddyfile. This is a second logger, so <code>docker logs</code> keeps working.</p>
+	<pre>{{ snippet }}</pre>
+</section>
+<section>
+	<h2>2. Mount the log directory into this container</h2>
+	<p class="empty">Read only, in this tool's compose file. Caddy needs the same directory mounted writable.</p>
+	<pre>    volumes:
+      - /opt/caddy/logs:/var/log/caddy:ro</pre>
+</section>
+<section>
+	<h2>3. Enter the directory</h2>
+	<p class="empty">As "Log directory" in the <a href="/hosts/{{ host.id }}/edit">Caddy settings</a>, e.g. <code>/var/log/caddy</code>.</p>
+</section>
+{% endif %}
+
+{% elif not files %}
+<p class="flash warn">No <code>.log</code> files in <code>{{ log_dir }}</code>. The <a href="/status">status page</a> shows what is missing.</p>
+
+{% else %}
+<form method="get" action="/logs" class="row filters">
+	<select name="file" aria-label="Log file">
+		{% for item in files %}
+		<option value="{{ item.name }}" {{ "selected" if item == chosen }}>{{ item.name }}</option>
+		{% endfor %}
+	</select>
+	<select name="level" aria-label="Level">
+		<option value="">All levels</option>
+		<option value="info" {{ "selected" if level == "info" }}>Info and above</option>
+		<option value="warn" {{ "selected" if level == "warn" }}>Warnings and errors</option>
+		<option value="error" {{ "selected" if level == "error" }}>Errors only</option>
+	</select>
+	<input name="q" value="{{ q }}" placeholder="Contains, e.g. a hostname" aria-label="Contains">
+	<label class="check"><input type="checkbox" name="quiet" value="1" {{ "checked" if quiet }}> Hide admin API requests</label>
+	<button type="submit">Show</button>
+</form>
+<p class="empty">Newest first, at most {{ shown }} entries from the end of <code>{{ chosen.name }}</code>. Times are UTC.</p>
+<table class="log">
+	<thead>
+		<tr><th>Time</th><th>Level</th><th>Logger</th><th>Message</th></tr>
+	</thead>
+	<tbody>
+		{% for entry in entries %}
+		<tr>
+			<td class="nowrap">{{ entry.time }}</td>
+			<td class="nowrap"><span class="level {{ entry.level }}">{{ entry.level or "-" }}</span></td>
+			<td>{{ entry.logger }}</td>
+			<td><strong>{{ entry.msg }}</strong>{% if entry.extra %}<code>{{ entry.extra }}</code>{% endif %}</td>
+		</tr>
+		{% else %}
+		<tr><td colspan="4" class="empty">Nothing matches.</td></tr>
+		{% endfor %}
+	</tbody>
+</table>
+{% endif %}
+{% endblock %}

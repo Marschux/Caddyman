@@ -20,6 +20,8 @@ services:
       # left side to where they live on this machine.
       - /opt/caddy/Caddyfile:/etc/caddy/Caddyfile:ro
       - /opt/caddy/sites:/etc/caddy/sites
+      # Optional, for the Logs page: the directory Caddy writes its log files to.
+      - /opt/caddy/logs:/var/log/caddy:ro
     networks:
       - proxy-net
     logging:

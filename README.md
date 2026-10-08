@@ -1,6 +1,6 @@
 # Caddyman
 
-[![Version](https://img.shields.io/badge/version-0.7.2-blue)](https://github.com/Marschux/Caddyman/tags)
+[![Version](https://img.shields.io/badge/version-0.8.0-blue)](https://github.com/Marschux/Caddyman/tags)
 [![License: AGPL-3.0-or-later](https://img.shields.io/badge/license-AGPL--3.0--or--later-blue)](LICENSE)
 [![Docker image](https://img.shields.io/badge/docker-ghcr.io%2Fmarschux%2Fcaddyman-2496ED?logo=docker&logoColor=white)](https://github.com/Marschux/Caddyman/pkgs/container/caddyman)
 
@@ -22,6 +22,7 @@ wrong there: getting the root certificate onto the clients.
 - Root CA page: download, fingerprints, and import instructions for Windows, Debian and Firefox
 - Edits routes it did not create as plain text, and can adopt them if they match a known pattern
 - Backup and restore of all routes as a ZIP
+- Shows Caddy's log, filtered by level or hostname, to see why a certificate did not arrive
 - Caddy on the same machine or on another one
 
 ## How it works
@@ -73,6 +74,23 @@ the log:
 ```
 docker logs caddyman
 ```
+
+For the Logs page, Caddy has to write its log to a file as well. A second logger in the global
+options block does that and leaves `docker logs` as it is:
+
+```
+{
+	log caddyman {
+		output file /var/log/caddy/caddy.log {
+			roll_size 10MiB
+			roll_keep 3
+		}
+		format json
+	}
+}
+```
+
+![Logs page](docs/screenshot-logs.png)
 
 After that, tell Caddyman where your Caddy runs. The status page shows what is still missing.
 
@@ -145,6 +163,9 @@ own address. At the very least, firewall the port to the machine Caddyman runs o
   again.
 - **A route on a port other than 80 or 443** needs that port published on the Caddy container.
   Caddyman cannot check or change that.
+- **Caddy only sees an edited Caddyfile after a restart** if it is mounted as a single file and your
+  editor replaces the file instead of writing into it. The same goes for Caddyman. Restart both
+  containers after editing the base Caddyfile by hand.
 - A deleted route leaves its certificate in Caddy's storage, where it simply expires.
 
 Not included on purpose: user management and roles, load balancing, free-form headers, metrics,

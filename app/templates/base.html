@@ -22,6 +22,7 @@
 			<a href="/" {{ 'aria-current="page"' if path == "/" or path.startswith("/routes") }}>Routes</a>
 			<a href="/ca" {{ 'aria-current="page"' if path.startswith("/ca") }}>Root CA</a>
 			<a href="/backup" {{ 'aria-current="page"' if path.startswith("/backup") }}>Backup</a>
+			<a href="/logs" {{ 'aria-current="page"' if path.startswith("/logs") }}>Logs</a>
 			<a href="/status" {{ 'aria-current="page"' if path.startswith("/status") or path.startswith("/hosts") }}>Status</a>
 		</nav>
 		<form method="post" action="/logout">

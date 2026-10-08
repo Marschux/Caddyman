@@ -30,7 +30,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from itsdangerous import BadSignature, URLSafeTimedSerializer
 
-VERSION = "0.7.2"
+VERSION = "0.8.0"
 
 BASE_DIR = Path(__file__).parent
 DATA_DIR = Path(os.getenv("CADDYMAN_DATA_DIR", "/data"))
@@ -287,6 +287,7 @@ HOST_DEFAULTS = {
     "tls_snippet": "",
     "root_ca_url": "",
     "domain_suffix": "",
+    "log_dir": "",
 }
 HOSTNAME_RE = re.compile(r"^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9-]+)*$")
 SNIPPET_RE = re.compile(r"^[A-Za-z0-9_-]+$")
@@ -352,6 +353,8 @@ def host_problem(host: dict) -> str | None:
         return "The admin API has to look like http://caddy:2019."
     if host.get("storage") != "managed" and not (is_clean_path(host["caddyfile"]) and is_clean_path(host["sites_dir"])):
         return "Caddyfile and sites directory have to be absolute paths without '..'."
+    if host.get("log_dir") and not is_clean_path(host["log_dir"]):
+        return "The log directory has to be an absolute path without '..'."
     if host.get("admin_user") and not AUTH_USER_RE.match(host["admin_user"]):
         return "The admin API username may only contain letters, digits, '.', '_', '@' and '-'."
     if host["tls_snippet"] and not SNIPPET_RE.match(host["tls_snippet"]):
@@ -464,6 +467,16 @@ def preflight(host: dict) -> list[dict]:
         else "Mount Caddy's sites directory into this container, writable. In this tool's compose file:",
         "" if managed else f"    volumes:\n      - /opt/caddy/sites:{sites}",
     )
+    if log_dir := log_directory(host):
+        add(
+            "Log directory has log files",
+            log_files(host),
+            log_dir,
+            "Mount Caddy's log directory into this container, read only, and let Caddy write its log there as "
+            "well. The second logger below leaves the output of 'docker logs' as it is. In this tool's compose "
+            "file, then in the global options block of the base Caddyfile:",
+            f"    volumes:\n      - /opt/caddy/logs:{log_dir}:ro\n\n{LOG_SNIPPET}",
+        )
     if managed and running is not None:
         add(
             "Caddy runs what Caddyman pushed",
@@ -1359,6 +1372,90 @@ async def backup_restore(request: Request, host: str | None = None):
     if error := apply_route(target, changes, "restore", f"{len(changes)} routes"):
         return redirect(url, "error", f"Caddy rejected the restored routes, nothing was changed: {error}")
     return redirect(url, "ok", f"{len(changes)} routes restored and live.")
+
+
+LOG_SNIPPET = (
+    "{\n\tlog caddyman {\n\t\toutput file /var/log/caddy/caddy.log {\n\t\t\troll_size 10MiB\n"
+    "\t\t\troll_keep 3\n\t\t}\n\t\tformat json\n\t}\n}"
+)
+# The end of a file is where the answer is; a log of any size costs the same to show.
+LOG_TAIL_BYTES = 512 * 1024
+LOG_SHOWN = 300
+LOG_LEVELS = ("debug", "info", "warn", "error")
+
+
+def log_directory(host: dict) -> str:
+    """Where this host's logs can be read, or '' when it has none: a Caddy elsewhere shares no files."""
+    return "" if host.get("storage") == "managed" else host.get("log_dir", "")
+
+
+def log_files(host: dict) -> list[Path]:
+    """The .log files directly in the log directory, newest first."""
+    directory = log_directory(host)
+    if not directory:
+        return []
+    try:
+        files = [path for path in Path(directory).iterdir() if path.suffix == ".log" and path.is_file()]
+        return sorted(files, key=file_mtime, reverse=True)
+    except OSError:
+        return []
+
+
+def read_log_tail(path: Path) -> list[str]:
+    try:
+        with open(path, "rb") as handle:
+            start = max(0, handle.seek(0, os.SEEK_END) - LOG_TAIL_BYTES)
+            handle.seek(start)
+            lines = handle.read().decode("utf-8", errors="replace").splitlines()
+    except OSError:
+        return []
+    # Starting in the middle of the file means the first line is only the end of one.
+    return lines[1:] if start else lines
+
+
+def parse_log_line(line: str) -> dict:
+    """One line of Caddy's JSON log as columns. Anything else is shown as it is."""
+    try:
+        entry = json.loads(line)
+        stamp = entry.pop("ts", "")
+        if isinstance(stamp, (int, float)):
+            stamp = datetime.fromtimestamp(stamp, timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
+        level = str(entry.pop("level", "")).lower()
+        logger, message = str(entry.pop("logger", "")), str(entry.pop("msg", ""))
+        extra = json.dumps(entry, ensure_ascii=False) if entry else ""
+        return {"time": str(stamp), "level": level, "logger": logger, "msg": message, "extra": extra}
+    except (ValueError, AttributeError, TypeError, OverflowError, OSError):
+        return {"time": "", "level": "", "logger": "", "msg": line, "extra": ""}
+
+
+@app.get("/logs")
+def logs_page(request: Request, file: str = "", level: str = "", q: str = "", quiet: str = ""):
+    _, current = pick_host(None)
+    if current is None:
+        return RedirectResponse("/hosts/new", status_code=303)
+    files = log_files(current)
+    # Only a name from the listing is ever opened, so the parameter cannot point anywhere else.
+    chosen = next((path for path in files if path.name == file), files[0] if files else None)
+    entries = []
+    if chosen:
+        needle = q.strip().lower()
+        threshold = LOG_LEVELS.index(level) if level in LOG_LEVELS else 0
+        for line in reversed(read_log_tail(chosen)):
+            if needle and needle not in line.lower():
+                continue
+            entry = parse_log_line(line)
+            if threshold and (entry["level"] not in LOG_LEVELS or LOG_LEVELS.index(entry["level"]) < threshold):
+                continue
+            # Caddyman's own polling of the admin API would otherwise bury everything else.
+            if quiet and entry["logger"] == "admin.api":
+                continue
+            entries.append(entry)
+            if len(entries) == LOG_SHOWN:
+                break
+    context = {"files": files, "chosen": chosen, "entries": entries, "level": level, "q": q, "quiet": quiet}
+    return page(
+        request, "logs.html", host=current, log_dir=log_directory(current), snippet=LOG_SNIPPET, shown=LOG_SHOWN, **context
+    )
 
 
 @app.get("/status")
