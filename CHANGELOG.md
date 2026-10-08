@@ -1,5 +1,9 @@
 # Changelog
 
+## 2026-10-09 01:39
+- feat: license and source link in the footer, version 0.8.3
+
+
 ## 2026-10-09 01:35
 - docs: shorter README with numbered installation steps
 
