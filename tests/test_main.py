@@ -336,6 +336,49 @@ class TestRoutes(RouteTest):
         self.assertTrue(os.path.exists(os.path.join(self.sites, "pdf.caddy")))
 
 
+class TestCa(RouteTest):
+    # Not a real certificate: the page only needs something that decodes from PEM.
+    PEM = "-----BEGIN CERTIFICATE-----\ndGVzdA==\n-----END CERTIFICATE-----"
+    SHA256 = "9F:86:D0:81:88:4C:7D:65:9A:2F:EA:A0:C5:5A:D0:15:A3:BF:4F:1B:2B:0B:82:2C:D1:5D:6C:15:B0:F0:0A:08"
+
+    def answer(self, status_code=200, text="", json=None):
+        reply = mock.Mock(status_code=status_code, text=text)
+        reply.json = mock.Mock(return_value=json) if json is not None else mock.Mock(side_effect=ValueError("no json"))
+        self.get = self.patch(main.httpx, "get", mock.Mock(return_value=reply))
+
+    def test_external_source(self):
+        main.save_hosts([{**self.host, "root_ca_url": "https://ca.lab.test:9001/roots.pem"}])
+        self.answer(text=f"junk before\n{self.PEM}\ntrailing junk")
+        page = self.client.get("/ca").text
+        self.assertIn(self.SHA256, page)
+        self.assertNotIn("internal CA, because", page)
+        self.assertEqual(self.get.call_args.args[0], "https://ca.lab.test:9001/roots.pem")
+        download = self.client.get("/ca/root-ca.crt")
+        self.assertEqual(download.text, self.PEM + "\n")  # only the certificate, nothing around it
+        self.assertIn("attachment", download.headers["content-disposition"])
+
+    def test_falls_back_to_caddys_internal_ca(self):
+        self.answer(json={"root_certificate": self.PEM + "\n"})
+        page = self.client.get("/ca").text
+        self.assertIn(self.SHA256, page)
+        self.assertIn("internal CA, because", page)
+        self.assertTrue(self.get.call_args.args[0].endswith("/pki/ca/local"))
+
+    def test_unusable_source_is_reported_and_not_served(self):
+        main.save_hosts([{**self.host, "root_ca_url": "https://ca.lab.test:9001/roots.pem"}])
+        for reply in ({"text": "<html>not found</html>", "status_code": 404}, {"text": "no certificate here"}):
+            with self.subTest(reply):
+                self.answer(**reply)
+                self.assertIn("did not answer with a certificate", self.client.get("/ca").text)
+                self.assertEqual(self.client.get("/ca/root-ca.crt").status_code, 502)
+        self.patch(main.httpx, "get", mock.Mock(side_effect=main.httpx.ConnectError("refused")))
+        self.assertIn("refused", self.client.get("/ca").text)
+
+    def test_needs_a_session(self):
+        self.client.cookies.clear()
+        self.assertEqual(self.client.get("/ca/root-ca.crt").headers["location"], "/login")
+
+
 class TestEdit(RouteTest):
     def setUp(self):
         super().setUp()

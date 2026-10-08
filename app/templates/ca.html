@@ -1,0 +1,68 @@
+{% extends "base.html" %}
+{% block title %}Root CA - Caddyman{% endblock %}
+{% block content %}
+<div class="heading">
+	<h1>Root CA</h1>
+	{% set select_action = "/ca" %}{% include "host_select.html" %}
+	{% if not error %}<a class="button" href="/ca/root-ca.crt?host={{ host.id }}">Download root-ca.crt</a>{% endif %}
+</div>
+
+{% if error %}
+<p class="flash error" role="alert">{{ error }}</p>
+<p class="empty">The source is set per host: <a href="/hosts/{{ host.id }}/edit">edit {{ host.name }}</a>.
+	Without a root CA source, Caddy's own internal CA is used.</p>
+{% else %}
+<p class="empty">Every device that should trust the routes of {{ host.name }} needs this certificate once.
+	{% if internal %}This is Caddy's own internal CA, because the host has no root CA source configured.{% endif %}</p>
+
+<section>
+	<h2>Fingerprint</h2>
+	<p class="empty">Compare it after the import. Source: <code>{{ source }}</code></p>
+	{% for item in fingerprints %}
+	<pre>SHA-256  {{ item.sha256 }}
+SHA-1    {{ item.sha1 }}</pre>
+	{% endfor %}
+	<p class="empty">Windows shows the SHA-1 value as "Thumbprint". On the command line:</p>
+	<pre>openssl x509 -in root-ca.crt -noout -fingerprint -sha256</pre>
+</section>
+
+<section>
+	<h2>Windows</h2>
+	<p class="empty">In PowerShell <strong>as administrator</strong>, from the folder with the download:</p>
+	<pre>Import-Certificate -FilePath .\root-ca.crt -CertStoreLocation Cert:\LocalMachine\Root</pre>
+	<p class="empty">Do not use the import wizard with "automatically select the certificate store": it files a CA under
+		intermediate authorities of the current user, where Windows does not trust it and says nothing.</p>
+</section>
+
+<section>
+	<h2>Debian and Ubuntu</h2>
+	<pre>sudo cp root-ca.crt /usr/local/share/ca-certificates/root-ca.crt
+sudo update-ca-certificates</pre>
+	<p class="empty">The file name has to end in <code>.crt</code>.</p>
+</section>
+
+<section>
+	<h2>Firefox</h2>
+	<p class="empty">Firefox keeps its own list and ignores the system store by default. Either import it there:
+		Settings, Privacy &amp; Security, Certificates, View Certificates, Authorities, Import, and tick "Trust this CA to identify websites".
+		Or let Firefox use the system store by setting this to <code>true</code> in <code>about:config</code>:</p>
+	<pre>security.enterprise_roots.enabled</pre>
+</section>
+
+<section>
+	<h2>Back up the CA itself</h2>
+	<p class="empty">This matters more than a backup of the routes. Routes are retyped in an hour; if the root key is lost,
+		a new root has to be imported on <strong>every</strong> device again. Caddyman cannot back it up, because it lives
+		{% if internal %}in Caddy's data volume{% else %}in the volume of your CA, not here{% endif %}.
+		Adjust the volume name to your setup:</p>
+	{% if internal %}
+	<pre>docker run --rm -v caddy_caddy_data:/data -v "$PWD":/backup alpine \
+  tar czf /backup/caddy-pki-backup.tar.gz -C /data/caddy pki</pre>
+	{% else %}
+	<pre>docker run --rm -v stepca_stepca_data:/data -v "$PWD":/backup alpine \
+  tar czf /backup/ca-backup.tar.gz -C /data .</pre>
+	{% endif %}
+	<p class="empty">The archive contains the private key of the CA. Store it accordingly.</p>
+</section>
+{% endif %}
+{% endblock %}

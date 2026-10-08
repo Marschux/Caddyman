@@ -1,10 +1,12 @@
 """Caddyman - a web interface for Caddy routes."""
 
+import hashlib
 import json
 import os
 import re
 import secrets
 import socket
+import ssl
 import threading
 import time
 from contextlib import asynccontextmanager
@@ -15,7 +17,7 @@ from urllib.parse import urlsplit
 import bcrypt
 import httpx
 from fastapi import FastAPI, Form, Request
-from fastapi.responses import RedirectResponse
+from fastapi.responses import RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from itsdangerous import BadSignature, URLSafeTimedSerializer
@@ -894,6 +896,67 @@ async def host_save(request: Request, host_id: str | None = None):
 def host_delete(host_id: str):
     save_hosts([item for item in load_hosts() if item["id"] != host_id])
     return RedirectResponse("/hosts", status_code=303)
+
+
+PEM_RE = re.compile(r"-----BEGIN CERTIFICATE-----.+?-----END CERTIFICATE-----", re.DOTALL)
+
+
+def fetch_root_ca(host: dict) -> tuple[str, str, bool]:
+    """Root certificates as PEM, where they came from, and whether that is Caddy's own CA.
+
+    Raises ValueError with a message for the page when nothing usable comes back.
+    """
+    internal = not host["root_ca_url"]
+    source = f"{host['admin_url']}/pki/ca/local" if internal else host["root_ca_url"]
+    try:
+        # Not verified on purpose: this is the download of the very certificate that would be
+        # needed to verify it. The fingerprint on the page is what gets compared instead.
+        response = httpx.get(source, timeout=ADMIN_TIMEOUT, verify=False)
+        text = response.json().get("root_certificate", "") if internal else response.text
+    except (httpx.HTTPError, ValueError, AttributeError) as error:
+        raise ValueError(f"{source} did not answer with a certificate: {error or type(error).__name__}") from None
+    certificates = PEM_RE.findall(text)
+    if response.status_code != 200 or not certificates:
+        raise ValueError(f"{source} did not answer with a certificate (HTTP {response.status_code}).")
+    return "\n".join(certificates) + "\n", source, internal
+
+
+def fingerprints(pem: str) -> list[dict]:
+    result = []
+    for certificate in PEM_RE.findall(pem):
+        try:
+            der = ssl.PEM_cert_to_DER_cert(certificate)
+        except ValueError:
+            raise ValueError("The source returned something that is not a certificate.") from None
+        pairs = lambda digest: ":".join(digest[i : i + 2] for i in range(0, len(digest), 2)).upper()  # noqa: E731
+        result.append({"sha256": pairs(hashlib.sha256(der).hexdigest()), "sha1": pairs(hashlib.sha1(der).hexdigest())})
+    return result
+
+
+@app.get("/ca")
+def ca_page(request: Request, host: str | None = None):
+    hosts, current = pick_host(host)
+    if current is None:
+        return RedirectResponse("/hosts/new", status_code=303)
+    context = {"hosts": hosts, "host": current}
+    try:
+        pem, context["source"], context["internal"] = fetch_root_ca(current)
+        context["fingerprints"] = fingerprints(pem)
+    except ValueError as error:
+        context["error"] = str(error)
+    return page(request, "ca.html", **context)
+
+
+@app.get("/ca/root-ca.crt")
+def ca_download(host: str | None = None):
+    _, current = pick_host(host)
+    try:
+        pem, _, _ = fetch_root_ca(current) if current else ("", "", False)
+        fingerprints(pem)
+    except ValueError as error:
+        return Response(str(error), status_code=502, media_type="text/plain")
+    headers = {"Content-Disposition": 'attachment; filename="root-ca.crt"'}
+    return Response(pem, media_type="application/x-x509-ca-cert", headers=headers)
 
 
 @app.get("/status")

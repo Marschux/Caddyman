@@ -1,0 +1,10 @@
+{% if hosts|length > 1 %}
+<form method="get" action="{{ select_action }}" class="inline">
+	<label for="host-select">Host</label>
+	<select id="host-select" name="host" onchange="this.form.submit()">
+		{% for item in hosts %}
+		<option value="{{ item.id }}" {{ "selected" if item.id == host.id }}>{{ item.name }}</option>
+		{% endfor %}
+	</select>
+</form>
+{% endif %}
