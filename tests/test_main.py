@@ -46,6 +46,9 @@ class TestAuth(AppTest):
             self.assertEqual(self.client.get(path).headers["location"], "/setup")
         self.assertEqual(self.client.get("/healthz").status_code, 200)
         self.assertEqual(self.client.get("/static/app.css").status_code, 200)
+        # The icon is linked from every page and has to load before anyone is logged in.
+        self.assertIn('rel="icon" type="image/svg+xml" href="/static/favicon.svg"', self.client.get("/setup").text)
+        self.assertEqual(self.client.get("/static/favicon.svg").headers["content-type"], "image/svg+xml")
 
     def test_setup_needs_the_token(self):
         self.assertEqual(self.setup_admin(token="wrong").status_code, 400)
