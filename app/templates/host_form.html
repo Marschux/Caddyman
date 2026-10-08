@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% block title %}{{ "Edit host" if host.id else "Add host" }} - Caddyman{% endblock %}
 {% block content %}
-<form method="post" class="card wide">
+<form method="post" class="card wide hostform">
 	<h1>{{ "Edit host" if host.id else "Add a Caddy host" }}</h1>
 	{% if first %}<p>Caddyman needs to know where your Caddy runs before it can manage routes.
 		Moving from another install? <a href="/backup">Restore a backup</a> instead.</p>{% endif %}
@@ -10,17 +10,50 @@
 	<label for="name">Name</label>
 	<input id="name" name="name" value="{{ host.name }}" maxlength="64" required autofocus>
 
+	{% if host.id %}
+	<p>Layout: <strong>{{ "Caddy on another machine" if host.storage == "managed" else "Caddy on this machine" }}</strong>. It cannot be changed afterwards.</p>
+	{% else %}
+	<fieldset class="choice">
+		<legend>Where does Caddy run?</legend>
+		<label><input type="radio" name="storage" value="mounted" {{ "checked" if host.storage != "managed" }}> On this machine, sharing its files</label>
+		<label><input type="radio" name="storage" value="managed" {{ "checked" if host.storage == "managed" }}> On another machine</label>
+	</fieldset>
+	{% endif %}
+
 	<label for="admin_url">Admin API</label>
 	<input id="admin_url" name="admin_url" value="{{ host.admin_url }}" required>
-	<small>Reachable from this container, e.g. <code>http://caddy:2019</code> on a shared Docker network.</small>
+	<small>Reachable from this container, e.g. <code>http://caddy:2019</code> on a shared Docker network,
+		or <code>https://admin.home.example</code> for a Caddy elsewhere.</small>
 
-	<label for="caddyfile">Base Caddyfile</label>
-	<input id="caddyfile" name="caddyfile" value="{{ host.caddyfile }}" required>
-	<small>Read only. Mount it here at the same path Caddy uses.</small>
+	<div class="for-mounted {{ 'show' if host.id and host.storage != 'managed' }}">
+		<label for="caddyfile">Base Caddyfile</label>
+		<input id="caddyfile" name="caddyfile" value="{{ host.caddyfile }}">
+		<small>Read only. Mount it here at the same path Caddy uses.</small>
 
-	<label for="sites_dir">Sites directory</label>
-	<input id="sites_dir" name="sites_dir" value="{{ host.sites_dir }}" required>
-	<small>One file per route is written here. Same path as inside the Caddy container.</small>
+		<label for="sites_dir">Sites directory</label>
+		<input id="sites_dir" name="sites_dir" value="{{ host.sites_dir }}">
+		<small>One file per route is written here. Same path as inside the Caddy container.</small>
+	</div>
+
+	<div class="for-managed {{ 'show' if host.id and host.storage == 'managed' }}">
+		<label for="base_caddyfile">Base Caddyfile</label>
+		<textarea id="base_caddyfile" name="base_caddyfile" rows="12" spellcheck="false">{{ host.form_base or '' }}</textarea>
+		<small>Global options, snippets and everything that is not a route. Caddyman keeps this copy and sends it together
+			with the routes; every push replaces Caddy's <strong>whole</strong> configuration. It therefore has to contain the
+			site that exposes the admin API, or the first push locks Caddyman out. Start that Caddy with
+			<code>caddy run --resume</code>, otherwise a restart drops all routes.</small>
+	</div>
+
+	<details {{ "open" if host.admin_user }}>
+		<summary>Admin API login</summary>
+		<label for="admin_user">Username <span class="optional">optional</span></label>
+		<input id="admin_user" name="admin_user" value="{{ host.admin_user or '' }}" autocomplete="off" maxlength="64">
+		<small>Only if the admin API sits behind basic auth, which it should whenever it is reachable over the network.</small>
+		<label for="admin_password">Password</label>
+		<input id="admin_password" name="admin_password" type="password" autocomplete="new-password"
+			placeholder="{{ 'Leave empty to keep the current password' if host.admin_password_enc }}">
+		<small>Stored encrypted with <code>CADDYMAN_SECRET_KEY</code>. Without that key it has to be entered again.</small>
+	</details>
 
 	<label for="tls_snippet">TLS snippet <span class="optional">optional</span></label>
 	<input id="tls_snippet" name="tls_snippet" value="{{ host.tls_snippet }}" placeholder="stepca">

@@ -22,6 +22,7 @@ from urllib.parse import urlsplit
 import bcrypt
 import httpx
 from cryptography import x509
+from cryptography.fernet import Fernet, InvalidToken
 from cryptography.x509.oid import NameOID
 from fastapi import FastAPI, Form, Request
 from fastapi.responses import RedirectResponse, Response
@@ -29,7 +30,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from itsdangerous import BadSignature, URLSafeTimedSerializer
 
-VERSION = "0.5.0"
+VERSION = "0.5.5"
 
 BASE_DIR = Path(__file__).parent
 DATA_DIR = Path(os.getenv("CADDYMAN_DATA_DIR", "/data"))
@@ -74,6 +75,8 @@ def load_secret_key() -> tuple[str, bool]:
 
 SECRET_KEY, SECRET_KEY_FROM_ENV = load_secret_key()
 SESSIONS = URLSafeTimedSerializer(SECRET_KEY, salt="session")
+# Encrypts the admin API passwords in hosts.json. Lose the key and they have to be typed in again.
+VAULT = Fernet(base64.urlsafe_b64encode(hashlib.sha256(f"vault:{SECRET_KEY}".encode()).digest()))
 
 # Set at startup while no admin exists, cleared once setup is done.
 SETUP_TOKEN: str | None = None
@@ -290,11 +293,40 @@ SNIPPET_RE = re.compile(r"^[A-Za-z0-9_-]+$")
 ADMIN_TIMEOUT = 5
 
 
+STORAGES = ("mounted", "managed")
+
+
+def managed_dir(host_id: str) -> Path:
+    return DATA_DIR / "hosts" / host_id
+
+
+def with_paths(host: dict) -> dict:
+    """A managed host keeps its base Caddyfile and routes in the data directory.
+
+    Setting the two paths here lets everything else treat both layouts alike.
+    """
+    if host.get("storage") == "managed":
+        host["caddyfile"] = str(managed_dir(host["id"]) / "Caddyfile")
+        host["sites_dir"] = str(managed_dir(host["id"]) / "sites")
+    return host
+
+
 def load_hosts() -> list[dict]:
     try:
-        return json.loads(HOSTS_FILE.read_text(encoding="utf-8"))
+        return [with_paths(host) for host in json.loads(HOSTS_FILE.read_text(encoding="utf-8"))]
     except FileNotFoundError:
         return []
+
+
+def admin_auth(host: dict) -> tuple[str, str] | None:
+    """Login for an admin API that sits behind basic auth. None when there is none to send."""
+    if not host.get("admin_user"):
+        return None
+    try:
+        return host["admin_user"], VAULT.decrypt(host.get("admin_password_enc", "").encode()).decode()
+    except (InvalidToken, ValueError):
+        # Encrypted with another secret key. The status page says so.
+        return None
 
 
 def save_hosts(hosts: list[dict]) -> None:
@@ -318,8 +350,10 @@ def host_problem(host: dict) -> str | None:
         return "The name needs 1 to 64 characters."
     if not is_http_url(host["admin_url"]) or urlsplit(host["admin_url"]).path:
         return "The admin API has to look like http://caddy:2019."
-    if not is_clean_path(host["caddyfile"]) or not is_clean_path(host["sites_dir"]):
+    if host.get("storage") != "managed" and not (is_clean_path(host["caddyfile"]) and is_clean_path(host["sites_dir"])):
         return "Caddyfile and sites directory have to be absolute paths without '..'."
+    if host.get("admin_user") and not AUTH_USER_RE.match(host["admin_user"]):
+        return "The admin API username may only contain letters, digits, '.', '_', '@' and '-'."
     if host["tls_snippet"] and not SNIPPET_RE.match(host["tls_snippet"]):
         return "The snippet name may only contain letters, digits, '-' and '_'."
     if host["root_ca_url"] and not is_http_url(host["root_ca_url"]):
@@ -337,29 +371,44 @@ def preflight(host: dict) -> list[dict]:
         checks.append({"label": label, "ok": bool(ok), "detail": detail, "hint": hint, "block": block})
 
     caddyfile, sites, snippet = host["caddyfile"], host["sites_dir"], host["tls_snippet"]
+    managed = host.get("storage") == "managed"
     try:
         text = Path(caddyfile).read_text(encoding="utf-8")
     except (OSError, UnicodeDecodeError) as error:
         text = None
-        add(
-            "Base Caddyfile is readable",
-            False,
-            str(error),
-            "Mount Caddy's Caddyfile into this container at the path Caddy itself uses. In this tool's compose file:",
-            f"    volumes:\n      - /opt/caddy/Caddyfile:{caddyfile}:ro",
-        )
+        if managed:
+            add("Base Caddyfile is stored", False, str(error), "Edit this host and paste the base Caddyfile.", "")
+        else:
+            add(
+                "Base Caddyfile is readable",
+                False,
+                str(error),
+                "Mount Caddy's Caddyfile into this container at the path Caddy itself uses. In this tool's compose file:",
+                f"    volumes:\n      - /opt/caddy/Caddyfile:{caddyfile}:ro",
+            )
     else:
-        add("Base Caddyfile is readable", True, caddyfile)
+        add("Base Caddyfile is stored" if managed else "Base Caddyfile is readable", True, caddyfile)
 
     if text is not None:
         import_line = f"import {sites}/*.caddy"
-        add(
-            "Base Caddyfile imports the sites directory",
-            re.search(rf"^\s*{re.escape(import_line)}\s*$", text, re.MULTILINE),
-            import_line,
-            "Add this line at the end of the base Caddyfile:",
-            import_line,
-        )
+        if managed:
+            file_import = re.search(r"^\s*import\s+\S*[/*]\S*\s*$", text, re.MULTILINE)
+            add(
+                "Base Caddyfile imports no files",
+                not file_import,
+                file_import.group(0).strip() if file_import else "",
+                "This Caddy runs elsewhere and cannot read files from here, so the routes are sent inline. "
+                "Remove this line from the base Caddyfile of this host:",
+                file_import.group(0).strip() if file_import else "",
+            )
+        else:
+            add(
+                "Base Caddyfile imports the sites directory",
+                re.search(rf"^\s*{re.escape(import_line)}\s*$", text, re.MULTILINE),
+                import_line,
+                "Add this line at the end of the base Caddyfile:",
+                import_line,
+            )
         if snippet:
             add(
                 f"TLS snippet '{snippet}' exists",
@@ -370,38 +419,84 @@ def preflight(host: dict) -> list[dict]:
                 "\t\tca_root /etc/caddy/root_ca.crt\n\t}\n}",
             )
 
+    if host.get("admin_user"):
+        add(
+            "Admin API password is readable",
+            admin_auth(host) is not None,
+            "",
+            "The stored password was encrypted with a different CADDYMAN_SECRET_KEY. Edit this host and enter it again.",
+            "",
+        )
+    running = None
     try:
-        response = httpx.get(f"{host['admin_url']}/config/", timeout=ADMIN_TIMEOUT)
+        response = httpx.get(f"{host['admin_url']}/config/", timeout=ADMIN_TIMEOUT, auth=admin_auth(host))
         admin_ok, detail = response.status_code == 200, f"HTTP {response.status_code}"
+        running = response.content if admin_ok else None
     except httpx.HTTPError as error:
         admin_ok, detail = False, str(error) or type(error).__name__
-    add(
-        "Admin API is reachable",
-        admin_ok,
-        f"{host['admin_url']} - {detail}",
-        "By default Caddy's admin API only listens inside its own container. To reach it from here, add "
-        "this to the global options block. Do not publish port 2019, and keep in mind that every "
-        "container on the same Docker network can then reconfigure Caddy.",
-        "{\n\tadmin :2019\n}",
-    )
+    if managed:
+        add(
+            "Admin API is reachable",
+            admin_ok,
+            f"{host['admin_url']} - {detail}",
+            "Caddy's admin API has no login of its own: whoever reaches it controls Caddy. Expose it through a "
+            "site with basic auth like the one below, keep that site in the base Caddyfile of this host (every "
+            "push replaces Caddy's whole configuration), and enter the login here. At the very least, firewall the port to this machine.",
+            "admin.home.example {\n\tbasic_auth {\n\t\tcaddyman <bcrypt hash from: caddy hash-password>\n\t}\n"
+            "\treverse_proxy localhost:2019 {\n\t\theader_up Host {upstream_hostport}\n\t}\n}",
+        )
+    else:
+        add(
+            "Admin API is reachable",
+            admin_ok,
+            f"{host['admin_url']} - {detail}",
+            "By default Caddy's admin API only listens inside its own container. To reach it from here, add "
+            "this to the global options block. Do not publish port 2019, and keep in mind that every "
+            "container on the same Docker network can then reconfigure Caddy.",
+            "{\n\tadmin :2019\n}",
+        )
 
     add(
         "Sites directory is writable",
         os.path.isdir(sites) and os.access(sites, os.W_OK),
         sites,
-        "Mount Caddy's sites directory into this container, writable. In this tool's compose file:",
-        f"    volumes:\n      - /opt/caddy/sites:{sites}",
+        "Save this host again to create its directory in the data volume." if managed
+        else "Mount Caddy's sites directory into this container, writable. In this tool's compose file:",
+        "" if managed else f"    volumes:\n      - /opt/caddy/sites:{sites}",
     )
+    if managed and running is not None:
+        add(
+            "Caddy runs what Caddyman pushed",
+            pushed_digest(host) == hashlib.sha256(running).hexdigest(),
+            "",
+            "Either nothing has been pushed yet, or Caddy was restarted without --resume and went back to its own "
+            "file, dropping every route. Start Caddy with the command below, then use 'Reload Caddy' on this page.",
+            "command: caddy run --resume --config /etc/caddy/Caddyfile --adapter caddyfile",
+        )
     return checks
 
 
 async def host_from_form(request: Request) -> dict:
+    """The host as entered. The keys starting with 'form_' never reach hosts.json."""
     form = await request.form()
-    host = {key: str(form.get(key, "")).strip() for key in HOST_DEFAULTS}
+    host = {key: str(form.get(key, "")).strip() for key in (*HOST_DEFAULTS, "storage", "admin_user")}
     host["admin_url"] = host["admin_url"].rstrip("/")
     host["sites_dir"] = host["sites_dir"].rstrip("/") or "/"
     host["domain_suffix"] = host["domain_suffix"].lower().strip(".")
+    host["form_password"] = str(form.get("admin_password", ""))
+    host["form_base"] = str(form.get("base_caddyfile", "")).replace("\r\n", "\n").strip()
     return host
+
+
+def pushed_file(host: dict) -> Path:
+    return managed_dir(host["id"]) / "pushed.sha256"
+
+
+def pushed_digest(host: dict) -> str:
+    try:
+        return pushed_file(host).read_text(encoding="utf-8").strip()
+    except OSError:
+        return ""
 
 
 META_PREFIX = "# caddyman "
@@ -558,22 +653,42 @@ def list_routes(host: dict) -> list[dict]:
     return [{"name": path.stem, "route": read_route(path, host)} for path in paths]
 
 
-def caddy_load(host: dict) -> str | None:
-    """Push the base Caddyfile as it is on disk. Returns Caddy's error, or None on success."""
-    try:
+def caddy_body(host: dict) -> bytes:
+    """The complete Caddyfile for a host, as text. Never JSON: Caddy adapts it itself."""
+    base = Path(host["caddyfile"]).read_bytes()
+    if host.get("storage") != "managed":
         # Sent word for word: Caddy resolves the import of the sites directory itself, so what
         # is pushed here can never differ from what Caddy reads from the file after a restart.
-        body = Path(host["caddyfile"]).read_bytes()
+        return base
+    # A Caddy elsewhere cannot see these files, an import would find nothing: put them inline.
+    routes = [path.read_bytes() for path in sorted(Path(host["sites_dir"]).glob("*.caddy"))]
+    return b"\n".join([base, *routes])
+
+
+def caddy_load(host: dict) -> str | None:
+    """Push the configuration as it is on disk. Returns Caddy's error, or None on success."""
+    auth = admin_auth(host)
+    try:
         response = httpx.post(
             f"{host['admin_url']}/load",
-            content=body,
+            content=caddy_body(host),
             headers={"Content-Type": "text/caddyfile"},
             timeout=LOAD_TIMEOUT,
+            auth=auth,
         )
     except (OSError, httpx.HTTPError) as error:
         return str(error) or type(error).__name__
     if response.status_code == 200:
+        if host.get("storage") == "managed":
+            # Remembered so the status page can tell when Caddy has fallen back to another config.
+            try:
+                running = httpx.get(f"{host['admin_url']}/config/", timeout=ADMIN_TIMEOUT, auth=auth)
+                pushed_file(host).write_text(hashlib.sha256(running.content).hexdigest(), encoding="utf-8")
+            except (OSError, httpx.HTTPError):
+                pass
         return None
+    if response.status_code == 401:
+        return "The admin API refused the login. Check username and password of this host."
     try:
         return response.json()["error"]
     except (ValueError, KeyError, TypeError):
@@ -931,7 +1046,7 @@ def hosts_list(request: Request):
 
 @app.get("/hosts/new")
 def host_new(request: Request):
-    return page(request, "host_form.html", host=HOST_DEFAULTS, first=not load_hosts())
+    return page(request, "host_form.html", host={**HOST_DEFAULTS, "storage": "mounted"}, first=not load_hosts())
 
 
 @app.get("/hosts/{host_id}/edit")
@@ -939,7 +1054,13 @@ def host_edit(request: Request, host_id: str):
     host = next((item for item in load_hosts() if item["id"] == host_id), None)
     if host is None:
         return RedirectResponse("/hosts", status_code=303)
-    return page(request, "host_form.html", host={**HOST_DEFAULTS, **host})
+    host = {**HOST_DEFAULTS, "storage": "mounted", **host}
+    if host["storage"] == "managed":
+        try:
+            host["form_base"] = Path(host["caddyfile"]).read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError):
+            host["form_base"] = ""
+    return page(request, "host_form.html", host=host)
 
 
 @app.post("/hosts/new")
@@ -947,18 +1068,34 @@ def host_edit(request: Request, host_id: str):
 async def host_save(request: Request, host_id: str | None = None):
     hosts = load_hosts()
     host = await host_from_form(request)
-    error = host_problem(host)
+    existing = next((item for item in hosts if item["id"] == host_id), None)
+    if host_id is not None and existing is None:
+        return RedirectResponse("/hosts", status_code=303)
+    # Routes live in different places per layout, so it is fixed once the host exists.
+    host["storage"] = existing.get("storage", "mounted") if existing else host["storage"] or "mounted"
+    password, base = host.pop("form_password"), host.pop("form_base")
+    error = None if host["storage"] in STORAGES else "Unknown layout."
+    error = error or host_problem(host)
     if not error and any(item["name"] == host["name"] and item["id"] != host_id for item in hosts):
         error = "A host with this name already exists."
+    if not error and host["storage"] == "managed" and not base:
+        error = "This layout needs the base Caddyfile: global options, snippets and the site that exposes the admin API."
+    if not error and host["admin_user"]:
+        if password:
+            host["admin_password_enc"] = VAULT.encrypt(password.encode()).decode()
+        elif existing and existing.get("admin_user") == host["admin_user"] and existing.get("admin_password_enc"):
+            host["admin_password_enc"] = existing["admin_password_enc"]
+        else:
+            error = "The admin API login needs a password."
     if error:
-        return page(request, "host_form.html", status_code=400, error=error, host={**host, "id": host_id})
-    # Only this layout exists so far; 'managed' follows later.
-    host["storage"] = "mounted"
-    if host_id is None:
-        hosts.append({"id": secrets.token_hex(4), **host})
-    else:
-        hosts = [{"id": host_id, **host} if item["id"] == host_id else item for item in hosts]
-    save_hosts(hosts)
+        context = {**host, "id": host_id, "form_base": base}
+        return page(request, "host_form.html", status_code=400, error=error, host=context)
+    host = with_paths({"id": host_id or secrets.token_hex(4), **host})
+    if host["storage"] == "managed":
+        # The one base Caddyfile this tool writes: its own copy, which Caddy never reads from disk.
+        Path(host["sites_dir"]).mkdir(parents=True, exist_ok=True)
+        write_private(Path(host["caddyfile"]), base + "\n")
+    save_hosts([host if item["id"] == host["id"] else item for item in hosts] if existing else [*hosts, host])
     return RedirectResponse("/status", status_code=303)
 
 
@@ -966,6 +1103,19 @@ async def host_save(request: Request, host_id: str | None = None):
 def host_delete(host_id: str):
     save_hosts([item for item in load_hosts() if item["id"] != host_id])
     return RedirectResponse("/hosts", status_code=303)
+
+
+@app.post("/hosts/{host_id}/push")
+def host_push(host_id: str):
+    host = next((item for item in load_hosts() if item["id"] == host_id), None)
+    if host is None:
+        return RedirectResponse("/hosts", status_code=303)
+    with WRITE_LOCK:
+        error = caddy_load(host)
+        audit(host, "-", "reload", error)
+    if error:
+        return redirect(f"/status#host-{host_id}", "error", f"Caddy rejected the configuration: {error}")
+    return redirect(f"/status#host-{host_id}", "ok", f"{host['name']} now runs the configuration from Caddyman.")
 
 
 PEM_RE = re.compile(r"-----BEGIN CERTIFICATE-----.+?-----END CERTIFICATE-----", re.DOTALL)
@@ -981,7 +1131,7 @@ def fetch_root_ca(host: dict) -> tuple[str, str, bool]:
     try:
         # Not verified on purpose: this is the download of the very certificate that would be
         # needed to verify it. The fingerprint on the page is what gets compared instead.
-        response = httpx.get(source, timeout=ADMIN_TIMEOUT, verify=False)
+        response = httpx.get(source, timeout=ADMIN_TIMEOUT, verify=False, auth=admin_auth(host) if internal else None)
         text = response.json().get("root_certificate", "") if internal else response.text
     except (httpx.HTTPError, ValueError, AttributeError) as error:
         raise ValueError(f"{source} did not answer with a certificate: {error or type(error).__name__}") from None
@@ -1095,7 +1245,9 @@ def read_backup(data: bytes) -> dict:
                 routes[name] = archive.read(item).decode("utf-8")
             elif item.filename in ("hosts.json", "backup.json"):
                 extra[item.filename] = json.loads(archive.read(item))
-            elif item.filename not in ("README.txt", "Caddyfile"):
+            elif item.filename == "Caddyfile":
+                extra["Caddyfile"] = archive.read(item).decode("utf-8")
+            elif item.filename != "README.txt":
                 ignored.append(item.filename)
     except (zipfile.BadZipFile, UnicodeDecodeError, json.JSONDecodeError, RuntimeError, NotImplementedError):
         raise ValueError("This is not a readable Caddyman backup.") from None
@@ -1105,11 +1257,19 @@ def read_backup(data: bytes) -> dict:
         if not isinstance(item, dict):
             continue
         host = {key: str(item.get(key, "")) for key in HOST_DEFAULTS}
+        host["storage"] = item.get("storage") if item.get("storage") in STORAGES else "mounted"
         if host_problem(host) is None:
             host_id = str(item.get("id", ""))
-            hosts.append({"id": host_id if re.fullmatch(r"[0-9a-f]{8}", host_id) else secrets.token_hex(4), **host, "storage": "mounted"})
+            host_id = host_id if re.fullmatch(r"[0-9a-f]{8}", host_id) else secrets.token_hex(4)
+            hosts.append(with_paths({"id": host_id, **host}))
     meta = extra.get("backup.json")
-    return {"routes": routes, "hosts": hosts, "meta": meta if isinstance(meta, dict) else {}, "ignored": ignored}
+    return {
+        "routes": routes,
+        "hosts": hosts,
+        "meta": meta if isinstance(meta, dict) else {},
+        "ignored": ignored,
+        "caddyfile": extra.get("Caddyfile", ""),
+    }
 
 
 def backup_plan(backup: dict, host: dict | None) -> list[dict]:
@@ -1175,6 +1335,10 @@ async def backup_restore(request: Request, host: str | None = None):
         return page(request, "backup.html", status_code=400, hosts=hosts, host=current, error="A route name in the archive is not usable.")
     if fresh:
         save_hosts(backup["hosts"])
+        if target["storage"] == "managed":
+            # A managed host keeps its base Caddyfile here, so this copy is restored with it.
+            Path(target["sites_dir"]).mkdir(parents=True, exist_ok=True)
+            write_private(Path(target["caddyfile"]), backup["caddyfile"])
     url = f"/?host={target['id']}"
     changes = {item["path"]: item["content"] for item in plan if item["state"] != "unchanged"}
     if not changes:

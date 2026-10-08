@@ -1,6 +1,7 @@
 import base64
 import io
 import os
+import shutil
 import tempfile
 import unittest
 import zipfile
@@ -386,6 +387,141 @@ class TestCa(RouteTest):
     def test_needs_a_session(self):
         self.client.cookies.clear()
         self.assertEqual(self.client.get("/ca/root-ca.crt").headers["location"], "/login")
+
+
+class TestManaged(AppTest):
+    BASE = "{\n\temail a@lab.test\n}\n\n(stepca) {\n\ttls internal\n}\n\n:2020 {\n\treverse_proxy localhost:2019\n}"
+
+    def setUp(self):
+        super().setUp()
+        self.setup_admin()
+        shutil.rmtree(main.DATA_DIR / "hosts", ignore_errors=True)
+        self.post = self.patch(main.httpx, "post", mock.Mock(return_value=mock.Mock(status_code=200)))
+        self.get = self.patch(main.httpx, "get", mock.Mock(return_value=mock.Mock(status_code=200, content=b"running")))
+        self.patch(main, "target_reachable", mock.Mock(return_value=True))
+        self.patch(main, "served_certificate", mock.Mock(side_effect=OSError("offline")))
+
+    def patch(self, target, name, value):
+        patcher = mock.patch.object(target, name, value)
+        self.addCleanup(patcher.stop)
+        return patcher.start()
+
+    def form(self, **overrides):
+        return {
+            **main.HOST_DEFAULTS,
+            "name": "remote",
+            "storage": "managed",
+            "admin_url": "https://admin.lab.test",
+            "base_caddyfile": self.BASE,
+            "admin_user": "caddyman",
+            "admin_password": "admin-secret",
+            "tls_snippet": "stepca",
+            "domain_suffix": "lab.test",
+            **overrides,
+        }
+
+    def add_host(self, **overrides):
+        response = self.client.post("/hosts/new", data=self.form(**overrides))
+        return response, (main.load_hosts() or [None])[0]
+
+    def add_route(self):
+        data = {"type": "reverse_proxy", "host": "pdf", "upstream": "10.0.0.5:9005", "tls": "acme_ca"}
+        return self.client.post("/routes/new", data=data)
+
+    def test_host_keeps_its_files_in_the_data_directory(self):
+        response, host = self.add_host()
+        self.assertEqual(response.headers["location"], "/status")
+        directory = main.DATA_DIR / "hosts" / host["id"]
+        self.assertEqual((directory / "Caddyfile").read_text(), self.BASE + "\n")
+        self.assertTrue((directory / "sites").is_dir())
+        self.assertEqual(host["sites_dir"], str(directory / "sites"))
+        # Whatever the form says about paths is ignored for this layout.
+        self.assertEqual(self.add_host(name="other", sites_dir="/etc")[0].status_code, 303)
+        self.assertNotIn("/etc", [item["sites_dir"] for item in main.load_hosts()])
+
+    def test_password_is_stored_encrypted_and_sent_as_login(self):
+        _, host = self.add_host()
+        stored = main.HOSTS_FILE.read_text()
+        self.assertNotIn("admin-secret", stored)
+        self.assertEqual(main.admin_auth(host), ("caddyman", "admin-secret"))
+        self.add_route()
+        self.assertEqual(self.post.call_args.kwargs["auth"], ("caddyman", "admin-secret"))
+        self.assertNotIn("admin-secret", self.client.get(f"/hosts/{host['id']}/edit").text)
+
+    def test_empty_password_keeps_the_old_one(self):
+        _, host = self.add_host()
+        self.client.post(f"/hosts/{host['id']}/edit", data=self.form(admin_password="", name="renamed"))
+        self.assertEqual(main.admin_auth(main.load_hosts()[0]), ("caddyman", "admin-secret"))
+        self.assertEqual(self.client.post(f"/hosts/{host['id']}/edit", data=self.form(admin_user="eve", admin_password="")).status_code, 400)
+        # The layout of an existing host cannot be switched through the form.
+        self.client.post(f"/hosts/{host['id']}/edit", data=self.form(admin_password="", storage="mounted"))
+        self.assertEqual(main.load_hosts()[0]["storage"], "managed")
+
+    def test_missing_pieces_are_refused(self):
+        self.assertEqual(self.add_host(base_caddyfile="  ")[0].status_code, 400)
+        self.assertEqual(self.add_host(admin_password="")[0].status_code, 400)
+        self.assertEqual(self.add_host(admin_user="a b")[0].status_code, 400)
+        self.assertEqual(self.add_host(storage="elsewhere")[0].status_code, 400)
+        self.assertEqual(main.load_hosts(), [])
+
+    def test_push_carries_base_and_routes_inline(self):
+        _, host = self.add_host()
+        self.assertEqual(self.add_route().headers["location"], f"/?host={host['id']}")
+        route_file = main.Path(host["sites_dir"]) / "pdf.caddy"
+        body = self.post.call_args.kwargs["content"].decode()
+        self.assertEqual(body, self.BASE + "\n\n" + route_file.read_text())
+        self.assertEqual(self.post.call_args.kwargs["headers"], {"Content-Type": "text/caddyfile"})
+        self.assertNotIn("import /", body)
+
+    def test_status_notices_when_caddy_lost_the_pushed_config(self):
+        _, host = self.add_host()
+        label = "Caddy runs what Caddyman pushed"
+        checks = lambda: {check["label"]: check["ok"] for check in main.preflight(main.load_hosts()[0])}  # noqa: E731
+        self.assertFalse(checks()[label])  # nothing pushed yet
+        self.assertEqual(self.client.post(f"/hosts/{host['id']}/push").headers["location"], f"/status#host-{host['id']}")
+        self.assertTrue(checks()[label])
+        self.assertEqual(set(checks().values()), {True})
+        # Caddy restarted without --resume and serves something else now.
+        self.get.return_value = mock.Mock(status_code=200, content=b"its own file")
+        self.assertFalse(checks()[label])
+
+    def test_file_import_in_the_base_is_flagged(self):
+        self.add_host(base_caddyfile=self.BASE + "\nimport /etc/caddy/sites/*.caddy")
+        checks = {check["label"]: check["ok"] for check in main.preflight(main.load_hosts()[0])}
+        self.assertFalse(checks["Base Caddyfile imports no files"])
+        self.assertTrue(checks["TLS snippet 'stepca' exists"])  # importing a snippet is fine
+
+    def test_password_from_another_key_is_reported_not_sent(self):
+        _, host = self.add_host()
+        self.patch(main, "VAULT", main.Fernet(main.Fernet.generate_key()))
+        self.assertIsNone(main.admin_auth(host))
+        checks = {check["label"]: check["ok"] for check in main.preflight(host)}
+        self.assertFalse(checks["Admin API password is readable"])
+
+    def test_rejected_login_is_explained(self):
+        self.add_host()
+        self.post.return_value = mock.Mock(status_code=401)
+        response = self.add_route()
+        self.assertIn("refused the login", response.text)
+        self.assertEqual(list(main.Path(main.load_hosts()[0]["sites_dir"]).iterdir()), [])
+
+    def test_backup_leaves_the_login_out_and_restores_the_base(self):
+        _, host = self.add_host()
+        self.add_route()
+        archive = self.client.get("/backup/download").content
+        with zipfile.ZipFile(io.BytesIO(archive)) as packed:
+            everything = b"".join(packed.read(name) for name in packed.namelist())
+            self.assertEqual(packed.read("Caddyfile").decode(), self.BASE + "\n")
+        self.assertNotIn(b"admin_password_enc", everything)
+        self.assertNotIn(b"caddyman", everything.replace(b"# caddyman", b"").replace(b"Caddyman", b""))
+        # Into an empty install: host, base copy and route come back; the login has to be re-entered.
+        main.save_hosts([])
+        shutil.rmtree(main.DATA_DIR / "hosts")
+        self.client.post("/backup/restore", data={"payload": base64.b64encode(archive).decode()})
+        restored = main.load_hosts()[0]
+        self.assertEqual((restored["id"], restored["storage"], restored.get("admin_user", "")), (host["id"], "managed", ""))
+        self.assertEqual(main.Path(restored["caddyfile"]).read_text(), self.BASE + "\n")
+        self.assertTrue((main.Path(restored["sites_dir"]) / "pdf.caddy").exists())
 
 
 def make_certificate(issuer, hours=24):

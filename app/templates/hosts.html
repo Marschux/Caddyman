@@ -14,13 +14,14 @@
 		<tr>
 			<td>{{ host.name }}</td>
 			<td><code>{{ host.admin_url }}</code></td>
-			<td><code>{{ host.sites_dir }}</code></td>
+			<td>{% if host.storage == "managed" %}<span class="tag">another machine</span>{% else %}<code>{{ host.sites_dir }}</code>{% endif %}</td>
 			<td>{{ host.tls_snippet or "-" }}</td>
 			<td class="actions">
 				<a href="/status#host-{{ host.id }}">Check</a>
 				<a href="/hosts/{{ host.id }}/edit">Edit</a>
 				<form method="post" action="/hosts/{{ host.id }}/delete"
 					onsubmit="return confirm('Remove this host from Caddyman? Its route files and Caddy itself stay untouched.')">
+					{# For a host on another machine the files stay in the data volume under hosts/<id>. #}
 					<button type="submit" class="link danger">Remove</button>
 				</form>
 			</td>
