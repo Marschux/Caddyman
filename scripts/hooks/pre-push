@@ -1,0 +1,36 @@
+#!/bin/sh
+# pre-push hook: fasst Commits seit dem letzten Push in CHANGELOG.md zusammen.
+# Installation (im Projekt-Repo):
+#   mkdir -p scripts/hooks
+#   cp <dieses-file> scripts/hooks/pre-push
+#   chmod +x scripts/hooks/pre-push
+#   git config core.hooksPath scripts/hooks
+#
+# The entries are the raw commit subjects, nothing is summarised.
+
+upstream="@{u}"
+if ! git rev-parse --verify --quiet "$upstream" >/dev/null; then
+    exit 0  # kein Remote-Tracking-Branch, nichts zum Vergleichen
+fi
+
+commits=$(git log --no-merges --format='- %s' "$upstream"..HEAD)
+if [ -z "$commits" ]; then
+    exit 0  # nichts Neues seit dem letzten Push
+fi
+
+changelog="CHANGELOG.md"
+[ -f "$changelog" ] || echo "# Changelog" > "$changelog"
+
+tmp=$(mktemp)
+{
+    head -n 1 "$changelog"
+    echo
+    echo "## $(date '+%Y-%m-%d %H:%M')"
+    echo "$commits"
+    echo
+    tail -n +2 "$changelog"
+} > "$tmp"
+mv "$tmp" "$changelog"
+
+git add "$changelog"
+git commit -m "docs: update changelog" >/dev/null
