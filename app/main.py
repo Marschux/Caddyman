@@ -30,7 +30,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from itsdangerous import BadSignature, URLSafeTimedSerializer
 
-VERSION = "0.8.3"
+VERSION = "0.8.4"
 # Shown in the footer. The AGPL asks that everyone using this over a network can get the source,
 # so a modified copy has to point to its own.
 SOURCE_URL = os.getenv("CADDYMAN_SOURCE_URL", "https://github.com/Marschux/Caddyman")
@@ -284,7 +284,7 @@ def logout():
 
 HOST_DEFAULTS = {
     "name": "",
-    "admin_url": "http://caddy:2019",
+    "admin_url": "http://caddy:2020",
     "caddyfile": "/etc/caddy/Caddyfile",
     "sites_dir": "/etc/caddy/sites",
     "tls_snippet": "",
@@ -294,6 +294,11 @@ HOST_DEFAULTS = {
 HOSTNAME_RE = re.compile(r"^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9-]+)*$")
 SNIPPET_RE = re.compile(r"^[A-Za-z0-9_-]+$")
 ADMIN_TIMEOUT = 5
+# The recommended way to reach the admin API: it stays on localhost, behind a site that asks for a login.
+ADMIN_SITE_SNIPPET = (
+    ":2020 {\n\tbasic_auth {\n\t\tcaddyman <hash>\n\t}\n"
+    "\treverse_proxy localhost:2019 {\n\t\theader_up Host {upstream_hostport}\n\t}\n}"
+)
 
 
 STORAGES = ("mounted", "managed")
@@ -352,7 +357,7 @@ def host_problem(host: dict) -> str | None:
     if not host["name"] or len(host["name"]) > 64:
         return "The name needs 1 to 64 characters."
     if not is_http_url(host["admin_url"]) or urlsplit(host["admin_url"]).path:
-        return "The admin API has to look like http://caddy:2019."
+        return "The admin API has to look like http://caddy:2020."
     if host.get("storage") != "managed" and not (is_clean_path(host["caddyfile"]) and is_clean_path(host["sites_dir"])):
         return "Caddyfile and sites directory have to be absolute paths without '..'."
     if host.get("admin_user") and not AUTH_USER_RE.match(host["admin_user"]):
@@ -453,10 +458,23 @@ def preflight(host: dict) -> list[dict]:
             "Admin API is reachable",
             admin_ok,
             f"{host['admin_url']} - {detail}",
-            "By default Caddy's admin API only listens inside its own container. To reach it from here, add "
-            "this to the global options block. Do not publish port 2019, and keep in mind that every "
-            "container on the same Docker network can then reconfigure Caddy.",
-            "{\n\tadmin :2019\n}",
+            "The login was refused. Check username and password in the settings."
+            if detail == "HTTP 401"
+            else "Caddy's admin API only listens inside its own container and has no login of its own. Add this site "
+            "to the base Caddyfile, restart Caddy, and enter the address (http://caddy:2020) and the login in the "
+            "settings. Create the hash with: docker exec -it caddy caddy hash-password",
+            ADMIN_SITE_SNIPPET,
+        )
+    if admin_ok:
+        # The quick way in, 'admin :2019', works but leaves Caddy open to every container on its network.
+        add(
+            "Admin API asks for a login",
+            bool(host.get("admin_user")),
+            "",
+            "Right now anything that reaches this address can reconfigure Caddy, including every service behind "
+            "the proxy. Remove 'admin :2019' from the global options, add this site instead, and enter its "
+            "address and login in the settings. Create the hash with: docker exec -it caddy caddy hash-password",
+            ADMIN_SITE_SNIPPET,
         )
 
     add(

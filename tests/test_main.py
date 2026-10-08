@@ -119,13 +119,16 @@ class TestHosts(AppTest):
     def host(self, **overrides):
         return {**main.HOST_DEFAULTS, "name": "lab", "tls_snippet": "stepca", **overrides}
 
-    def checks(self, caddyfile_text, admin=None):
+    def checks(self, caddyfile_text, admin=None, **fields):
         if caddyfile_text is not None:
             with open(self.caddyfile, "w", encoding="utf-8") as handle:
                 handle.write(caddyfile_text)
         admin = admin or mock.Mock(return_value=mock.Mock(status_code=200))
         with mock.patch.object(main.httpx, "get", admin):
-            result = main.preflight(self.host(caddyfile=self.caddyfile, sites_dir=self.sites))
+            host = self.host(caddyfile=self.caddyfile, sites_dir=self.sites, **fields)
+            if fields.get("admin_user"):
+                host["admin_password_enc"] = main.VAULT.encrypt(b"pw").decode()
+            result = main.preflight(host)
         return {check["label"]: check["ok"] for check in result}
 
     def test_setup_dialog_until_a_host_exists(self):
@@ -169,8 +172,16 @@ class TestHosts(AppTest):
         self.assertEqual(self.client.get("/hosts/new").status_code, 200)
 
     def test_preflight_all_good(self):
-        text = f"{{\n\tadmin :2019\n}}\n\n(stepca) {{\n\ttls internal\n}}\n\nimport {self.sites}/*.caddy\n"
-        self.assertEqual(set(self.checks(text).values()), {True})
+        text = f"(stepca) {{\n\ttls internal\n}}\n\nimport {self.sites}/*.caddy\n"
+        self.assertEqual(set(self.checks(text, admin_user="caddyman").values()), {True})
+
+    def test_preflight_flags_an_admin_api_without_login(self):
+        text = f"{{\n\tadmin :2019\n}}\n\nimport {self.sites}/*.caddy\n"
+        result = self.checks(text)
+        self.assertTrue(result["Admin API is reachable"])
+        self.assertFalse(result["Admin API asks for a login"])
+        refused = mock.Mock(return_value=mock.Mock(status_code=401))
+        self.assertNotIn("Admin API asks for a login", self.checks(text, admin=refused))
 
     def test_preflight_names_what_is_missing(self):
         down = mock.Mock(side_effect=main.httpx.ConnectError("refused"))

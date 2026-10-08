@@ -22,8 +22,8 @@
 
 	<label for="admin_url">Admin API</label>
 	<input id="admin_url" name="admin_url" value="{{ host.admin_url }}" required>
-	<small>Reachable from this container, e.g. <code>http://caddy:2019</code> on a shared Docker network,
-		or <code>https://admin.home.example</code> for a Caddy elsewhere.</small>
+	<small>The address of the site in front of Caddy's admin API, reachable from this container:
+		<code>http://caddy:2020</code> on a shared Docker network, or <code>https://admin.home.example</code> for a Caddy elsewhere.</small>
 
 	<div class="for-mounted {{ 'show' if host.id and host.storage != 'managed' }}">
 		<label for="caddyfile">Base Caddyfile</label>
@@ -44,16 +44,15 @@
 			<code>caddy run --resume</code>, otherwise a restart drops all routes.</small>
 	</div>
 
-	<details {{ "open" if host.admin_user }}>
-		<summary>Admin API login</summary>
-		<label for="admin_user">Username <span class="optional">optional</span></label>
-		<input id="admin_user" name="admin_user" value="{{ host.admin_user or '' }}" autocomplete="off" maxlength="64">
-		<small>Only if the admin API sits behind basic auth, which it should whenever it is reachable over the network.</small>
-		<label for="admin_password">Password</label>
+	<label for="admin_user">Admin API username</label>
+	<input id="admin_user" name="admin_user" value="{{ host.admin_user or '' }}" autocomplete="off" maxlength="64" placeholder="caddyman">
+	<small>The login of that site. Caddy's admin API has none of its own, so without one anything that reaches it controls Caddy.</small>
+	<div>
+		<label for="admin_password">Admin API password</label>
 		<input id="admin_password" name="admin_password" type="password" autocomplete="new-password"
 			placeholder="{{ 'Leave empty to keep the current password' if host.admin_password_enc }}">
 		<small>Stored encrypted with <code>CADDYMAN_SECRET_KEY</code>. Without that key it has to be entered again.</small>
-	</details>
+	</div>
 
 	<label for="tls_snippet">TLS snippet <span class="optional">optional</span></label>
 	<input id="tls_snippet" name="tls_snippet" value="{{ host.tls_snippet }}" placeholder="stepca">

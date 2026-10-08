@@ -1,6 +1,6 @@
 # Caddyman
 
-[![Version](https://img.shields.io/badge/version-0.8.3-blue)](https://github.com/Marschux/Caddyman/tags)
+[![Version](https://img.shields.io/badge/version-0.8.4-blue)](https://github.com/Marschux/Caddyman/tags)
 [![License: AGPL-3.0-or-later](https://img.shields.io/badge/license-AGPL--3.0--or--later-blue)](LICENSE)
 [![Docker image](https://img.shields.io/badge/docker-ghcr.io%2Fmarschux%2Fcaddyman-2496ED?logo=docker&logoColor=white)](https://github.com/Marschux/Caddyman/pkgs/container/caddyman)
 
@@ -26,7 +26,6 @@ and a change Caddy rejects is undone on the spot.
 
 ```
 {
-	admin :2019
 	log caddyman {
 		output file /var/log/caddy/caddy.log
 		format json
@@ -40,15 +39,26 @@ and a change Caddy rejects is undone on the spot.
 	}
 }
 
+:2020 {
+	basic_auth {
+		caddyman <hash>
+	}
+	reverse_proxy localhost:2019 {
+		header_up Host {upstream_hostport}
+	}
+}
+
 import /etc/caddy/sites/*.caddy
 ```
 
-| Line | Needed for |
+| Block | Needed for |
 |---|---|
-| `admin :2019` | Caddyman reaching Caddy from its own container. Read [Securing the admin API](#securing-the-admin-api) first |
-| `log caddyman` | The Logs page. Optional; `docker logs` keeps working next to it |
-| `(stepca)` snippet | The TLS mode "Own ACME CA". Optional; the name is up to you |
+| `:2020` site | Caddyman reaching Caddy's admin API, behind a login. Required. Create the hash with `docker exec -it caddy caddy hash-password` |
 | `import` | The routes. Required |
+| `(stepca)` snippet | The TLS mode "Own ACME CA". Optional; the name is up to you |
+| `log caddyman` | The Logs page. Optional; `docker logs` keeps working next to it |
+
+Do not publish port 2020. Restart Caddy after editing the file.
 
 **2. Start Caddyman** with [`docker/compose.yml`](docker/compose.yml). It mounts Caddy's
 Caddyfile, sites directory and log directory at the paths the Caddy container uses and joins the
@@ -57,7 +67,8 @@ Docker network `proxy-net`. Adjust the host paths and the network to your setup.
 **3. Create the account.** Open `http://<host>:5052/setup` and enter the token from
 `docker logs caddyman`.
 
-**4. Tell Caddyman where Caddy runs.** The defaults fit the compose file.
+**4. Tell Caddyman where Caddy runs.** The defaults fit the compose file; add the username and
+password of the `:2020` site.
 
 Settings are optional and go into a `.env`, see [`docker/.env.example`](docker/.env.example).
 
@@ -65,11 +76,13 @@ Settings are optional and go into a `.env`, see [`docker/.env.example`](docker/.
 
 ## Securing the admin API
 
-Caddy's admin API has no login. Whoever reaches it controls Caddy.
+Caddy's admin API has no login. Whoever reaches it controls Caddy. That is why the installation
+above leaves it on `localhost` and puts a site with a login in front of it. The `header_up` line
+in that site is required: the admin API refuses requests that do not carry its own address.
 
-With `admin :2019` the port is not published, but every container on the same Docker network can
-reach it, including every service behind the proxy. If that is too open, give Caddy and Caddyman
-a network of their own.
+The shortcut is `admin :2019` in the global options block, with `http://caddy:2019` and no login
+in Caddyman. It works, but every container on the same Docker network can then reconfigure
+Caddy, including every service behind the proxy. The status page marks it.
 
 ## Caddy on another machine
 
@@ -82,12 +95,13 @@ routes itself and sends both to Caddy as one Caddyfile.
 - **Start that Caddy with `--resume`:**
   `caddy run --resume --config /etc/caddy/Caddyfile --adapter caddyfile`.
   Otherwise a restart drops every route. The status page notices when that has happened.
-- **Put the admin API behind a login** and enter it in Caddyman:
+- **Give the login site a real hostname**, so it gets a certificate and the password does not
+  cross the network in the clear:
 
 ```
 admin.home.example {
 	basic_auth {
-		caddyman <hash from: caddy hash-password>
+		caddyman <hash>
 	}
 	handle_path /caddyman-logs/* {
 		root * /var/log/caddy
@@ -101,8 +115,7 @@ admin.home.example {
 }
 ```
 
-The `handle_path` block serves the log to the Logs page and can be left out. The `header_up`
-line is required: the admin API refuses requests that do not carry its own address.
+The `handle_path` block serves the log to the Logs page and can be left out.
 
 ## Configuration
 
