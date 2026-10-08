@@ -10,6 +10,11 @@
 	<header>
 		<a class="brand" href="/">Caddyman</a>
 		{% if request.state.user %}
+		<nav>
+			<a href="/">Routes</a>
+			<a href="/hosts">Hosts</a>
+			<a href="/status">Status</a>
+		</nav>
 		<form method="post" action="/logout">
 			<span>{{ request.state.user }}</span>
 			<button type="submit" class="link">Log out</button>

@@ -16,6 +16,10 @@ services:
       - "5052:5052"
     volumes:
       - data:/data
+      # Caddy's own files, at the same paths the Caddy container uses. Adjust the
+      # left side to where they live on this machine.
+      - /opt/caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - /opt/caddy/sites:/etc/caddy/sites
     networks:
       - proxy-net
     logging:

@@ -1,0 +1,38 @@
+{% extends "base.html" %}
+{% block title %}{{ "Edit host" if host.id else "Add host" }} - Caddyman{% endblock %}
+{% block content %}
+<form method="post" class="card wide">
+	<h1>{{ "Edit host" if host.id else "Add a Caddy host" }}</h1>
+	{% if first %}<p>Caddyman needs to know where your Caddy runs before it can manage routes.</p>{% endif %}
+	{% if error %}<p class="error" role="alert">{{ error }}</p>{% endif %}
+
+	<label for="name">Name</label>
+	<input id="name" name="name" value="{{ host.name }}" maxlength="64" required autofocus>
+
+	<label for="admin_url">Admin API</label>
+	<input id="admin_url" name="admin_url" value="{{ host.admin_url }}" required>
+	<small>Reachable from this container, e.g. <code>http://caddy:2019</code> on a shared Docker network.</small>
+
+	<label for="caddyfile">Base Caddyfile</label>
+	<input id="caddyfile" name="caddyfile" value="{{ host.caddyfile }}" required>
+	<small>Read only. Mount it here at the same path Caddy uses.</small>
+
+	<label for="sites_dir">Sites directory</label>
+	<input id="sites_dir" name="sites_dir" value="{{ host.sites_dir }}" required>
+	<small>One file per route is written here. Same path as inside the Caddy container.</small>
+
+	<label for="tls_snippet">TLS snippet <span class="optional">optional</span></label>
+	<input id="tls_snippet" name="tls_snippet" value="{{ host.tls_snippet }}" placeholder="stepca">
+	<small>Name of the snippet in the base Caddyfile that points at your own ACME CA.</small>
+
+	<label for="root_ca_url">Root CA source <span class="optional">optional</span></label>
+	<input id="root_ca_url" name="root_ca_url" value="{{ host.root_ca_url }}" placeholder="https://ca.home.example:9001/roots.pem">
+	<small>Where the root certificate for your clients can be downloaded.</small>
+
+	<label for="domain_suffix">Domain suffix <span class="optional">optional</span></label>
+	<input id="domain_suffix" name="domain_suffix" value="{{ host.domain_suffix }}" placeholder="home.example">
+	<small>With a suffix the short name is enough when adding a route.</small>
+
+	<button type="submit">Save and check</button>
+</form>
+{% endblock %}

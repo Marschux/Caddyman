@@ -1,0 +1,31 @@
+{% extends "base.html" %}
+{% block title %}Status - Caddyman{% endblock %}
+{% block content %}
+<h1>Status</h1>
+<p class="empty">These checks only read. Caddyman never changes the base Caddyfile.</p>
+{% for host in hosts %}
+<section id="host-{{ host.id }}">
+	<div class="heading">
+		<h2>{{ host.name }}</h2>
+		<a href="/hosts/{{ host.id }}/edit">Edit</a>
+	</div>
+	<ul class="checks">
+		{% for check in host.checks %}
+		<li>
+			<span class="badge {{ 'ok' if check.ok else 'fail' }}">{{ "OK" if check.ok else "Missing" }}</span>
+			<div>
+				<strong>{{ check.label }}</strong>
+				{% if check.detail %}<code>{{ check.detail }}</code>{% endif %}
+				{% if not check.ok %}
+				<p>{{ check.hint }}</p>
+				<pre>{{ check.block }}</pre>
+				{% endif %}
+			</div>
+		</li>
+		{% endfor %}
+	</ul>
+</section>
+{% else %}
+<p class="empty">No host yet. <a href="/hosts/new">Add one.</a></p>
+{% endfor %}
+{% endblock %}
