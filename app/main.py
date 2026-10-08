@@ -4,8 +4,11 @@ import json
 import os
 import re
 import secrets
+import socket
+import threading
 import time
 from contextlib import asynccontextmanager
+from datetime import datetime, timezone
 from pathlib import Path
 from urllib.parse import urlsplit
 
@@ -25,6 +28,9 @@ AUTH_FILE = DATA_DIR / "auth.json"
 SECRET_FILE = DATA_DIR / "secret.key"
 # Where Caddy is reachable, never what it is configured to do: that stays in the route files.
 HOSTS_FILE = DATA_DIR / "hosts.json"
+AUDIT_FILE = DATA_DIR / "audit.log"
+AUDIT_SHOWN = 100
+FLASH_COOKIE = "caddyman_flash"
 ENV_ADMIN_USER = os.getenv("CADDYMAN_ADMIN_USER", "")
 ENV_ADMIN_PASSWORD_HASH = os.getenv("CADDYMAN_ADMIN_PASSWORD_HASH", "")
 
@@ -173,7 +179,25 @@ async def require_session(request: Request, call_next):
 
 
 def page(request: Request, name: str, status_code: int = 200, **context):
-    return templates.TemplateResponse(request, name, {"version": VERSION, **context}, status_code=status_code)
+    flash = None
+    if cookie := request.cookies.get(FLASH_COOKIE):
+        try:
+            flash = SESSIONS.loads(cookie, max_age=60)
+        except BadSignature:
+            pass
+    context = {"version": VERSION, "flash": flash, **context}
+    response = templates.TemplateResponse(request, name, context, status_code=status_code)
+    if cookie:
+        response.delete_cookie(FLASH_COOKIE)
+    return response
+
+
+def redirect(url: str, kind: str = "", text: str = "") -> RedirectResponse:
+    """Redirect after a POST; the message is shown once on the next page."""
+    response = RedirectResponse(url, status_code=303)
+    if text:
+        response.set_cookie(FLASH_COOKIE, SESSIONS.dumps([kind, text[:500]]), max_age=60, httponly=True, samesite="lax")
+    return response
 
 
 @app.get("/healthz")
@@ -330,7 +354,7 @@ def preflight(host: dict) -> list[dict]:
         if snippet:
             add(
                 f"TLS snippet '{snippet}' exists",
-                re.search(rf"^\({re.escape(snippet)}\)\s*\{{", text, re.MULTILINE),
+                snippet_exists(text, snippet),
                 "",
                 "Add the snippet to the base Caddyfile, with the ACME directory of your CA:",
                 f"({snippet}) {{\n\ttls {{\n\t\tca https://ca.example/acme/acme/directory\n"
@@ -371,11 +395,285 @@ async def host_from_form(request: Request) -> dict:
     return host
 
 
+META_PREFIX = "# caddyman "
+ROUTE_TYPES = ("reverse_proxy", "redirect", "static")
+TLS_MODES = ("acme_ca", "default", "internal", "none")
+REDIRECT_CODES = ("301", "302", "308")
+UPSTREAM_RE = re.compile(r"^(https?://)?([A-Za-z0-9]([A-Za-z0-9.-]*[A-Za-z0-9])?):([0-9]{1,5})$")
+# Everything below ends up in a file Caddy executes, so each value is held to a
+# character set that cannot open a block, start a directive or add a line.
+REDIRECT_RE = re.compile(r"^https?://[A-Za-z0-9.-]+(:[0-9]{1,5})?(/[A-Za-z0-9._~/-]*)?$")
+STATIC_ROOT_RE = re.compile(r"^/[A-Za-z0-9._/-]*$")
+ROUTE_NAME_RE = re.compile(r"^[A-Za-z0-9]([A-Za-z0-9._-]*[A-Za-z0-9])?$")
+LOAD_TIMEOUT = 30
+REACH_TIMEOUT = 2
+# One writer at a time: write, reload and a possible undo must not interleave.
+WRITE_LOCK = threading.Lock()
+
+
+def valid_port(value: str) -> bool:
+    return value.isdigit() and 1 <= int(value) <= 65535
+
+
+def snippet_exists(caddyfile_text: str, snippet: str) -> bool:
+    return bool(snippet and re.search(rf"^\({re.escape(snippet)}\)\s*\{{", caddyfile_text, re.MULTILINE))
+
+
+def acme_ca_available(host: dict) -> bool:
+    try:
+        return snippet_exists(Path(host["caddyfile"]).read_text(encoding="utf-8"), host["tls_snippet"])
+    except (OSError, UnicodeDecodeError):
+        return False
+
+
+def route_from_form(form, host: dict) -> tuple[dict, str | None]:
+    """Normalise the form into route metadata and name the first problem, if any."""
+    get = lambda key: str(form.get(key, "")).strip()  # noqa: E731
+    name = get("host").lower().strip(".")
+    if host["domain_suffix"] and "." not in name and name:
+        name = f"{name}.{host['domain_suffix']}"
+    route = {"type": get("type"), "host": name, "port": get("port"), "tls": get("tls")}
+    if not HOSTNAME_RE.match(name) or ".." in name or len(name) > 253:
+        return route, "The hostname may only contain lowercase letters, digits, '-' and '.'."
+    if route["port"] and not valid_port(route["port"]):
+        return route, "The port has to be a number between 1 and 65535."
+    if route["tls"] not in TLS_MODES:
+        return route, "Unknown TLS mode."
+    if route["tls"] == "acme_ca" and not acme_ca_available(host):
+        return route, "This host has no TLS snippet in its base Caddyfile, so 'Own ACME CA' is not available."
+    if route["type"] == "reverse_proxy":
+        route["upstream"] = get("upstream")
+        match = UPSTREAM_RE.match(route["upstream"])
+        if not match or not valid_port(match.group(4)):
+            return route, "The target has to look like host:port or http://host:port."
+    elif route["type"] == "redirect":
+        route["target"], route["code"] = get("target").rstrip("/"), get("code")
+        if not REDIRECT_RE.match(route["target"]):
+            return route, "The redirect target has to be a plain http or https URL without query."
+        if route["code"] not in REDIRECT_CODES:
+            return route, "The redirect code has to be 301, 302 or 308."
+    elif route["type"] == "static":
+        route["root"] = get("root")
+        if not STATIC_ROOT_RE.match(route["root"]) or ".." in route["root"].split("/"):
+            return route, "The directory has to be an absolute path of letters, digits, '.', '_', '-' and '/'."
+    else:
+        return route, "Unknown route type."
+    return route, None
+
+
+def render_route(route: dict, host: dict) -> str:
+    """The complete file for a route. Expects metadata that passed route_from_form."""
+    address = route["host"] + (f":{route['port']}" if route["port"] else "")
+    lines = []
+    if route["tls"] == "none":
+        # Caddy has no directive that turns TLS off; an http:// address does.
+        address = f"http://{address}"
+    elif route["tls"] == "acme_ca":
+        lines.append(f"import {host['tls_snippet']}")
+    elif route["tls"] == "internal":
+        lines.append("tls internal")
+    if route["type"] == "reverse_proxy":
+        lines.append(f"reverse_proxy {route['upstream']}")
+    elif route["type"] == "redirect":
+        lines.append(f"redir {route['target']}{{uri}} {route['code']}")
+    else:
+        lines += [f"root * {route['root']}", "file_server"]
+    body = "".join(f"\t{line}\n" for line in lines)
+    return f"{META_PREFIX}{json.dumps(route, separators=(',', ':'))}\n{address} {{\n{body}}}\n"
+
+
+def route_file_name(route: dict, host: dict) -> str:
+    """File name without extension: the hostname without the host's suffix."""
+    name = route["host"].removesuffix(f".{host['domain_suffix']}") if host["domain_suffix"] else route["host"]
+    return name + (f"_{route['port']}" if route["port"] else "")
+
+
+def route_path(host: dict, name: str) -> Path | None:
+    """The file for a route name, or None when the name would leave the sites directory."""
+    if not ROUTE_NAME_RE.match(name) or ".." in name:
+        return None
+    sites = Path(host["sites_dir"]).resolve()
+    path = (sites / f"{name}.caddy").resolve()
+    return path if path.parent == sites else None
+
+
+def read_route(path: Path, host: dict) -> dict | None:
+    """Metadata of a file this tool wrote and nobody changed since, else None."""
+    try:
+        content = path.read_text(encoding="utf-8")
+        first = content.split("\n", 1)[0]
+        if not first.startswith(META_PREFIX):
+            return None
+        route = json.loads(first[len(META_PREFIX):])
+        # No hash, no parser: a file is ours exactly when its metadata reproduces it.
+        return route if render_route(route, host) == content else None
+    except (OSError, ValueError, KeyError, TypeError):
+        return None
+
+
+def list_routes(host: dict) -> list[dict]:
+    try:
+        paths = sorted(Path(host["sites_dir"]).glob("*.caddy"))
+    except OSError:
+        return []
+    return [{"name": path.stem, "route": read_route(path, host)} for path in paths]
+
+
+def caddy_load(host: dict) -> str | None:
+    """Push the base Caddyfile as it is on disk. Returns Caddy's error, or None on success."""
+    try:
+        # Sent word for word: Caddy resolves the import of the sites directory itself, so what
+        # is pushed here can never differ from what Caddy reads from the file after a restart.
+        body = Path(host["caddyfile"]).read_bytes()
+        response = httpx.post(
+            f"{host['admin_url']}/load",
+            content=body,
+            headers={"Content-Type": "text/caddyfile"},
+            timeout=LOAD_TIMEOUT,
+        )
+    except (OSError, httpx.HTTPError) as error:
+        return str(error) or type(error).__name__
+    if response.status_code == 200:
+        return None
+    try:
+        return response.json()["error"]
+    except (ValueError, KeyError, TypeError):
+        return response.text or f"HTTP {response.status_code}"
+
+
+def audit(host: dict, route: str, action: str, error: str | None) -> None:
+    entry = {
+        "time": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S"),
+        "host": host["name"],
+        "route": route,
+        "action": action,
+        "result": error or "ok",
+    }
+    with open(AUDIT_FILE, "a", encoding="utf-8") as handle:
+        handle.write(json.dumps(entry) + "\n")
+
+
+def read_audit() -> list[dict]:
+    # Reads the whole log for the last lines and never rotates it. A line per
+    # change keeps that small for years; add rotation if someone scripts against the UI.
+    try:
+        lines = AUDIT_FILE.read_text(encoding="utf-8").splitlines()
+    except FileNotFoundError:
+        return []
+    return [json.loads(line) for line in reversed(lines[-AUDIT_SHOWN:])]
+
+
+def apply_route(host: dict, path: Path, content: str | None, action: str) -> str | None:
+    """Write the file (or delete it when content is None), reload Caddy, undo on failure."""
+    with WRITE_LOCK:
+        previous = path.read_bytes() if path.exists() else None
+        try:
+            if content is None:
+                path.unlink()
+            else:
+                path.write_bytes(content.encode())
+            error = caddy_load(host)
+        except OSError as os_error:
+            error = str(os_error)
+        if error:
+            # A broken file left on disk would stop Caddy from starting the next time.
+            if previous is None:
+                path.unlink(missing_ok=True)
+            else:
+                path.write_bytes(previous)
+            # If the reload only timed out, Caddy may hold the new config: bring it back in line.
+            caddy_load(host)
+        audit(host, path.stem, action, error)
+        return error
+
+
+def target_reachable(upstream: str) -> bool:
+    match = UPSTREAM_RE.match(upstream)
+    try:
+        with socket.create_connection((match.group(2), int(match.group(4))), timeout=REACH_TIMEOUT):
+            return True
+    except OSError:
+        return False
+
+
+def pick_host(host_id: str | None) -> tuple[list[dict], dict | None]:
+    hosts = load_hosts()
+    return hosts, next((item for item in hosts if item["id"] == host_id), hosts[0] if hosts else None)
+
+
+def route_form_page(request: Request, host: dict, route: dict, error: str | None = None):
+    return page(
+        request,
+        "route_form.html",
+        status_code=400 if error else 200,
+        host=host,
+        route=route,
+        error=error,
+        acme_ca=acme_ca_available(host),
+    )
+
+
 @app.get("/")
-def index(request: Request):
-    if not load_hosts():
+def index(request: Request, host: str | None = None):
+    hosts, current = pick_host(host)
+    if current is None:
         return RedirectResponse("/hosts/new", status_code=303)
-    return page(request, "index.html")
+    return page(request, "index.html", hosts=hosts, host=current, routes=list_routes(current))
+
+
+@app.get("/routes/new")
+def route_new(request: Request, host: str | None = None):
+    _, current = pick_host(host)
+    if current is None:
+        return RedirectResponse("/hosts/new", status_code=303)
+    tls = "acme_ca" if acme_ca_available(current) else "default"
+    return route_form_page(request, current, {"type": "reverse_proxy", "tls": tls, "code": "308"})
+
+
+@app.post("/routes/new")
+async def route_create(request: Request, host: str | None = None):
+    _, current = pick_host(host)
+    if current is None:
+        return RedirectResponse("/hosts/new", status_code=303)
+    route, error = route_from_form(await request.form(), current)
+    if error:
+        return route_form_page(request, current, route, error)
+    path = route_path(current, route_file_name(route, current))
+    if path is None:
+        return route_form_page(request, current, route, "This hostname cannot be used as a file name.")
+    if path.exists():
+        return route_form_page(request, current, route, f"A route file {path.name} already exists.")
+    if error := apply_route(current, path, render_route(route, current), "create"):
+        return route_form_page(request, current, route, f"Caddy rejected the route, nothing was changed: {error}")
+    url = f"/?host={current['id']}"
+    if route["type"] == "reverse_proxy" and not target_reachable(route["upstream"]):
+        return redirect(url, "warn", f"{route['host']} is saved, but {route['upstream']} does not answer yet.")
+    return redirect(url, "ok", f"{route['host']} is live.")
+
+
+@app.post("/routes/{name}/delete")
+def route_delete(name: str, host: str | None = None):
+    _, current = pick_host(host)
+    path = route_path(current, name) if current else None
+    if path is None or not path.exists():
+        return redirect("/", "error", "This route does not exist.")
+    url = f"/?host={current['id']}"
+    if error := apply_route(current, path, None, "delete"):
+        return redirect(url, "error", f"Caddy rejected the reload, {path.name} was kept: {error}")
+    return redirect(url, "ok", f"{path.name} was removed.")
+
+
+@app.post("/routes/{name}/check")
+def route_check(name: str, host: str | None = None):
+    _, current = pick_host(host)
+    path = route_path(current, name) if current else None
+    route = read_route(path, current) if path else None
+    if not route or route["type"] != "reverse_proxy":
+        return redirect("/", "error", "Only reverse proxy routes created here can be checked.")
+    url = f"/?host={current['id']}"
+    if target_reachable(route["upstream"]):
+        return redirect(url, "ok", f"{route['upstream']} accepts connections.")
+    return redirect(url, "warn", f"{route['upstream']} does not answer.")
 
 
 @app.get("/hosts")
@@ -425,4 +723,4 @@ def host_delete(host_id: str):
 @app.get("/status")
 def status(request: Request):
     hosts = [{**host, "checks": preflight(host)} for host in load_hosts()]
-    return page(request, "status.html", hosts=hosts)
+    return page(request, "status.html", hosts=hosts, audit=read_audit())

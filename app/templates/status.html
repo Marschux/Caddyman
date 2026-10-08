@@ -28,4 +28,26 @@
 {% else %}
 <p class="empty">No host yet. <a href="/hosts/new">Add one.</a></p>
 {% endfor %}
+
+<section>
+	<h2>Recent changes</h2>
+	<table class="spaced">
+		<thead>
+			<tr><th>Time (UTC)</th><th>Host</th><th>Route</th><th>Action</th><th>Reload</th></tr>
+		</thead>
+		<tbody>
+			{% for entry in audit %}
+			<tr>
+				<td>{{ entry.time }}</td>
+				<td>{{ entry.host }}</td>
+				<td>{{ entry.route }}</td>
+				<td>{{ entry.action }}</td>
+				<td>{% if entry.result == "ok" %}<span class="badge ok">OK</span>{% else %}<code>{{ entry.result }}</code>{% endif %}</td>
+			</tr>
+			{% else %}
+			<tr><td colspan="5" class="empty">Nothing has been changed yet.</td></tr>
+			{% endfor %}
+		</tbody>
+	</table>
+</section>
 {% endblock %}

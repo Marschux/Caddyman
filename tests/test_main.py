@@ -180,5 +180,159 @@ class TestHosts(AppTest):
         self.assertEqual(os.listdir(self.sites), [])
 
 
+class TestRoutes(AppTest):
+    def setUp(self):
+        super().setUp()
+        self.setup_admin()
+        main.AUDIT_FILE.unlink(missing_ok=True)
+        self.dir = tempfile.TemporaryDirectory()
+        self.addCleanup(self.dir.cleanup)
+        self.sites = os.path.join(self.dir.name, "sites")
+        self.caddyfile = os.path.join(self.dir.name, "Caddyfile")
+        os.mkdir(self.sites)
+        with open(self.caddyfile, "w", encoding="utf-8") as handle:
+            handle.write(f"(stepca) {{\n\ttls internal\n}}\n\nimport {self.sites}/*.caddy\n")
+        self.host = {
+            **main.HOST_DEFAULTS,
+            "id": "h1",
+            "name": "lab",
+            "caddyfile": self.caddyfile,
+            "sites_dir": self.sites,
+            "tls_snippet": "stepca",
+            "domain_suffix": "lab.test",
+        }
+        main.save_hosts([self.host])
+        # Nothing here may reach a real Caddy or a real target.
+        self.load = self.patch(main.httpx, "post", mock.Mock(return_value=mock.Mock(status_code=200)))
+        self.patch(main, "target_reachable", mock.Mock(return_value=True))
+
+    def patch(self, target, name, value):
+        patcher = mock.patch.object(target, name, value)
+        self.addCleanup(patcher.stop)
+        return patcher.start()
+
+    def form(self, **overrides):
+        return {"type": "reverse_proxy", "host": "pdf", "upstream": "10.0.0.5:9005", "tls": "acme_ca", **overrides}
+
+    def create(self, **overrides):
+        return self.client.post("/routes/new", data=self.form(**overrides))
+
+    def read(self, name):
+        with open(os.path.join(self.sites, name), encoding="utf-8") as handle:
+            return handle.read()
+
+    def reject(self):
+        self.load.return_value = mock.Mock(status_code=400, json=lambda: {"error": "unknown directive"})
+
+    def test_reverse_proxy_file(self):
+        self.assertEqual(self.create().headers["location"], "/?host=h1")
+        self.assertEqual(
+            self.read("pdf.caddy"),
+            '# caddyman {"type":"reverse_proxy","host":"pdf.lab.test","port":"","tls":"acme_ca",'
+            '"upstream":"10.0.0.5:9005"}\n'
+            "pdf.lab.test {\n\timport stepca\n\treverse_proxy 10.0.0.5:9005\n}\n",
+        )
+        # The reload carries the base Caddyfile word for word, as a Caddyfile and never as JSON.
+        call = self.load.call_args
+        self.assertTrue(call.args[0].endswith("/load"))
+        self.assertEqual(call.kwargs["headers"], {"Content-Type": "text/caddyfile"})
+        with open(self.caddyfile, "rb") as handle:
+            self.assertEqual(call.kwargs["content"], handle.read())
+        self.assertEqual(main.read_audit()[0]["result"], "ok")
+        self.assertIn("pdf.lab.test", self.client.get("/").text)
+
+    def test_other_types_and_tls_modes(self):
+        self.create(type="redirect", host="old", target="https://new.lab.test/", code="301", tls="internal")
+        self.assertIn("old.lab.test {\n\ttls internal\n\tredir https://new.lab.test{uri} 301\n}\n", self.read("old.caddy"))
+        self.create(type="static", host="docs.other.test", root="/srv/www", tls="none", port="8080")
+        self.assertIn(
+            "http://docs.other.test:8080 {\n\troot * /srv/www\n\tfile_server\n}\n",
+            self.read("docs.other.test_8080.caddy"),
+        )
+        self.create(host="plain", tls="default")
+        self.assertIn("plain.lab.test {\n\treverse_proxy 10.0.0.5:9005\n}\n", self.read("plain.caddy"))
+
+    def test_input_that_must_never_reach_the_file(self):
+        bad = [
+            {"host": "a/b"},
+            {"host": "../x"},
+            {"host": "a b"},
+            {"host": "x {\nrespond 200\n}"},
+            {"host": ""},
+            {"port": "70000"},
+            {"port": "80 {"},
+            {"upstream": "10.0.0.5"},
+            {"upstream": "10.0.0.5:99999"},
+            {"upstream": "10.0.0.5:80\n\trespond 200"},
+            {"upstream": "unix//run/x.sock"},
+            {"tls": "off"},
+            {"type": "exec"},
+            {"type": "redirect", "target": "https://x.test/{\nrespond", "code": "301"},
+            {"type": "redirect", "target": "javascript:alert(1)", "code": "301"},
+            {"type": "redirect", "target": "https://x.test", "code": "200"},
+            {"type": "static", "root": "relative"},
+            {"type": "static", "root": "/srv/../etc"},
+            {"type": "static", "root": "/srv/www\n}"},
+        ]
+        for fields in bad:
+            with self.subTest(fields):
+                self.assertEqual(self.create(**fields).status_code, 400)
+        self.assertEqual(os.listdir(self.sites), [])
+        self.load.assert_not_called()
+
+    def test_acme_ca_needs_the_snippet(self):
+        main.save_hosts([{**self.host, "tls_snippet": ""}])
+        self.assertEqual(self.create().status_code, 400)
+        self.assertEqual(os.listdir(self.sites), [])
+
+    def test_rejected_create_leaves_no_file(self):
+        self.reject()
+        response = self.create()
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("unknown directive", response.text)
+        self.assertEqual(os.listdir(self.sites), [])
+        self.assertEqual(main.read_audit()[0]["result"], "unknown directive")
+
+    def test_existing_file_is_not_overwritten(self):
+        self.create()
+        before = self.read("pdf.caddy")
+        self.assertEqual(self.create(upstream="10.0.0.9:1").status_code, 400)
+        self.assertEqual(self.read("pdf.caddy"), before)
+
+    def test_delete_and_rejected_delete(self):
+        self.create()
+        before = self.read("pdf.caddy")
+        self.reject()
+        self.client.post("/routes/pdf/delete")
+        self.assertEqual(self.read("pdf.caddy"), before)
+        self.load.return_value = mock.Mock(status_code=200)
+        self.client.post("/routes/pdf/delete")
+        self.assertEqual(os.listdir(self.sites), [])
+        self.assertEqual([entry["action"] for entry in main.read_audit()], ["delete", "delete", "create"])
+
+    def test_route_names_cannot_leave_the_sites_directory(self):
+        for name in ("..", "../x", "a/b", ".hidden", ""):
+            self.assertIsNone(main.route_path(self.host, name))
+        self.client.post("/routes/..%2FCaddyfile/delete")
+        self.assertTrue(os.path.exists(self.caddyfile))
+
+    def test_hand_edited_file_is_no_longer_ours(self):
+        self.create()
+        path = main.Path(self.sites) / "pdf.caddy"
+        self.assertEqual(main.read_route(path, self.host)["upstream"], "10.0.0.5:9005")
+        with open(path, "a", encoding="utf-8") as handle:
+            handle.write("# tweaked\n")
+        self.assertIsNone(main.read_route(path, self.host))
+        with open(os.path.join(self.sites, "legacy.caddy"), "w", encoding="utf-8") as handle:
+            handle.write("legacy.lab.test {\n\trespond 200\n}\n")
+        self.assertIn("legacy.caddy", self.client.get("/").text)
+
+    def test_unreachable_target_only_warns(self):
+        main.target_reachable.return_value = False
+        self.assertEqual(self.create().headers["location"], "/?host=h1")
+        self.assertIn("does not answer yet", self.client.get("/").text)
+        self.assertTrue(os.path.exists(os.path.join(self.sites, "pdf.caddy")))
+
+
 if __name__ == "__main__":
     unittest.main()

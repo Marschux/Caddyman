@@ -11,6 +11,8 @@
 	--error-bg: #fdecea;
 	--ok: #17663a;
 	--ok-bg: #e3f5ea;
+	--warn: #7a4d00;
+	--warn-bg: #fdf1d8;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -26,6 +28,8 @@
 		--error-bg: #3a1c1a;
 		--ok: #7ad9a0;
 		--ok-bg: #16301f;
+		--warn: #f2c261;
+		--warn-bg: #33280f;
 	}
 }
 
@@ -135,3 +139,26 @@ pre { margin: 0; padding: 10px 12px; overflow-x: auto; background: var(--bg); bo
 .badge { flex: none; align-self: flex-start; min-width: 68px; padding: 2px 8px; border-radius: 999px; font-size: 13px; font-weight: 600; text-align: center; }
 .badge.ok { color: var(--ok); background: var(--ok-bg); }
 .badge.fail { color: var(--error); background: var(--error-bg); }
+
+.flash { margin: 0 0 16px; padding: 10px 12px; border-radius: 6px; overflow-wrap: anywhere; }
+.flash.ok { color: var(--ok); background: var(--ok-bg); }
+.flash.warn { color: var(--warn); background: var(--warn-bg); }
+.flash.error { color: var(--error); background: var(--error-bg); }
+
+select { width: 100%; padding: 9px 10px; font: inherit; color: inherit; background: var(--bg); border: 1px solid var(--border); border-radius: 6px; }
+form.inline { display: flex; align-items: center; gap: 8px; margin-left: auto; }
+form.inline label { margin: 0; }
+form.inline select { width: auto; }
+table.spaced { margin-top: 12px; }
+td code { overflow-wrap: anywhere; }
+
+fieldset.choice { margin: 0; padding: 0; border: 0; display: flex; flex-wrap: wrap; gap: 6px 18px; }
+fieldset.choice legend { padding: 0; margin-bottom: 4px; font-size: 14px; }
+fieldset.choice label { margin: 0; }
+fieldset.choice input { width: auto; }
+
+/* Only the fields of the chosen type are shown; the server ignores the others. */
+.route [class^="for-"] { display: none; }
+.route:has([value="reverse_proxy"]:checked) .for-reverse_proxy,
+.route:has([value="redirect"]:checked) .for-redirect,
+.route:has([value="static"]:checked) .for-static { display: block; }
