@@ -1,8 +1,8 @@
 {% extends "base.html" %}
-{% block title %}{{ "Edit host" if host.id else "Add host" }} - Caddyman{% endblock %}
+{% block title %}{{ "Caddy settings" if host.id else "Set up Caddy" }} - Caddyman{% endblock %}
 {% block content %}
 <form method="post" class="card wide hostform">
-	<h1>{{ "Edit host" if host.id else "Add a Caddy host" }}</h1>
+	<h1>{{ "Caddy settings" if host.id else "Set up your Caddy" }}</h1>
 	{% if first %}<p>Caddyman needs to know where your Caddy runs before it can manage routes.
 		Moving from another install? <a href="/backup">Restore a backup</a> instead.</p>{% endif %}
 	{% if error %}<p class="error" role="alert">{{ error }}</p>{% endif %}
@@ -69,4 +69,11 @@
 
 	<button type="submit">Save and check</button>
 </form>
+{% if host.id %}
+<form method="post" action="/hosts/{{ host.id }}/delete" class="card wide"
+	data-confirm="Disconnect Caddyman from this Caddy? The route files and Caddy itself stay untouched, and the setup dialog comes back." onsubmit="return confirm(this.dataset.confirm)">
+	<p>Disconnecting brings the setup dialog back, for instance to switch between a Caddy on this machine and one elsewhere. Route files and Caddy itself stay untouched.</p>
+	<button type="submit" class="secondary">Disconnect this Caddy</button>
+</form>
+{% endif %}
 {% endblock %}

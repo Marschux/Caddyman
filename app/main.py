@@ -30,7 +30,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from itsdangerous import BadSignature, URLSafeTimedSerializer
 
-VERSION = "0.7.1"
+VERSION = "0.7.2"
 
 BASE_DIR = Path(__file__).parent
 DATA_DIR = Path(os.getenv("CADDYMAN_DATA_DIR", "/data"))
@@ -1042,14 +1042,22 @@ def route_check(name: str, host: str | None = None):
     return redirect(url, "warn", f"{route['upstream']} does not answer.")
 
 
+def host_settings_url() -> str:
+    """Caddyman manages one Caddy: its settings if it is set up, the setup dialog if not."""
+    hosts = load_hosts()
+    return f"/hosts/{hosts[0]['id']}/edit" if hosts else "/hosts/new"
+
+
 @app.get("/hosts")
-def hosts_list(request: Request):
-    return page(request, "hosts.html", hosts=load_hosts())
+def hosts_list():
+    return RedirectResponse(host_settings_url(), status_code=303)
 
 
 @app.get("/hosts/new")
 def host_new(request: Request):
-    return page(request, "host_form.html", host={**HOST_DEFAULTS, "storage": "mounted"}, first=not load_hosts())
+    if load_hosts():
+        return RedirectResponse(host_settings_url(), status_code=303)
+    return page(request, "host_form.html", host={**HOST_DEFAULTS, "storage": "mounted"}, first=True)
 
 
 @app.get("/hosts/{host_id}/edit")
@@ -1072,15 +1080,14 @@ async def host_save(request: Request, host_id: str | None = None):
     hosts = load_hosts()
     host = await host_from_form(request)
     existing = next((item for item in hosts if item["id"] == host_id), None)
-    if host_id is not None and existing is None:
+    # A second host cannot be added, and an id that is not the one host is not edited.
+    if existing is None and (host_id is not None or hosts):
         return RedirectResponse("/hosts", status_code=303)
     # Routes live in different places per layout, so it is fixed once the host exists.
     host["storage"] = existing.get("storage", "mounted") if existing else host["storage"] or "mounted"
     password, base = host.pop("form_password"), host.pop("form_base")
     error = None if host["storage"] in STORAGES else "Unknown layout."
     error = error or host_problem(host)
-    if not error and any(item["name"] == host["name"] and item["id"] != host_id for item in hosts):
-        error = "A host with this name already exists."
     if not error and host["storage"] == "managed" and not base:
         error = "This layout needs the base Caddyfile: global options, snippets and the site that exposes the admin API."
     if not error and host["admin_user"]:
@@ -1105,7 +1112,7 @@ async def host_save(request: Request, host_id: str | None = None):
 @app.post("/hosts/{host_id}/delete")
 def host_delete(host_id: str):
     save_hosts([item for item in load_hosts() if item["id"] != host_id])
-    return RedirectResponse("/hosts", status_code=303)
+    return RedirectResponse("/hosts/new", status_code=303)
 
 
 @app.post("/hosts/{host_id}/push")
@@ -1339,7 +1346,7 @@ async def backup_restore(request: Request, host: str | None = None):
     if any(item["path"] is None for item in plan):
         return page(request, "backup.html", status_code=400, hosts=hosts, host=current, error="A route name in the archive is not usable.")
     if fresh:
-        save_hosts(backup["hosts"])
+        save_hosts([target])
         if target["storage"] == "managed":
             # A managed host keeps its base Caddyfile here, so this copy is restored with it.
             Path(target["sites_dir"]).mkdir(parents=True, exist_ok=True)

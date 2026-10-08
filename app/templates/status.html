@@ -11,7 +11,7 @@
 			data-confirm="Send the configuration to {{ host.name }} now? It replaces what Caddy currently runs." onsubmit="return confirm(this.dataset.confirm)">
 			<button type="submit" class="link">Reload Caddy</button>
 		</form>
-		<a href="/hosts/{{ host.id }}/edit">Edit</a>
+		<a href="/hosts/{{ host.id }}/edit">Settings</a>
 	</div>
 	<ul class="checks">
 		{% for check in host.checks %}
@@ -30,26 +30,25 @@
 	</ul>
 </section>
 {% else %}
-<p class="empty">No host yet. <a href="/hosts/new">Add one.</a></p>
+<p class="empty">Caddy is not set up yet. <a href="/hosts/new">Set it up.</a></p>
 {% endfor %}
 
 <section>
 	<h2>Recent changes</h2>
 	<table class="spaced">
 		<thead>
-			<tr><th>Time (UTC)</th><th>Host</th><th>Route</th><th>Action</th><th>Reload</th></tr>
+			<tr><th>Time (UTC)</th><th>Route</th><th>Action</th><th>Reload</th></tr>
 		</thead>
 		<tbody>
 			{% for entry in audit %}
 			<tr>
 				<td>{{ entry.time }}</td>
-				<td>{{ entry.host }}</td>
 				<td>{{ entry.route }}</td>
 				<td>{{ entry.action }}</td>
 				<td>{% if entry.result == "ok" %}<span class="badge ok">OK</span>{% else %}<code>{{ entry.result }}</code>{% endif %}</td>
 			</tr>
 			{% else %}
-			<tr><td colspan="5" class="empty">Nothing has been changed yet.</td></tr>
+			<tr><td colspan="4" class="empty">Nothing has been changed yet.</td></tr>
 			{% endfor %}
 		</tbody>
 	</table>

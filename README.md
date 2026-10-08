@@ -1,6 +1,6 @@
 # Caddyman
 
-[![Version](https://img.shields.io/badge/version-0.7.1-blue)](https://github.com/Marschux/Caddyman/tags)
+[![Version](https://img.shields.io/badge/version-0.7.2-blue)](https://github.com/Marschux/Caddyman/tags)
 [![License: AGPL-3.0-or-later](https://img.shields.io/badge/license-AGPL--3.0--or--later-blue)](LICENSE)
 [![Docker image](https://img.shields.io/badge/docker-ghcr.io%2Fmarschux%2Fcaddyman-2496ED?logo=docker&logoColor=white)](https://github.com/Marschux/Caddyman/pkgs/container/caddyman)
 
@@ -74,7 +74,7 @@ the log:
 docker logs caddyman
 ```
 
-After that, add your Caddy host. The status page shows what is still missing.
+After that, tell Caddyman where your Caddy runs. The status page shows what is still missing.
 
 To build the image yourself: `docker build -f docker/Dockerfile -t ghcr.io/marschux/caddyman:latest .`
 
@@ -82,7 +82,7 @@ To build the image yourself: `docker build -f docker/Dockerfile -t ghcr.io/marsc
 
 ## Caddy on another machine
 
-Choose "On another machine" when adding the host. Caddyman then keeps the base Caddyfile and the
+Choose "On another machine" in the setup dialog. Caddyman then keeps the base Caddyfile and the
 routes in its own volume and sends both to Caddy as one Caddyfile. Three things are different:
 
 - Start that Caddy with `caddy run --resume --config /etc/caddy/Caddyfile --adapter caddyfile`.
@@ -91,6 +91,8 @@ routes in its own volume and sends both to Caddy as one Caddyfile. Three things 
 - Every push replaces Caddy's **whole** configuration. The base Caddyfile you paste into Caddyman
   therefore has to contain everything that is not a route, including the site that exposes the
   admin API. Leave that out and the first push locks Caddyman out.
+
+One Caddyman manages one Caddy. For a second Caddy, run a second Caddyman.
 - The admin API has to be reachable over the network, so it needs protection.
 
 ## Securing the admin API

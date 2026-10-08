@@ -65,7 +65,7 @@ class TestAuth(AppTest):
         self.assertIn("HttpOnly", response.headers["set-cookie"])
         self.assertIn("SameSite=lax", response.headers["set-cookie"])
         self.assertNotIn(PASSWORD, main.AUTH_FILE.read_text())
-        self.assertEqual(self.client.get("/hosts").status_code, 200)
+        self.assertEqual(self.client.get("/status").status_code, 200)
         # The token is spent and the page is closed for good.
         self.assertIsNone(main.SETUP_TOKEN)
         self.assertEqual(self.client.get("/setup").headers["location"], "/")
@@ -78,7 +78,7 @@ class TestAuth(AppTest):
         self.assertEqual(self.client.post("/login", data={"username": "other", "password": PASSWORD}).status_code, 401)
         response = self.client.post("/login", data={"username": "admin", "password": PASSWORD})
         self.assertEqual(response.headers["location"], "/")
-        self.assertEqual(self.client.get("/hosts").status_code, 200)
+        self.assertEqual(self.client.get("/status").status_code, 200)
 
     def test_forged_session_is_rejected(self):
         self.setup_admin()
@@ -146,15 +146,20 @@ class TestHosts(AppTest):
 
     def test_edit_and_delete(self):
         self.client.post("/hosts/new", data=self.host())
-        self.assertEqual(self.client.post("/hosts/new", data=self.host()).status_code, 400)  # same name
         host_id = main.load_hosts()[0]["id"]
+        # There is one Caddy: a second one cannot be added, the old list leads to its settings.
+        self.assertEqual(self.client.post("/hosts/new", data=self.host(name="second")).headers["location"], "/hosts")
+        self.assertEqual(self.client.get("/hosts").headers["location"], f"/hosts/{host_id}/edit")
+        self.assertEqual(self.client.get("/hosts/new").headers["location"], f"/hosts/{host_id}/edit")
+        self.assertEqual(len(main.load_hosts()), 1)
         self.client.post(f"/hosts/{host_id}/edit", data=self.host(name="renamed", admin_url="http://caddy:2019/"))
         self.assertEqual(
             [(h["id"], h["name"], h["admin_url"]) for h in main.load_hosts()],
             [(host_id, "renamed", "http://caddy:2019")],
         )
-        self.client.post(f"/hosts/{host_id}/delete")
+        self.assertEqual(self.client.post(f"/hosts/{host_id}/delete").headers["location"], "/hosts/new")
         self.assertEqual(main.load_hosts(), [])
+        self.assertEqual(self.client.get("/hosts/new").status_code, 200)
 
     def test_preflight_all_good(self):
         text = f"{{\n\tadmin :2019\n}}\n\n(stepca) {{\n\ttls internal\n}}\n\nimport {self.sites}/*.caddy\n"
@@ -446,8 +451,8 @@ class TestManaged(AppTest):
         self.assertTrue((directory / "sites").is_dir())
         self.assertEqual(host["sites_dir"], str(directory / "sites"))
         # Whatever the form says about paths is ignored for this layout.
-        self.assertEqual(self.add_host(name="other", sites_dir="/etc")[0].status_code, 303)
-        self.assertNotIn("/etc", [item["sites_dir"] for item in main.load_hosts()])
+        self.client.post(f"/hosts/{host['id']}/edit", data=self.form(admin_password="", sites_dir="/etc"))
+        self.assertEqual(main.load_hosts()[0]["sites_dir"], str(directory / "sites"))
 
     def test_password_is_stored_encrypted_and_sent_as_login(self):
         _, host = self.add_host()

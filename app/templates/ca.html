@@ -3,13 +3,12 @@
 {% block content %}
 <div class="heading">
 	<h1>Root CA</h1>
-	{% set select_action = "/ca" %}{% include "host_select.html" %}
 	{% if not error %}<a class="button" href="/ca/root-ca.crt?host={{ host.id }}">Download root-ca.crt</a>{% endif %}
 </div>
 
 {% if error %}
 <p class="flash error" role="alert">{{ error }}</p>
-<p class="empty">The source is set per host: <a href="/hosts/{{ host.id }}/edit">edit {{ host.name }}</a>.
+<p class="empty">The source is part of the <a href="/hosts/{{ host.id }}/edit">Caddy settings</a>.
 	Without a root CA source, Caddy's own internal CA is used.</p>
 {% else %}
 <p class="empty">Every device that should trust the routes of {{ host.name }} needs this certificate once.
