@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% block title %}{{ "Edit route" if name else "Add route" }} - Caddyman{% endblock %}
 {% block content %}
-<form method="post" class="card wide route"
+<form method="post" class="card wide route" data-game='{{ game_routes|tojson }}'
 	action="{{ '/routes/' ~ name|urlencode ~ '/edit' if name else '/routes/new' }}?host={{ host.id }}">
 	<h1>{{ "Edit " ~ name ~ ".caddy" if name else "Add a route" }}</h1>
 	{% if error %}<p class="error" role="alert">{{ error }}</p>{% endif %}
@@ -86,3 +86,4 @@
 	{% endif %}
 </form>
 {% endblock %}
+{% block scripts %}<script src="/static/game.js" defer></script>{% endblock %}

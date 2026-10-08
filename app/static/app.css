@@ -195,3 +195,16 @@ fieldset.choice input { width: auto; }
 .route:has([value="reverse_proxy"]:checked) .for-reverse_proxy,
 .route:has([value="redirect"]:checked) .for-redirect,
 .route:has([value="static"]:checked) .for-static { display: block; }
+
+.game { position: fixed; inset: 0; z-index: 10; display: flex; flex-direction: column; background: var(--bg); }
+.game header { gap: 16px; }
+.game-score { margin-right: auto; color: var(--muted); }
+.game-field { position: relative; flex: 1; overflow: hidden; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; }
+.game-request { position: absolute; top: 0; left: 50%; transform: translate(-50%, -100%); padding: 8px 14px; white-space: nowrap; background: var(--surface); border: 2px solid var(--accent); border-radius: 6px; font-family: ui-monospace, Consolas, monospace; }
+.game-request.expired { border-color: var(--error); color: var(--error); }
+.game-say { margin: 0; font-size: 20px; color: var(--ok); text-align: center; }
+.game-say.bad { color: var(--error); }
+.game-field button { width: auto; margin: 0; padding: 10px 20px; }
+.game-backends { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; padding: 0 8px; }
+.game-backends button { margin: 0; color: var(--text); background: var(--surface); border: 1px solid var(--border); font-family: ui-monospace, Consolas, monospace; }
+.game-help { margin: 8px; color: var(--muted); font-size: 13px; text-align: center; }

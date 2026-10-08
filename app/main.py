@@ -30,7 +30,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from itsdangerous import BadSignature, URLSafeTimedSerializer
 
-VERSION = "0.5.5"
+VERSION = "0.5.9"
 
 BASE_DIR = Path(__file__).parent
 DATA_DIR = Path(os.getenv("CADDYMAN_DATA_DIR", "/data"))
@@ -875,6 +875,9 @@ def pick_host(host_id: str | None) -> tuple[list[dict], dict | None]:
 
 def route_form_page(request: Request, host: dict, route: dict, error: str | None = None, **context):
     context.setdefault("status_code", 400 if error else 200)
+    # Hostnames and targets of the real routes, for the game hidden in this form.
+    proxied = [item["route"] for item in list_routes(host) if item["route"] and item["route"]["type"] == "reverse_proxy"]
+    context["game_routes"] = [[item["host"], item["upstream"]] for item in proxied]
     return page(request, "route_form.html", host=host, route=route, error=error, acme_ca=acme_ca_available(host), **context)
 
 
