@@ -1,5 +1,9 @@
 # Changelog
 
+## 2026-10-09 01:35
+- docs: shorter README with numbered installation steps
+
+
 ## 2026-10-09 01:32
 - feat: favicon, version 0.8.2
 - feat: logs without setup, live and for a Caddy elsewhere, version 0.8.1
