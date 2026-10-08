@@ -3,7 +3,8 @@
 {% block content %}
 <form method="post" class="card wide">
 	<h1>{{ "Edit host" if host.id else "Add a Caddy host" }}</h1>
-	{% if first %}<p>Caddyman needs to know where your Caddy runs before it can manage routes.</p>{% endif %}
+	{% if first %}<p>Caddyman needs to know where your Caddy runs before it can manage routes.
+		Moving from another install? <a href="/backup">Restore a backup</a> instead.</p>{% endif %}
 	{% if error %}<p class="error" role="alert">{{ error }}</p>{% endif %}
 
 	<label for="name">Name</label>

@@ -1,0 +1,57 @@
+{% extends "base.html" %}
+{% block title %}Backup - Caddyman{% endblock %}
+{% block content %}
+<div class="heading">
+	<h1>Backup</h1>
+	{% set select_action = "/backup" %}{% include "host_select.html" %}
+</div>
+{% if error %}<p class="flash error" role="alert">{{ error }}</p>{% endif %}
+
+{% if plan is defined %}
+<section>
+	<h2>Restore into {{ target.name }}</h2>
+	{% if fresh %}<p class="empty">No host is set up yet, so the host settings from the archive are restored as well.</p>{% endif %}
+	<p class="empty">Nothing has been changed yet. Routes on disk that are not in the archive are kept.</p>
+	<table class="spaced">
+		<thead><tr><th>Route file</th><th>What happens</th></tr></thead>
+		<tbody>
+			{% for item in plan %}
+			<tr>
+				<td><code>{{ item.name }}.caddy</code></td>
+				<td>{{ {"new": "Created", "overwrite": "Overwritten - differs from the file on disk", "unchanged": "Unchanged"}[item.state] }}</td>
+			</tr>
+			{% else %}
+			<tr><td colspan="2" class="empty">The archive contains no routes.</td></tr>
+			{% endfor %}
+		</tbody>
+	</table>
+	{% if ignored %}<p class="empty">Ignored, not part of a backup: {{ ignored|join(", ") }}</p>{% endif %}
+	<form method="post" action="/backup/restore?host={{ target.id }}" class="row">
+		<input type="hidden" name="payload" value="{{ payload }}">
+		<button type="submit">Restore and reload Caddy</button>
+		<a href="/backup{{ '?host=' ~ host.id if host }}">Cancel</a>
+	</form>
+</section>
+{% else %}
+
+{% if host %}
+<section>
+	<h2>Export</h2>
+	<p class="empty">One ZIP with all routes of {{ host.name }}, a copy of its base Caddyfile and the host settings.
+		It does <strong>not</strong> contain the root CA: that lives in the volume of your CA and needs its own backup,
+		see <a href="/ca?host={{ host.id }}">Root CA</a>.</p>
+	<a class="button" href="/backup/download?host={{ host.id }}">Download backup</a>
+</section>
+{% endif %}
+
+<section>
+	<h2>Restore</h2>
+	<p class="empty">Upload a backup to see what it would change. Nothing is written before you confirm.
+		{% if not host %}No host is set up yet: the host settings from the archive are restored too.{% endif %}</p>
+	<form method="post" action="/backup/restore{{ '?host=' ~ host.id if host }}" enctype="multipart/form-data" class="row">
+		<input type="file" name="archive" accept=".zip,application/zip" required>
+		<button type="submit">Show what it contains</button>
+	</form>
+</section>
+{% endif %}
+{% endblock %}

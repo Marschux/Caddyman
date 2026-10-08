@@ -1,6 +1,9 @@
+import base64
+import io
 import os
 import tempfile
 import unittest
+import zipfile
 from unittest import mock
 
 # Module constants are read once at import, so the data directory has to be set first.
@@ -377,6 +380,109 @@ class TestCa(RouteTest):
     def test_needs_a_session(self):
         self.client.cookies.clear()
         self.assertEqual(self.client.get("/ca/root-ca.crt").headers["location"], "/login")
+
+
+class TestBackup(RouteTest):
+    def setUp(self):
+        super().setUp()
+        self.create()
+        self.create(host="wiki", upstream="10.0.0.7:3000")
+        self.archive = self.client.get("/backup/download").content
+        self.pdf, self.wiki = self.read("pdf.caddy"), self.read("wiki.caddy")
+
+    def make_zip(self, members):
+        buffer = io.BytesIO()
+        with zipfile.ZipFile(buffer, "w") as archive:
+            for name, content in members.items():
+                archive.writestr(name, content)
+        return buffer.getvalue()
+
+    def upload(self, data):
+        return self.client.post("/backup/restore", files={"archive": ("backup.zip", data, "application/zip")})
+
+    def confirm(self, data, query=""):
+        return self.client.post(f"/backup/restore{query}", data={"payload": base64.b64encode(data).decode()})
+
+    def test_export_holds_routes_and_settings_but_no_secrets(self):
+        with zipfile.ZipFile(io.BytesIO(self.archive)) as archive:
+            self.assertEqual(
+                sorted(archive.namelist()),
+                ["Caddyfile", "README.txt", "backup.json", "hosts.json", "sites/pdf.caddy", "sites/wiki.caddy"],
+            )
+            self.assertEqual(archive.read("sites/pdf.caddy").decode(), self.pdf)
+            self.assertIn("NOT IN HERE: the root CA", archive.read("README.txt").decode())
+            everything = b"".join(archive.read(name) for name in archive.namelist())
+        self.assertNotIn(b"password_hash", everything)
+        self.assertNotIn(main.SECRET_KEY.encode(), everything)
+
+    def test_preview_changes_nothing_and_confirm_restores(self):
+        os.remove(os.path.join(self.sites, "wiki.caddy"))
+        with open(os.path.join(self.sites, "pdf.caddy"), "a", encoding="utf-8") as handle:
+            handle.write("# edited\n")
+        with open(os.path.join(self.sites, "extra.caddy"), "w", encoding="utf-8") as handle:
+            handle.write("extra.lab.test {\n}\n")
+        self.load.reset_mock()
+        preview = self.upload(self.archive)
+        self.assertIn("Overwritten", preview.text)
+        self.assertIn("Created", preview.text)
+        self.assertFalse(os.path.exists(os.path.join(self.sites, "wiki.caddy")))
+        self.load.assert_not_called()
+        self.assertEqual(self.confirm(self.archive).headers["location"], "/?host=h1")
+        self.assertEqual((self.read("pdf.caddy"), self.read("wiki.caddy")), (self.pdf, self.wiki))
+        self.assertTrue(os.path.exists(os.path.join(self.sites, "extra.caddy")))  # not in the archive, kept
+        self.assertEqual(self.load.call_count, 1)  # one reload for the whole restore
+        self.assertEqual(main.read_audit()[0]["action"], "restore")
+
+    def test_rejected_restore_undoes_every_file(self):
+        os.remove(os.path.join(self.sites, "wiki.caddy"))
+        with open(os.path.join(self.sites, "pdf.caddy"), "w", encoding="utf-8") as handle:
+            handle.write("changed\n")
+        self.reject()
+        self.confirm(self.archive)
+        self.assertEqual(os.listdir(self.sites), ["pdf.caddy"])
+        self.assertEqual(self.read("pdf.caddy"), "changed\n")
+
+    def test_archive_cannot_write_outside_the_sites_directory(self):
+        evil = self.make_zip(
+            {
+                "sites/../../escaped.caddy": "x",
+                "../escaped.caddy": "x",
+                "/etc/escaped.caddy": "x",
+                "sites/sub/nested.caddy": "x",
+                "sites/ok.caddy": "ok.lab.test {\n}\n",
+                "Caddyfile": "must never be written",
+            }
+        )
+        preview = self.upload(evil).text
+        self.assertIn("escaped.caddy", preview)  # listed as ignored
+        self.confirm(evil)
+        self.assertEqual(sorted(os.listdir(self.sites)), ["ok.caddy", "pdf.caddy", "wiki.caddy"])
+        self.assertEqual(sorted(os.listdir(self.dir.name)), ["Caddyfile", "sites"])
+        with open(self.caddyfile, encoding="utf-8") as handle:
+            self.assertNotIn("must never", handle.read())
+
+    def test_unreadable_uploads_are_refused(self):
+        for data in (b"not a zip", b"", b"x" * (main.BACKUP_MAX_BYTES + 1)):
+            self.assertEqual(self.upload(data).status_code, 400)
+        bomb = self.make_zip({"sites/a.caddy": "x"})
+        with mock.patch.object(main, "BACKUP_MAX_UNPACKED", 0):
+            self.assertEqual(self.upload(bomb).status_code, 400)
+        self.assertEqual(self.client.post("/backup/restore", data={"payload": "@@not base64@@"}).status_code, 400)
+
+    def test_restore_into_an_empty_install_brings_the_host_back(self):
+        main.save_hosts([])
+        for name in os.listdir(self.sites):
+            os.remove(os.path.join(self.sites, name))
+        self.assertIn("host settings from the archive are restored", self.upload(self.archive).text)
+        self.assertEqual(main.load_hosts(), [])  # the preview restores nothing
+        self.confirm(self.archive)
+        self.assertEqual([(h["name"], h["sites_dir"]) for h in main.load_hosts()], [("lab", self.sites)])
+        self.assertEqual(sorted(os.listdir(self.sites)), ["pdf.caddy", "wiki.caddy"])
+
+    def test_hosts_in_the_archive_never_replace_existing_ones(self):
+        tampered = self.make_zip({"hosts.json": '[{"id":"h1","name":"evil","admin_url":"http://evil:2019"}]'})
+        self.confirm(tampered)
+        self.assertEqual(main.load_hosts()[0]["admin_url"], self.host["admin_url"])
 
 
 class TestEdit(RouteTest):

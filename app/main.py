@@ -1,6 +1,9 @@
 """Caddyman - a web interface for Caddy routes."""
 
+import base64
+import binascii
 import hashlib
+import io
 import json
 import os
 import re
@@ -9,6 +12,7 @@ import socket
 import ssl
 import threading
 import time
+import zipfile
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from pathlib import Path
@@ -957,6 +961,156 @@ def ca_download(host: str | None = None):
         return Response(str(error), status_code=502, media_type="text/plain")
     headers = {"Content-Disposition": 'attachment; filename="root-ca.crt"'}
     return Response(pem, media_type="application/x-x509-ca-cert", headers=headers)
+
+
+# The archive travels through the confirmation page as a form field, so it has to
+# stay small. Route files are a few hundred bytes each; switch to a temp file if this ever pinches.
+BACKUP_MAX_BYTES = 512 * 1024
+BACKUP_MAX_UNPACKED = 5 * 1024 * 1024
+BACKUP_MAX_FILES = 2000
+BACKUP_README = """Caddyman backup
+Created: {created} UTC
+Caddyman version: {version}
+Host: {host}
+
+sites/       one file per route. This is what a restore writes back.
+Caddyfile    the base Caddyfile, as a copy for reference. Caddyman never writes it.
+hosts.json   where Caddy is reachable. Only used when restoring into an empty install.
+
+NOT IN HERE: the root CA.
+It lives in the volume of your CA (for step-ca: the volume mounted at /home/step),
+not with Caddy and not with Caddyman. Back that volume up separately. It matters more
+than this file: routes are retyped in an hour, but a lost root has to be imported on
+every device again.
+"""
+
+
+def build_backup(host: dict) -> bytes:
+    buffer = io.BytesIO()
+    created = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
+    # Field by field, so nothing that is ever added to a host ends up in a backup by accident.
+    hosts = [{key: item.get(key, "") for key in ("id", *HOST_DEFAULTS, "storage")} for item in load_hosts()]
+    with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as archive:
+        archive.writestr("README.txt", BACKUP_README.format(created=created, version=VERSION, host=host["name"]))
+        archive.writestr("backup.json", json.dumps({"created": created, "version": VERSION, "host_id": host["id"]}))
+        archive.writestr("hosts.json", json.dumps(hosts, indent=2))
+        try:
+            archive.writestr("Caddyfile", Path(host["caddyfile"]).read_bytes())
+        except OSError:
+            pass
+        for path in sorted(Path(host["sites_dir"]).glob("*.caddy")):
+            archive.writestr(f"sites/{path.name}", path.read_bytes())
+    return buffer.getvalue()
+
+
+def read_backup(data: bytes) -> dict:
+    """Routes, hosts and metadata of an uploaded archive. Raises ValueError with a message.
+
+    Nothing is ever extracted by its path: members are read into memory and only names
+    that pass the route name check are kept, so an archive cannot write outside sites/.
+    """
+    if len(data) > BACKUP_MAX_BYTES:
+        raise ValueError(f"The archive is larger than {BACKUP_MAX_BYTES // 1024} KB.")
+    try:
+        archive = zipfile.ZipFile(io.BytesIO(data))
+        members = archive.infolist()
+        if len(members) > BACKUP_MAX_FILES or sum(item.file_size for item in members) > BACKUP_MAX_UNPACKED:
+            raise ValueError("The archive unpacks to more than a backup ever holds.")
+        routes, ignored, extra = {}, [], {}
+        for item in members:
+            name = item.filename[len("sites/") : -len(".caddy")]
+            if item.filename == f"sites/{name}.caddy" and ROUTE_NAME_RE.match(name) and ".." not in name:
+                routes[name] = archive.read(item).decode("utf-8")
+            elif item.filename in ("hosts.json", "backup.json"):
+                extra[item.filename] = json.loads(archive.read(item))
+            elif item.filename not in ("README.txt", "Caddyfile"):
+                ignored.append(item.filename)
+    except (zipfile.BadZipFile, UnicodeDecodeError, json.JSONDecodeError, RuntimeError, NotImplementedError):
+        raise ValueError("This is not a readable Caddyman backup.") from None
+    hosts = []
+    saved = extra.get("hosts.json")
+    for item in saved if isinstance(saved, list) else []:
+        if not isinstance(item, dict):
+            continue
+        host = {key: str(item.get(key, "")) for key in HOST_DEFAULTS}
+        if host_problem(host) is None:
+            host_id = str(item.get("id", ""))
+            hosts.append({"id": host_id if re.fullmatch(r"[0-9a-f]{8}", host_id) else secrets.token_hex(4), **host, "storage": "mounted"})
+    meta = extra.get("backup.json")
+    return {"routes": routes, "hosts": hosts, "meta": meta if isinstance(meta, dict) else {}, "ignored": ignored}
+
+
+def backup_plan(backup: dict, host: dict | None) -> list[dict]:
+    """What a restore would do with each route of the archive."""
+    plan = []
+    for name, content in sorted(backup["routes"].items()):
+        path = route_path(host, name) if host else None
+        try:
+            current = path.read_text(encoding="utf-8") if path and path.exists() else None
+        except (OSError, UnicodeDecodeError):
+            current = ""
+        state = "new" if current is None else "unchanged" if current == content else "overwrite"
+        plan.append({"name": name, "state": state, "path": path, "content": content})
+    return plan
+
+
+@app.get("/backup")
+def backup_page(request: Request, host: str | None = None):
+    hosts, current = pick_host(host)
+    return page(request, "backup.html", hosts=hosts, host=current)
+
+
+@app.get("/backup/download")
+def backup_download(host: str | None = None):
+    _, current = pick_host(host)
+    if current is None:
+        return RedirectResponse("/hosts/new", status_code=303)
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M")
+    name = re.sub(r"[^A-Za-z0-9_-]", "_", current["name"])
+    headers = {"Content-Disposition": f'attachment; filename="caddyman-{name}-{stamp}.zip"'}
+    return Response(build_backup(current), media_type="application/zip", headers=headers)
+
+
+@app.post("/backup/restore")
+async def backup_restore(request: Request, host: str | None = None):
+    hosts, current = pick_host(host)
+    # The context manager closes the uploaded temp file again.
+    async with request.form() as form:
+        confirmed = "payload" in form
+        payload = str(form.get("payload", ""))
+        upload = form.get("archive")
+        uploaded = await upload.read(BACKUP_MAX_BYTES + 1) if hasattr(upload, "read") else b""
+    try:
+        data = base64.b64decode(payload, validate=True) if confirmed else uploaded
+        backup = read_backup(data)
+    except (ValueError, binascii.Error) as error:
+        return page(request, "backup.html", status_code=400, hosts=hosts, host=current, error=str(error))
+    # Into an empty install the hosts come back too; otherwise the routes go to the chosen host.
+    fresh = not hosts
+    target = current
+    if fresh:
+        target = next((item for item in backup["hosts"] if item["id"] == backup["meta"].get("host_id")), None)
+        target = target or (backup["hosts"][0] if backup["hosts"] else None)
+    if target is None:
+        error = "Add a Caddy host first: this archive has no usable host settings to restore the routes into."
+        return page(request, "backup.html", status_code=400, hosts=hosts, host=current, error=error)
+    plan = backup_plan(backup, target)
+    if not confirmed:
+        payload = base64.b64encode(data).decode()
+        context = {"plan": plan, "target": target, "fresh": fresh, "ignored": backup["ignored"], "payload": payload}
+        return page(request, "backup.html", hosts=hosts, host=current, **context)
+    if any(item["path"] is None for item in plan):
+        return page(request, "backup.html", status_code=400, hosts=hosts, host=current, error="A route name in the archive is not usable.")
+    if fresh:
+        save_hosts(backup["hosts"])
+    url = f"/?host={target['id']}"
+    changes = {item["path"]: item["content"] for item in plan if item["state"] != "unchanged"}
+    if not changes:
+        return redirect(url, "ok", "Everything in the archive is already in place.")
+    # One reload for all files: either the whole backup is live afterwards or none of it.
+    if error := apply_route(target, changes, "restore", f"{len(changes)} routes"):
+        return redirect(url, "error", f"Caddy rejected the restored routes, nothing was changed: {error}")
+    return redirect(url, "ok", f"{len(changes)} routes restored and live.")
 
 
 @app.get("/status")
