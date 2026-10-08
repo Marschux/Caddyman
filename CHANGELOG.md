@@ -1,5 +1,9 @@
 # Changelog
 
+## 2026-10-09 01:47
+- feat: admin API behind a login by default, version 0.8.4
+
+
 ## 2026-10-09 01:39
 - feat: license and source link in the footer, version 0.8.3
 
