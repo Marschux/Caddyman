@@ -1,6 +1,6 @@
 # Caddyman
 
-[![Version](https://img.shields.io/badge/version-0.8.0-blue)](https://github.com/Marschux/Caddyman/tags)
+[![Version](https://img.shields.io/badge/version-0.8.1-blue)](https://github.com/Marschux/Caddyman/tags)
 [![License: AGPL-3.0-or-later](https://img.shields.io/badge/license-AGPL--3.0--or--later-blue)](LICENSE)
 [![Docker image](https://img.shields.io/badge/docker-ghcr.io%2Fmarschux%2Fcaddyman-2496ED?logo=docker&logoColor=white)](https://github.com/Marschux/Caddyman/pkgs/container/caddyman)
 
@@ -76,7 +76,8 @@ docker logs caddyman
 ```
 
 For the Logs page, Caddy has to write its log to a file as well. A second logger in the global
-options block does that and leaves `docker logs` as it is:
+options block does that and leaves `docker logs` as it is. Caddyman finds the files by itself
+once Caddy's log directory is mounted, and the page follows the log live:
 
 ```
 {
@@ -112,6 +113,8 @@ routes in its own volume and sends both to Caddy as one Caddyfile. Three things 
 
 One Caddyman manages one Caddy. For a second Caddy, run a second Caddyman.
 - The admin API has to be reachable over the network, so it needs protection.
+- For the Logs page, the site that exposes the admin API also serves the log file. The page shows
+  the block to add.
 
 ## Securing the admin API
 
@@ -148,6 +151,7 @@ own address. At the very least, firewall the port to the machine Caddyman runs o
 | `CADDYMAN_FORWARDED_ALLOW_IPS` | `127.0.0.1` | Whose `X-Forwarded-*` headers are trusted. Behind Caddy: its address or the Docker subnet |
 | `CADDYMAN_HOST` / `CADDYMAN_PORT` | `0.0.0.0` / `5052` | |
 | `CADDYMAN_DATA_DIR` | `/data` | Account, hosts, change log |
+| `CADDYMAN_LOG_DIR` | `/var/log/caddy` | Where Caddy's log directory is mounted in this container |
 
 ## Good to know
 

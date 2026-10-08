@@ -24,7 +24,7 @@
 				{% if cert %}
 				<span class="cert {{ cert.level }}" title="{{ cert.detail }}">{{ cert.text }}</span>
 				{% if cert.level in ("warn", "fail") %}<small>{{ cert.detail }}
-					{% if host.log_dir and host.storage != "managed" %}<a href="/logs?q={{ route.host|urlencode }}&amp;quiet=1">Show its log</a>{% endif %}</small>{% endif %}
+					<a href="/logs?q={{ route.host|urlencode }}&amp;quiet=1">Show its log</a></small>{% endif %}
 				{% else %}<span class="empty">-</span>{% endif %}
 			</td>
 			{% else %}

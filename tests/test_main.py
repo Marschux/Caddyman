@@ -610,7 +610,8 @@ class TestLogs(RouteTest):
         self.write("old.log", ['{"level":"info","ts":1,"logger":"old","msg":"from the rotated file"}'], mtime=1000)
         self.write("notes.txt", ["never listed"])
         self.write("caddy.log", self.LINES, mtime=2000)
-        main.save_hosts([{**self.host, "log_dir": self.logs}])
+        # Found where the log directory is mounted, without any setting.
+        self.patch(main, "LOG_DIR", main.Path(self.logs))
 
     def write(self, name, lines, mtime=None):
         path = os.path.join(self.logs, name)
@@ -660,24 +661,49 @@ class TestLogs(RouteTest):
         self.assertLess(len(lines), 5)
         self.assertTrue(all(line.startswith("{") for line in lines))  # no half line at the start
 
-    def test_without_a_log_directory_the_page_explains_the_setup(self):
-        main.save_hosts([self.host])
+    def test_without_log_files_the_page_explains_the_setup(self):
+        self.patch(main, "LOG_DIR", main.Path(self.dir.name) / "missing")
         page = self.client.get("/logs").text
         self.assertIn("log caddyman", page)
-        self.assertIn("/var/log/caddy:ro", page)
-        labels = [check["label"] for check in main.preflight(self.host)]
-        self.assertNotIn("Log directory has log files", labels)
+        self.assertIn("/missing:ro", page)
+        self.assertIn("/static/logs.js", page)  # keeps looking, and shows the log once it is there
 
-    def test_caddy_elsewhere_has_no_logs_here(self):
-        host = {**self.host, "storage": "managed", "log_dir": self.logs}
-        self.assertEqual(main.log_files(host), [])
+    def test_live_view_has_what_the_script_swaps(self):
+        page = self.client.get("/logs").text
+        self.assertIn('<tbody id="log-entries">', page)
+        self.assertIn('id="live" checked', page)
+        self.assertEqual(self.client.get("/static/logs.js").status_code, 200)
 
-    def test_status_checks_the_directory_once_it_is_set(self):
-        host = {**self.host, "log_dir": self.logs}
-        self.patch(main.httpx, "get", mock.Mock(return_value=mock.Mock(status_code=200, content=b"")))
-        checks = lambda h: {check["label"]: check["ok"] for check in main.preflight(h)}  # noqa: E731
-        self.assertTrue(checks(host)["Log directory has log files"])
-        self.assertFalse(checks({**host, "log_dir": self.dir.name + "/missing"})["Log directory has log files"])
+    def remote(self, **answer):
+        main.save_hosts([{**self.host, "storage": "managed", "admin_url": "https://admin.lab.test",
+                          "admin_user": "caddyman", "admin_password_enc": main.VAULT.encrypt(b"pw").decode()}])
+        (main.managed_dir("h1") / "sites").mkdir(parents=True, exist_ok=True)
+        reply = mock.Mock(status_code=206, headers={"content-range": "bytes 0-99/100"}, content=b"")
+        reply.configure_mock(**answer)
+        return self.patch(main.httpx, "get", mock.Mock(return_value=reply))
+
+    def test_caddy_elsewhere_is_asked_for_the_end_of_its_log(self):
+        body = "\n".join(self.LINES).encode()
+        get = self.remote(content=body)
+        page = self.client.get("/logs?level=error").text
+        self.assertIn("will retry", page)
+        self.assertNotIn("from the rotated file", page)  # the local directory is not this Caddy's
+        call = get.call_args
+        self.assertEqual(call.args[0], "https://admin.lab.test/caddyman-logs/caddy.log")
+        self.assertEqual(call.kwargs["headers"], {"Range": f"bytes=-{main.LOG_TAIL_BYTES}"})
+        self.assertEqual(call.kwargs["auth"], ("caddyman", "pw"))
+
+    def test_partial_answer_loses_its_first_half_line(self):
+        self.remote(content=b'half a line"}\n' + self.LINES[1].encode(), headers={"content-range": "bytes 500-999/1000"})
+        names, chosen, lines = main.load_log(main.load_hosts()[0], "")
+        self.assertEqual((names, chosen, lines), (["caddy.log"], "caddy.log", [self.LINES[1]]))
+
+    def test_caddy_elsewhere_without_the_log_site_shows_how_to_add_it(self):
+        self.remote(status_code=404)
+        page = self.client.get("/logs").text
+        self.assertIn("handle_path /caddyman-logs/*", page)
+        self.patch(main.httpx, "get", mock.Mock(side_effect=main.httpx.ConnectError("down")))
+        self.assertIn("handle_path /caddyman-logs/*", self.client.get("/logs").text)
 
     def test_failed_certificate_links_to_its_log(self):
         self.create()

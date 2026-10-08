@@ -5,39 +5,40 @@
 	<h1>Logs</h1>
 </div>
 
-{% if not log_dir %}
-{% if host.storage == "managed" %}
-<p class="empty">This Caddy runs on another machine and shares no files with Caddyman, so its log cannot be shown here.
-	Look at it there: <code>docker logs caddy</code></p>
-{% else %}
-<p class="empty">Caddy's log is where it says why a certificate did not arrive. To read it here, three things are needed:</p>
+{% if not files %}
+<p class="empty">Caddy's log is where it says why a certificate did not arrive. Nothing to read was found yet;
+	this page starts working by itself once the steps below are done.</p>
 <section>
 	<h2>1. Let Caddy write its log to a file</h2>
 	<p class="empty">In the global options block of the base Caddyfile. This is a second logger, so <code>docker logs</code> keeps working.</p>
 	<pre>{{ snippet }}</pre>
 </section>
+{% if host.storage == "managed" %}
+<section>
+	<h2>2. Serve that file next to the admin API</h2>
+	<p class="empty">This Caddy runs on another machine, so Caddyman fetches the end of the log over the address and login it
+		already uses for the admin API. Extend that site in the base Caddyfile under
+		<a href="/hosts/{{ host.id }}/edit">Settings</a>, then use "Reload Caddy" on the <a href="/status">status page</a>:</p>
+	<pre>{{ remote_snippet }}</pre>
+</section>
+{% else %}
 <section>
 	<h2>2. Mount the log directory into this container</h2>
-	<p class="empty">Read only, in this tool's compose file. Caddy needs the same directory mounted writable.</p>
+	<p class="empty">Read only, in this tool's compose file. Caddy needs the same directory mounted writable. Restart both containers afterwards.</p>
 	<pre>    volumes:
-      - /opt/caddy/logs:/var/log/caddy:ro</pre>
-</section>
-<section>
-	<h2>3. Enter the directory</h2>
-	<p class="empty">As "Log directory" in the <a href="/hosts/{{ host.id }}/edit">Caddy settings</a>, e.g. <code>/var/log/caddy</code>.</p>
+      - /opt/caddy/logs:{{ log_dir }}:ro</pre>
 </section>
 {% endif %}
 
-{% elif not files %}
-<p class="flash warn">No <code>.log</code> files in <code>{{ log_dir }}</code>. The <a href="/status">status page</a> shows what is missing.</p>
-
 {% else %}
 <form method="get" action="/logs" class="row filters">
+	{% if files|length > 1 %}
 	<select name="file" aria-label="Log file">
-		{% for item in files %}
-		<option value="{{ item.name }}" {{ "selected" if item == chosen }}>{{ item.name }}</option>
+		{% for name in files %}
+		<option value="{{ name }}" {{ "selected" if name == chosen }}>{{ name }}</option>
 		{% endfor %}
 	</select>
+	{% endif %}
 	<select name="level" aria-label="Level">
 		<option value="">All levels</option>
 		<option value="info" {{ "selected" if level == "info" }}>Info and above</option>
@@ -48,12 +49,15 @@
 	<label class="check"><input type="checkbox" name="quiet" value="1" {{ "checked" if quiet }}> Hide admin API requests</label>
 	<button type="submit">Show</button>
 </form>
-<p class="empty">Newest first, at most {{ shown }} entries from the end of <code>{{ chosen.name }}</code>. Times are UTC.</p>
+<p class="empty live">
+	<label class="check"><input type="checkbox" id="live" checked> <span>Live: new entries appear by themselves every 5 seconds.</span></label>
+	Newest first, at most {{ shown }} entries from the end of <code>{{ chosen }}</code>. Times are UTC.
+</p>
 <table class="log">
 	<thead>
 		<tr><th>Time</th><th>Level</th><th>Logger</th><th>Message</th></tr>
 	</thead>
-	<tbody>
+	<tbody id="log-entries">
 		{% for entry in entries %}
 		<tr>
 			<td class="nowrap">{{ entry.time }}</td>
@@ -68,3 +72,4 @@
 </table>
 {% endif %}
 {% endblock %}
+{% block scripts %}<script src="/static/logs.js" defer></script>{% endblock %}

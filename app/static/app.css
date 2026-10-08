@@ -251,3 +251,5 @@ table.log td code { display: block; margin-top: 2px; color: var(--ink-subtle); o
 .level.info { color: var(--ink-muted); }
 .level.warn { color: var(--warn); }
 .level.error { color: var(--error); }
+.live { display: flex; flex-wrap: wrap; gap: 4px 16px; align-items: baseline; }
+.live label.check { margin: 0; color: var(--ink); }

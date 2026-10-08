@@ -33,10 +33,6 @@
 		<label for="sites_dir">Sites directory</label>
 		<input id="sites_dir" name="sites_dir" value="{{ host.sites_dir }}">
 		<small>One file per route is written here. Same path as inside the Caddy container.</small>
-
-		<label for="log_dir">Log directory <span class="optional">optional</span></label>
-		<input id="log_dir" name="log_dir" value="{{ host.log_dir or '' }}" placeholder="/var/log/caddy">
-		<small>Where Caddy writes its log files, mounted here read only. Turns on the <a href="/logs">Logs</a> page.</small>
 	</div>
 
 	<div class="for-managed {{ 'show' if host.id and host.storage == 'managed' }}">
