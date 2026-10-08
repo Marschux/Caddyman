@@ -30,7 +30,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from itsdangerous import BadSignature, URLSafeTimedSerializer
 
-VERSION = "0.5.9"
+VERSION = "0.6.0"
 
 BASE_DIR = Path(__file__).parent
 DATA_DIR = Path(os.getenv("CADDYMAN_DATA_DIR", "/data"))
@@ -1179,8 +1179,10 @@ def ca_page(request: Request, host: str | None = None):
 @app.get("/ca/root-ca.crt")
 def ca_download(host: str | None = None):
     _, current = pick_host(host)
+    if current is None:
+        return RedirectResponse("/hosts/new", status_code=303)
     try:
-        pem, _, _ = fetch_root_ca(current) if current else ("", "", False)
+        pem, _, _ = fetch_root_ca(current)
         fingerprints(pem)
     except ValueError as error:
         return Response(str(error), status_code=502, media_type="text/plain")

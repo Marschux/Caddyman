@@ -57,7 +57,7 @@ header {
 header form { display: flex; gap: 12px; align-items: center; color: var(--muted); }
 .brand { font-weight: 600; color: var(--text); text-decoration: none; }
 
-main { flex: 1; width: 100%; max-width: 960px; margin: 0 auto; padding: 24px 16px; }
+main { flex: 1; width: 100%; max-width: 1100px; margin: 0 auto; padding: 24px 16px; }
 footer { padding: 12px 16px; color: var(--muted); font-size: 13px; text-align: center; }
 
 h1 { font-size: 22px; margin: 0 0 16px; }
@@ -125,7 +125,10 @@ table { width: 100%; border-collapse: collapse; background: var(--surface); bord
 th, td { padding: 10px 12px; text-align: left; border-bottom: 1px solid var(--border); }
 th { font-size: 13px; color: var(--muted); font-weight: 600; }
 tr:last-child td { border-bottom: 0; }
-.actions { display: flex; gap: 14px; justify-content: flex-end; }
+/* Not a flex container: a table cell has to stay a table cell or the row borders break. */
+.actions { white-space: nowrap; text-align: right; }
+.actions form { display: inline; }
+.actions > * + * { margin-left: 14px; }
 button.danger { color: var(--error); }
 
 section { margin-top: 28px; }
