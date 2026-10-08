@@ -1,5 +1,15 @@
 # Changelog
 
+## 2026-10-09 01:32
+- feat: favicon, version 0.8.2
+- feat: logs without setup, live and for a Caddy elsewhere, version 0.8.1
+- feat: log viewer, version 0.8.0
+- feat: one Caddy per Caddyman, version 0.7.2
+- chore: version 0.7.1
+- feat: black, flat look
+- feat: new look in Caddy's colours, version 0.7.0
+
+
 ## 2026-10-09 00:52
 - fix: changelog hook only runs when the current branch is pushed
 
