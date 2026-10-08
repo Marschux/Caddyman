@@ -12,7 +12,7 @@
 	<tbody>
 		{% for host in hosts %}
 		<tr>
-			<td>{{ host.name }}</td>
+			<td class="nowrap"><strong>{{ host.name }}</strong></td>
 			<td><code>{{ host.admin_url }}</code></td>
 			<td>{% if host.storage == "managed" %}<span class="tag">another machine</span>{% else %}<code>{{ host.sites_dir }}</code>{% endif %}</td>
 			<td>{{ host.tls_snippet or "-" }}</td>
