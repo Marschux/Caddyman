@@ -1,7 +1,5 @@
 # Changelog
 
-*Entries below the first release are added automatically by the pre-push hook in `scripts/hooks/` — one per push, newest first.*
-
 ## 0.6.0 - 2026-10-09
 
 First release.

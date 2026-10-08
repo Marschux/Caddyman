@@ -8,6 +8,11 @@
 #
 # The entries are the raw commit subjects, nothing is summarised.
 
+# Only when the checked-out branch itself is being pushed. A tag push would otherwise
+# leave a changelog commit behind that goes nowhere.
+branch=$(git symbolic-ref -q HEAD) || exit 0
+grep -q "^$branch " || exit 0
+
 upstream="@{u}"
 if ! git rev-parse --verify --quiet "$upstream" >/dev/null; then
     exit 0  # kein Remote-Tracking-Branch, nichts zum Vergleichen
