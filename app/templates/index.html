@@ -25,7 +25,9 @@
 			{% if route %}
 			<td>{{ route.host }}{{ ":" ~ route.port if route.port }}</td>
 			<td>{{ {"reverse_proxy": "Reverse proxy", "redirect": "Redirect", "static": "Static files"}[route.type] }}</td>
-			<td><code>{{ route.upstream or route.target or route.root }}</code></td>
+			<td><code>{{ route.upstream or route.target or route.root }}</code>
+				{% if route.auth_user %}<span class="tag">Basic auth</span>{% endif %}
+				{% if route.host_header %}<span class="tag">Host header</span>{% endif %}</td>
 			<td>{{ {"acme_ca": "Own ACME CA", "default": "Caddy default", "internal": "Caddy internal", "none": "None"}[route.tls] }}</td>
 			{% else %}
 			<td><code>{{ item.name }}.caddy</code></td>

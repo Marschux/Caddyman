@@ -414,6 +414,39 @@ class TestEdit(RouteTest):
     def test_own_route_can_be_opened_as_text(self):
         self.assertIn("<textarea", self.client.get("/routes/pdf/edit?raw=1").text)
 
+    def test_basic_auth_stores_only_the_hash(self):
+        self.edit(auth_user="max", auth_password="open sesame")
+        text = self.read("pdf.caddy")
+        self.assertNotIn("open sesame", text)
+        route = main.read_route(main.Path(self.sites) / "pdf.caddy", self.host)
+        self.assertTrue(main.check_password("open sesame", route["auth_hash"]))
+        self.assertIn(
+            f"\timport stepca\n\tbasic_auth {{\n\t\tmax {route['auth_hash']}\n\t}}\n\treverse_proxy 10.0.0.5:9005\n}}\n", text
+        )
+        self.assertNotIn("open sesame", self.client.get("/routes/pdf/edit").text)
+        # An empty password keeps the hash, a new username needs a new password.
+        self.edit(auth_user="max", upstream="10.0.0.6:80")
+        self.assertIn(route["auth_hash"], self.read("pdf.caddy"))
+        self.assertEqual(self.edit(auth_user="eve").status_code, 400)
+        self.assertIn(f"max {route['auth_hash']}", self.read("pdf.caddy"))
+        # An empty username takes the login away again.
+        self.edit()
+        self.assertEqual(self.read("pdf.caddy"), self.original)
+
+    def test_basic_auth_input_is_validated(self):
+        self.assertEqual(self.edit(auth_user="max").status_code, 400)  # no password yet
+        self.assertEqual(self.edit(auth_user="a b", auth_password="secret").status_code, 400)
+        self.assertEqual(self.edit(auth_user="x {\n\trespond", auth_password="secret").status_code, 400)
+        self.assertEqual(self.edit(auth_user="max", auth_password="x" * 73).status_code, 400)
+        self.assertEqual(self.read("pdf.caddy"), self.original)
+
+    def test_host_header_option(self):
+        self.edit(host_header="1")
+        self.assertIn(
+            "\treverse_proxy 10.0.0.5:9005 {\n\t\theader_up Host {upstream_hostport}\n\t}\n}\n", self.read("pdf.caddy")
+        )
+        self.assertIn('name="host_header" value="1" checked', self.client.get("/routes/pdf/edit").text)
+
     def test_adopt_a_newsite_file(self):
         self.write("wiki.caddy", "wiki.lab.test {\n    reverse_proxy 10.0.0.7:3000\n    import stepca\n}\n")
         self.assertIn("Adopt this route", self.client.get("/routes/wiki/edit").text)

@@ -27,6 +27,23 @@
 		<label for="upstream">Target</label>
 		<input id="upstream" name="upstream" value="{{ route.upstream or '' }}" placeholder="192.168.1.20:8080">
 		<small><code>host:port</code>, or <code>https://host:port</code> if the service itself speaks TLS. WebSockets need no extra setting.</small>
+
+		<details {{ "open" if route.auth_user or route.host_header }}>
+			<summary>More options</summary>
+
+			<label for="auth_user">Basic auth username <span class="optional">optional</span></label>
+			<input id="auth_user" name="auth_user" value="{{ route.auth_user or '' }}" autocomplete="off" maxlength="64">
+			<small>Puts a login in front of a service that has none. Leave empty for no login.</small>
+
+			<label for="auth_password">Basic auth password</label>
+			<input id="auth_password" name="auth_password" type="password" autocomplete="new-password"
+				placeholder="{{ 'Leave empty to keep the current password' if route.auth_hash }}">
+			<small>Only its bcrypt hash is written to the route file.</small>
+
+			<label class="check"><input type="checkbox" name="host_header" value="1" {{ "checked" if route.host_header }}>
+				Send the target's own hostname as Host header</label>
+			<small>For services that only answer under their own name. By default they see the hostname of this route.</small>
+		</details>
 	</div>
 
 	<div class="for-redirect">

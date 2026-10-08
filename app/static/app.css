@@ -161,6 +161,12 @@ button.secondary { margin-top: 0; color: var(--accent); background: none; border
 .conflict p { margin: 0 0 6px; color: var(--text); }
 .conflict pre { margin-bottom: 10px; }
 
+details { margin-top: 16px; padding: 10px 12px; border: 1px solid var(--border); border-radius: 6px; }
+summary { cursor: pointer; font-size: 14px; }
+label.check { display: flex; gap: 8px; align-items: baseline; }
+label.check input { width: auto; }
+.tag { margin-left: 6px; padding: 1px 7px; border: 1px solid var(--border); border-radius: 999px; color: var(--muted); font-size: 12px; white-space: nowrap; }
+
 fieldset.choice { margin: 0; padding: 0; border: 0; display: flex; flex-wrap: wrap; gap: 6px 18px; }
 fieldset.choice legend { padding: 0; margin-bottom: 4px; font-size: 14px; }
 fieldset.choice label { margin: 0; }

@@ -404,6 +404,8 @@ UPSTREAM_RE = re.compile(r"^(https?://)?([A-Za-z0-9]([A-Za-z0-9.-]*[A-Za-z0-9])?
 # character set that cannot open a block, start a directive or add a line.
 REDIRECT_RE = re.compile(r"^https?://[A-Za-z0-9.-]+(:[0-9]{1,5})?(/[A-Za-z0-9._~/-]*)?$")
 STATIC_ROOT_RE = re.compile(r"^/[A-Za-z0-9._/-]*$")
+AUTH_USER_RE = re.compile(r"^[A-Za-z0-9._@-]{1,64}$")
+BCRYPT_RE = re.compile(r"^\$2[aby]\$[0-9]{2}\$[./A-Za-z0-9]{53}$")
 ROUTE_NAME_RE = re.compile(r"^[A-Za-z0-9]([A-Za-z0-9._-]*[A-Za-z0-9])?$")
 LOAD_TIMEOUT = 30
 REACH_TIMEOUT = 2
@@ -426,8 +428,13 @@ def acme_ca_available(host: dict) -> bool:
         return False
 
 
-def route_from_form(form, host: dict) -> tuple[dict, str | None]:
-    """Normalise the form into route metadata and name the first problem, if any."""
+def route_from_form(form, host: dict, previous: dict | None = None) -> tuple[dict, str | None]:
+    """Normalise the form into route metadata and name the first problem, if any.
+
+    previous is the route as it is on disk when editing; its password hash is kept
+    when the form leaves the password empty. Optional keys are only added when set,
+    and always in the same order, so files written before a key existed stay ours.
+    """
     get = lambda key: str(form.get(key, "")).strip()  # noqa: E731
     name = get("host").lower().strip(".")
     if host["domain_suffix"] and "." not in name and name:
@@ -446,6 +453,24 @@ def route_from_form(form, host: dict) -> tuple[dict, str | None]:
         match = UPSTREAM_RE.match(route["upstream"])
         if not match or not valid_port(match.group(4)):
             return route, "The target has to look like host:port or http://host:port."
+        if auth_user := get("auth_user"):
+            if not AUTH_USER_RE.match(auth_user):
+                return route, "The basic auth username may only contain letters, digits, '.', '_', '@' and '-'."
+            route["auth_user"] = auth_user
+            # Not stripped: a password may start or end with a space.
+            password = str(form.get("auth_password", ""))
+            kept = previous.get("auth_hash", "") if previous and previous.get("auth_user") == auth_user else ""
+            if password:
+                if len(password.encode()) > MAX_PASSWORD_BYTES:
+                    return route, f"The basic auth password is longer than {MAX_PASSWORD_BYTES} bytes."
+                # Only the hash is kept, in the route file. The password itself is never stored.
+                route["auth_hash"] = hash_password(password)
+            elif BCRYPT_RE.match(kept):
+                route["auth_hash"] = kept
+            else:
+                return route, "Basic auth needs a password."
+        if get("host_header"):
+            route["host_header"] = True
     elif route["type"] == "redirect":
         route["target"], route["code"] = get("target").rstrip("/"), get("code")
         if not REDIRECT_RE.match(route["target"]):
@@ -473,7 +498,12 @@ def render_route(route: dict, host: dict) -> str:
     elif route["tls"] == "internal":
         lines.append("tls internal")
     if route["type"] == "reverse_proxy":
-        lines.append(f"reverse_proxy {route['upstream']}")
+        if route.get("auth_user"):
+            lines += ["basic_auth {", f"\t{route['auth_user']} {route['auth_hash']}", "}"]
+        if route.get("host_header"):
+            lines += [f"reverse_proxy {route['upstream']} {{", "\theader_up Host {upstream_hostport}", "}"]
+        else:
+            lines.append(f"reverse_proxy {route['upstream']}")
     elif route["type"] == "redirect":
         lines.append(f"redir {route['target']}{{uri}} {route['code']}")
     else:
@@ -761,7 +791,7 @@ async def route_update(request: Request, name: str, host: str | None = None):
         content = str(form.get("content", "")).replace("\r\n", "\n").rstrip() + "\n"
         error = None if content.strip() else "The file would be empty. Delete the route instead."
     else:
-        route, error = route_from_form(form, current)
+        route, error = route_from_form(form, current, previous=read_route(path, current))
         if not error:
             content = render_route(route, current)
             new_path = route_path(current, route_file_name(route, current))
