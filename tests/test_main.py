@@ -49,6 +49,10 @@ class TestAuth(AppTest):
         # The icon is linked from every page and has to load before anyone is logged in.
         self.assertIn('rel="icon" type="image/svg+xml" href="/static/favicon.svg"', self.client.get("/setup").text)
         self.assertEqual(self.client.get("/static/favicon.svg").headers["content-type"], "image/svg+xml")
+        # License and source are named on every page, also before login.
+        footer = self.client.get("/setup").text.split("<footer>")[1]
+        self.assertIn("AGPL-3.0-or-later", footer)
+        self.assertIn(f'href="{main.SOURCE_URL}"', footer)
 
     def test_setup_needs_the_token(self):
         self.assertEqual(self.setup_admin(token="wrong").status_code, 400)

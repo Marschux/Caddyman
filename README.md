@@ -1,6 +1,6 @@
 # Caddyman
 
-[![Version](https://img.shields.io/badge/version-0.8.2-blue)](https://github.com/Marschux/Caddyman/tags)
+[![Version](https://img.shields.io/badge/version-0.8.3-blue)](https://github.com/Marschux/Caddyman/tags)
 [![License: AGPL-3.0-or-later](https://img.shields.io/badge/license-AGPL--3.0--or--later-blue)](LICENSE)
 [![Docker image](https://img.shields.io/badge/docker-ghcr.io%2Fmarschux%2Fcaddyman-2496ED?logo=docker&logoColor=white)](https://github.com/Marschux/Caddyman/pkgs/container/caddyman)
 
@@ -115,6 +115,7 @@ line is required: the admin API refuses requests that do not carry its own addre
 | `CADDYMAN_LOG_DIR` | `/var/log/caddy` | Where Caddy's log directory is mounted |
 | `CADDYMAN_DATA_DIR` | `/data` | Account, settings, change log |
 | `CADDYMAN_HOST` / `CADDYMAN_PORT` | `0.0.0.0` / `5052` | |
+| `CADDYMAN_SOURCE_URL` | this repository | The "Source" link in the footer. Point it at your own source if you run a modified copy |
 
 ## Good to know
 
@@ -145,7 +146,8 @@ To build the image: `docker build -f docker/Dockerfile -t ghcr.io/marschux/caddy
 
 ## License
 
-AGPL-3.0-or-later. See `LICENSE`.
+AGPL-3.0-or-later. See `LICENSE`. The footer of every page names the license and links to the source;
+if you run a modified copy, set `CADDYMAN_SOURCE_URL` to where yours can be found.
 
 ## AI use
 

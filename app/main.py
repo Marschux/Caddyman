@@ -30,7 +30,10 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from itsdangerous import BadSignature, URLSafeTimedSerializer
 
-VERSION = "0.8.2"
+VERSION = "0.8.3"
+# Shown in the footer. The AGPL asks that everyone using this over a network can get the source,
+# so a modified copy has to point to its own.
+SOURCE_URL = os.getenv("CADDYMAN_SOURCE_URL", "https://github.com/Marschux/Caddyman")
 
 BASE_DIR = Path(__file__).parent
 DATA_DIR = Path(os.getenv("CADDYMAN_DATA_DIR", "/data"))
@@ -197,7 +200,7 @@ def page(request: Request, template: str, status_code: int = 200, **context):
             flash = SESSIONS.loads(cookie, max_age=60)
         except BadSignature:
             pass
-    context = {"version": VERSION, "flash": flash, **context}
+    context = {"version": VERSION, "source_url": SOURCE_URL, "flash": flash, **context}
     response = templates.TemplateResponse(request, template, context, status_code=status_code)
     if cookie:
         response.delete_cookie(FLASH_COOKIE)

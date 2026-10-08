@@ -62,6 +62,7 @@ nav a[aria-current] { color: var(--ink); border-bottom-color: var(--product); }
 
 main { flex: 1; width: 100%; max-width: 1280px; margin: 0 auto; padding: 48px 32px; }
 footer { padding: 32px; color: var(--ink-subtle); font-size: 13px; letter-spacing: 0.2px; text-align: center; }
+footer a { color: var(--ink-muted); }
 
 h1 { margin: 0 0 24px; color: var(--ink); font-size: 40px; font-weight: 600; line-height: 1.19; letter-spacing: -1px; }
 h2 { margin: 0; color: var(--ink); font-size: 22px; font-weight: 600; line-height: 1.18; letter-spacing: -0.4px; }
