@@ -1,0 +1,40 @@
+services:
+  ez-caddyman:
+    image: ghcr.io/marschux/caddyman:latest
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    container_name: ez-caddyman
+    restart: unless-stopped
+    # Optional: without a .env in the repository root the defaults apply.
+    env_file:
+      - path: ../.env
+        required: false
+    # Keep this port published even when a Caddy route points here: it is the way
+    # back in if that route is ever broken or deleted.
+    ports:
+      - "5052:5052"
+    volumes:
+      - data:/data
+    networks:
+      - proxy-net
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:5052/healthz', timeout=5)"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+volumes:
+  data:
+    driver: local
+
+# The network shared with Caddy (docker network create proxy-net)
+networks:
+  proxy-net:
+    external: true

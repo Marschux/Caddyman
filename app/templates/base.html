@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="en">
+<head>
+	<meta charset="utf-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1">
+	<title>{% block title %}Ez Caddyman{% endblock %}</title>
+	<link rel="stylesheet" href="/static/app.css">
+</head>
+<body>
+	<header>
+		<a class="brand" href="/">Ez Caddyman</a>
+		{% if request.state.user %}
+		<form method="post" action="/logout">
+			<span>{{ request.state.user }}</span>
+			<button type="submit" class="link">Log out</button>
+		</form>
+		{% endif %}
+	</header>
+	<main>
+		{% block content %}{% endblock %}
+	</main>
+	<footer>Ez Caddyman {{ version }}</footer>
+</body>
+</html>
