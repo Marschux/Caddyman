@@ -4,6 +4,7 @@ import os
 import tempfile
 import unittest
 import zipfile
+from datetime import datetime, timedelta, timezone
 from unittest import mock
 
 # Module constants are read once at import, so the data directory has to be set first.
@@ -12,6 +13,10 @@ os.environ["CADDYMAN_DATA_DIR"] = _DATA.name
 os.environ["CADDYMAN_SECRET_KEY"] = "test-key"
 os.environ.pop("CADDYMAN_ADMIN_USER", None)
 
+from cryptography import x509  # noqa: E402
+from cryptography.hazmat.primitives import hashes  # noqa: E402
+from cryptography.hazmat.primitives.asymmetric import ec  # noqa: E402
+from cryptography.x509.oid import NameOID  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402
 
 from app import main  # noqa: E402
@@ -208,6 +213,7 @@ class RouteTest(AppTest):
         # Nothing here may reach a real Caddy or a real target.
         self.load = self.patch(main.httpx, "post", mock.Mock(return_value=mock.Mock(status_code=200)))
         self.patch(main, "target_reachable", mock.Mock(return_value=True))
+        self.served = self.patch(main, "served_certificate", mock.Mock(side_effect=OSError("offline")))
 
     def patch(self, target, name, value):
         patcher = mock.patch.object(target, name, value)
@@ -380,6 +386,60 @@ class TestCa(RouteTest):
     def test_needs_a_session(self):
         self.client.cookies.clear()
         self.assertEqual(self.client.get("/ca/root-ca.crt").headers["location"], "/login")
+
+
+def make_certificate(issuer, hours=24):
+    key = ec.generate_private_key(ec.SECP256R1())
+    now = datetime.now(timezone.utc)
+    name = lambda value: x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, value)])  # noqa: E731
+    builder = x509.CertificateBuilder().subject_name(name("pdf.lab.test")).issuer_name(name(issuer))
+    builder = builder.public_key(key.public_key()).serial_number(x509.random_serial_number())
+    builder = builder.not_valid_before(now - timedelta(hours=48)).not_valid_after(now + timedelta(hours=hours))
+    return builder.sign(key, hashes.SHA256())
+
+
+class TestCertificates(RouteTest):
+    def status(self, served, **fields):
+        self.served.side_effect = None if isinstance(served, x509.Certificate) else served
+        self.served.return_value = served
+        route = {"type": "reverse_proxy", "host": "pdf.lab.test", "port": "", "tls": "acme_ca", **fields}
+        return main.certificate_status(self.host, route)
+
+    def test_issuer_and_expiry(self):
+        status = self.status(make_certificate("Lab CA Intermediate", hours=30))
+        self.assertEqual(status["level"], "ok")
+        self.assertIn("Lab CA Intermediate", status["text"])
+        self.assertRegex(status["text"], r"(29|30) h left")
+        # The handshake goes to Caddy itself, with the route's hostname as SNI.
+        self.assertEqual(self.served.call_args.args, ("caddy", 443, "pdf.lab.test"))
+        self.assertIn("days left", self.status(make_certificate("Lab CA", hours=24 * 80))["text"])
+        self.status(make_certificate("Lab CA"), port="8443")
+        self.assertEqual(self.served.call_args.args[1], 8443)
+
+    def test_internal_ca_on_an_acme_route_is_flagged(self):
+        internal = make_certificate("Caddy Local Authority - ECC Intermediate")
+        self.assertEqual(self.status(internal)["level"], "warn")
+        self.assertIn("internal CA instead", self.status(internal)["detail"])
+        # Where the internal CA was asked for, it is the expected issuer.
+        self.assertEqual(self.status(internal, tls="internal")["level"], "ok")
+
+    def test_expired_missing_and_unreachable(self):
+        self.assertEqual(self.status(make_certificate("Lab CA", hours=-1))["text"], "Expired - Lab CA")
+        self.assertEqual(self.status(main.ssl.SSLError("tlsv1 alert internal error"))["text"], "No certificate")
+        self.assertEqual(self.status(OSError("refused"))["level"], "unknown")
+
+    def test_nothing_to_check_without_tls_or_metadata(self):
+        self.assertIsNone(self.status(OSError("x"), tls="none"))
+        self.assertIsNone(main.certificate_status(self.host, None))
+        self.served.assert_not_called()
+
+    def test_list_shows_the_status(self):
+        self.create()
+        self.served.side_effect = None
+        self.served.return_value = make_certificate("Caddy Local Authority - ECC Intermediate")
+        page = self.client.get("/").text
+        self.assertIn('class="cert warn"', page)
+        self.assertIn("internal CA instead of your ACME CA", page)
 
 
 class TestBackup(RouteTest):

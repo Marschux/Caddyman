@@ -19,6 +19,7 @@
 	<h2>Fingerprint</h2>
 	<p class="empty">Compare it after the import. Source: <code>{{ source }}</code></p>
 	{% for item in fingerprints %}
+	{% if item.subject %}<p><strong>{{ item.subject }}</strong> <span class="empty">valid until {{ item.expires }}</span></p>{% endif %}
 	<pre>SHA-256  {{ item.sha256 }}
 SHA-1    {{ item.sha1 }}</pre>
 	{% endfor %}

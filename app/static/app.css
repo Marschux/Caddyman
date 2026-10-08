@@ -171,6 +171,13 @@ form.row { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; margi
 form.row button { width: auto; margin: 0; padding: 9px 16px; }
 form.row input[type="file"] { width: auto; flex: 1; min-width: 220px; }
 
+.cert::before { content: ""; display: inline-block; width: 9px; height: 9px; margin-right: 6px; border-radius: 50%; background: var(--muted); }
+.cert.ok::before { background: var(--ok); }
+.cert.warn::before { background: var(--warn); }
+.cert.fail::before { background: var(--error); }
+.cert.warn { color: var(--warn); }
+.cert.fail { color: var(--error); }
+
 fieldset.choice { margin: 0; padding: 0; border: 0; display: flex; flex-wrap: wrap; gap: 6px 18px; }
 fieldset.choice legend { padding: 0; margin-bottom: 4px; font-size: 14px; }
 fieldset.choice label { margin: 0; }

@@ -7,7 +7,7 @@
 </div>
 <table>
 	<thead>
-		<tr><th>Host</th><th>Type</th><th>Target</th><th>TLS</th><th></th></tr>
+		<tr><th>Host</th><th>Type</th><th>Target</th><th>TLS</th><th>Certificate</th><th></th></tr>
 	</thead>
 	<tbody>
 		{% for item in routes %}
@@ -20,9 +20,16 @@
 				{% if route.auth_user %}<span class="tag">Basic auth</span>{% endif %}
 				{% if route.host_header %}<span class="tag">Host header</span>{% endif %}</td>
 			<td>{{ {"acme_ca": "Own ACME CA", "default": "Caddy default", "internal": "Caddy internal", "none": "None"}[route.tls] }}</td>
+			<td>
+				{% set cert = item.certificate %}
+				{% if cert %}
+				<span class="cert {{ cert.level }}" title="{{ cert.detail }}">{{ cert.text }}</span>
+				{% if cert.level in ("warn", "fail") %}<small>{{ cert.detail }}</small>{% endif %}
+				{% else %}<span class="empty">-</span>{% endif %}
+			</td>
 			{% else %}
 			<td><code>{{ item.name }}.caddy</code></td>
-			<td colspan="3" class="empty">Not created here, or edited by hand</td>
+			<td colspan="4" class="empty">Not created here, or edited by hand</td>
 			{% endif %}
 			<td class="actions">
 				{% if route and route.type == "reverse_proxy" %}
@@ -43,7 +50,7 @@
 			</td>
 		</tr>
 		{% else %}
-		<tr><td colspan="5" class="empty">No routes yet.</td></tr>
+		<tr><td colspan="6" class="empty">No routes yet.</td></tr>
 		{% endfor %}
 	</tbody>
 </table>

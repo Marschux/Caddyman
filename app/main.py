@@ -13,6 +13,7 @@ import ssl
 import threading
 import time
 import zipfile
+from concurrent.futures import ThreadPoolExecutor
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from pathlib import Path
@@ -20,13 +21,15 @@ from urllib.parse import urlsplit
 
 import bcrypt
 import httpx
+from cryptography import x509
+from cryptography.x509.oid import NameOID
 from fastapi import FastAPI, Form, Request
 from fastapi.responses import RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from itsdangerous import BadSignature, URLSafeTimedSerializer
 
-VERSION = "0.4.5"
+VERSION = "0.5.0"
 
 BASE_DIR = Path(__file__).parent
 DATA_DIR = Path(os.getenv("CADDYMAN_DATA_DIR", "/data"))
@@ -694,6 +697,62 @@ def target_reachable(upstream: str) -> bool:
         return False
 
 
+CERT_TIMEOUT = 3
+# The issuer name Caddy's built-in CA uses for the certificates it hands out.
+CADDY_INTERNAL_ISSUER = "Caddy Local Authority"
+
+
+def served_certificate(address: str, port: int, server_name: str) -> x509.Certificate:
+    """The certificate Caddy presents for a hostname, exactly as a browser would get it."""
+    # Deliberately unverified: this looks at the certificate, it does not rely on it.
+    context = ssl.create_default_context()
+    context.check_hostname = False
+    context.verify_mode = ssl.CERT_NONE
+    with socket.create_connection((address, port), timeout=CERT_TIMEOUT) as raw:
+        with context.wrap_socket(raw, server_hostname=server_name) as tls:
+            return x509.load_der_x509_certificate(tls.getpeercert(binary_form=True))
+
+
+def display_name(name: x509.Name) -> str:
+    for oid in (NameOID.COMMON_NAME, NameOID.ORGANIZATION_NAME):
+        if attributes := name.get_attributes_for_oid(oid):
+            return str(attributes[0].value)
+    return name.rfc4514_string() or "(no name)"
+
+
+def time_left(expires: datetime) -> str:
+    hours = int((expires - datetime.now(timezone.utc)).total_seconds() // 3600)
+    return f"{hours} h" if hours < 48 else f"{hours // 24} days"
+
+
+def certificate_status(host: dict, route: dict | None) -> dict | None:
+    """Issuer and expiry of what a route really serves. None when there is nothing to check.
+
+    The handshake goes to Caddy itself with the route's hostname as SNI, so it works
+    without DNS for that name. level is ok, warn, fail or unknown.
+    """
+    if not route or route["tls"] == "none":
+        return None
+    address = urlsplit(host["admin_url"]).hostname
+    try:
+        certificate = served_certificate(address, int(route["port"] or 443), route["host"])
+    except ssl.SSLError:
+        # Caddy answers the handshake with an alert as long as it has no certificate for the name.
+        return {"level": "fail", "text": "No certificate", "detail": "Caddy has not obtained one yet. Its log says why."}
+    except (OSError, ValueError) as error:
+        return {"level": "unknown", "text": "Not checked", "detail": f"{address} is not reachable for a TLS handshake: {error}"}
+    issuer = display_name(certificate.issuer)
+    expires = certificate.not_valid_after_utc
+    detail = f"Expires {expires:%Y-%m-%d %H:%M} UTC"
+    if expires <= datetime.now(timezone.utc):
+        return {"level": "fail", "text": f"Expired - {issuer}", "detail": detail}
+    status = {"level": "ok", "text": f"{issuer} - {time_left(expires)} left", "detail": detail}
+    if route["tls"] == "acme_ca" and CADDY_INTERNAL_ISSUER in issuer:
+        # The failure that went unnoticed longest: a route quietly served from Caddy's own CA.
+        status.update(level="warn", detail=f"Issued by Caddy's internal CA instead of your ACME CA. {detail}")
+    return status
+
+
 def pick_host(host_id: str | None) -> tuple[list[dict], dict | None]:
     hosts = load_hosts()
     return hosts, next((item for item in hosts if item["id"] == host_id), hosts[0] if hosts else None)
@@ -716,7 +775,14 @@ def index(request: Request, host: str | None = None):
     hosts, current = pick_host(host)
     if current is None:
         return RedirectResponse("/hosts/new", status_code=303)
-    return page(request, "index.html", hosts=hosts, host=current, routes=list_routes(current))
+    routes = list_routes(current)
+    # One handshake per route on every page load, nothing cached. Fine for the
+    # dozens of routes a homelab has; cache for a minute if the list ever feels slow.
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        statuses = pool.map(lambda item: certificate_status(current, item["route"]), routes)
+    for item, status in zip(routes, statuses):
+        item["certificate"] = status
+    return page(request, "index.html", hosts=hosts, host=current, routes=routes)
 
 
 @app.get("/routes/new")
@@ -933,7 +999,13 @@ def fingerprints(pem: str) -> list[dict]:
         except ValueError:
             raise ValueError("The source returned something that is not a certificate.") from None
         pairs = lambda digest: ":".join(digest[i : i + 2] for i in range(0, len(digest), 2)).upper()  # noqa: E731
-        result.append({"sha256": pairs(hashlib.sha256(der).hexdigest()), "sha1": pairs(hashlib.sha1(der).hexdigest())})
+        entry = {"sha256": pairs(hashlib.sha256(der).hexdigest()), "sha1": pairs(hashlib.sha1(der).hexdigest())}
+        try:
+            parsed = x509.load_der_x509_certificate(der)
+            entry.update(subject=display_name(parsed.subject), expires=f"{parsed.not_valid_after_utc:%Y-%m-%d}")
+        except ValueError:
+            pass
+        result.append(entry)
     return result
 
 
