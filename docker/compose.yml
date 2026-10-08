@@ -1,10 +1,10 @@
 services:
-  ez-caddyman:
+  caddyman:
     image: ghcr.io/marschux/caddyman:latest
     build:
       context: ..
       dockerfile: docker/Dockerfile
-    container_name: ez-caddyman
+    container_name: caddyman
     restart: unless-stopped
     # Optional: without a .env in the repository root the defaults apply.
     env_file:

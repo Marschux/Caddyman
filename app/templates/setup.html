@@ -1,9 +1,9 @@
 {% extends "base.html" %}
-{% block title %}Setup - Ez Caddyman{% endblock %}
+{% block title %}Setup - Caddyman{% endblock %}
 {% block content %}
 <form method="post" action="/setup" class="card">
 	<h1>Create the admin account</h1>
-	<p>The setup token was printed to the container log at startup: <code>docker logs ez-caddyman</code></p>
+	<p>The setup token was printed to the container log at startup: <code>docker logs caddyman</code></p>
 	{% if error %}<p class="error" role="alert">{{ error }}</p>{% endif %}
 	<label for="token">Setup token</label>
 	<input id="token" name="token" autocomplete="off" required autofocus>

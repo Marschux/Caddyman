@@ -4,9 +4,9 @@ import unittest
 
 # Module constants are read once at import, so the data directory has to be set first.
 _DATA = tempfile.TemporaryDirectory()
-os.environ["EZCADDYMAN_DATA_DIR"] = _DATA.name
-os.environ["EZCADDYMAN_SECRET_KEY"] = "test-key"
-os.environ.pop("EZCADDYMAN_ADMIN_USER", None)
+os.environ["CADDYMAN_DATA_DIR"] = _DATA.name
+os.environ["CADDYMAN_SECRET_KEY"] = "test-key"
+os.environ.pop("CADDYMAN_ADMIN_USER", None)
 
 from fastapi.testclient import TestClient  # noqa: E402
 

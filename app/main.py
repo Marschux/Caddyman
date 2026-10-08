@@ -1,4 +1,4 @@
-"""Ez Caddyman - a web interface for Caddy routes."""
+"""Caddyman - a web interface for Caddy routes."""
 
 import json
 import os
@@ -17,13 +17,13 @@ from itsdangerous import BadSignature, URLSafeTimedSerializer
 VERSION = "0.1.0"
 
 BASE_DIR = Path(__file__).parent
-DATA_DIR = Path(os.getenv("EZCADDYMAN_DATA_DIR", "/data"))
+DATA_DIR = Path(os.getenv("CADDYMAN_DATA_DIR", "/data"))
 AUTH_FILE = DATA_DIR / "auth.json"
 SECRET_FILE = DATA_DIR / "secret.key"
-ENV_ADMIN_USER = os.getenv("EZCADDYMAN_ADMIN_USER", "")
-ENV_ADMIN_PASSWORD_HASH = os.getenv("EZCADDYMAN_ADMIN_PASSWORD_HASH", "")
+ENV_ADMIN_USER = os.getenv("CADDYMAN_ADMIN_USER", "")
+ENV_ADMIN_PASSWORD_HASH = os.getenv("CADDYMAN_ADMIN_PASSWORD_HASH", "")
 
-SESSION_COOKIE = "ezcaddyman_session"
+SESSION_COOKIE = "caddyman_session"
 SESSION_SECONDS = 7 * 24 * 3600
 MAX_LOGIN_FAILS = 5
 LOCK_SECONDS = 30
@@ -42,7 +42,7 @@ def write_private(path: Path, text: str) -> None:
 
 def load_secret_key() -> tuple[str, bool]:
     """Return the key and whether it came from the environment."""
-    key = os.getenv("EZCADDYMAN_SECRET_KEY", "")
+    key = os.getenv("CADDYMAN_SECRET_KEY", "")
     if key:
         return key, True
     # Fallback so sessions survive a restart. A key next to the data it protects
@@ -138,14 +138,14 @@ async def lifespan(app: FastAPI):
     global SETUP_TOKEN
     if load_admin() is None:
         SETUP_TOKEN = secrets.token_hex(8)
-        port = os.getenv("EZCADDYMAN_PORT", "5052")
+        port = os.getenv("CADDYMAN_PORT", "5052")
         print(f"Setup required. Open http://<host>:{port}/setup\nToken: {SETUP_TOKEN}", flush=True)
     if not SECRET_KEY_FROM_ENV:
-        print("EZCADDYMAN_SECRET_KEY is not set, using a generated key from the data directory.", flush=True)
+        print("CADDYMAN_SECRET_KEY is not set, using a generated key from the data directory.", flush=True)
     yield
 
 
-app = FastAPI(title="Ez Caddyman", version=VERSION, lifespan=lifespan, docs_url=None, redoc_url=None, openapi_url=None)
+app = FastAPI(title="Caddyman", version=VERSION, lifespan=lifespan, docs_url=None, redoc_url=None, openapi_url=None)
 app.mount("/static", StaticFiles(directory=BASE_DIR / "static"), name="static")
 templates = Jinja2Templates(directory=BASE_DIR / "templates")
 
