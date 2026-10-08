@@ -37,6 +37,12 @@
 					<button type="submit" class="link">Test target</button>
 				</form>
 				{% endif %}
+				{% if not route %}
+				<form method="post" action="/routes/{{ item.name|urlencode }}/adopt?host={{ host.id }}">
+					<button type="submit" class="link">Adopt</button>
+				</form>
+				{% endif %}
+				<a href="/routes/{{ item.name|urlencode }}/edit?host={{ host.id }}">Edit</a>
 				<form method="post" action="/routes/{{ item.name|urlencode }}/delete?host={{ host.id }}"
 					data-confirm="Delete {{ item.name }}.caddy and reload Caddy?" onsubmit="return confirm(this.dataset.confirm)">
 					<button type="submit" class="link danger">Delete</button>

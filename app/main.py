@@ -178,7 +178,7 @@ async def require_session(request: Request, call_next):
     return await call_next(request)
 
 
-def page(request: Request, name: str, status_code: int = 200, **context):
+def page(request: Request, template: str, status_code: int = 200, **context):
     flash = None
     if cookie := request.cookies.get(FLASH_COOKIE):
         try:
@@ -186,7 +186,7 @@ def page(request: Request, name: str, status_code: int = 200, **context):
         except BadSignature:
             pass
     context = {"version": VERSION, "flash": flash, **context}
-    response = templates.TemplateResponse(request, name, context, status_code=status_code)
+    response = templates.TemplateResponse(request, template, context, status_code=status_code)
     if cookie:
         response.delete_cookie(FLASH_COOKIE)
     return response
@@ -563,28 +563,90 @@ def read_audit() -> list[dict]:
     return [json.loads(line) for line in reversed(lines[-AUDIT_SHOWN:])]
 
 
-def apply_route(host: dict, path: Path, content: str | None, action: str) -> str | None:
-    """Write the file (or delete it when content is None), reload Caddy, undo on failure."""
+class Conflict(Exception):
+    """The file changed on disk after it was loaded into the editor."""
+
+
+def file_mtime(path: Path) -> int:
+    try:
+        return path.stat().st_mtime_ns
+    except OSError:
+        return 0
+
+
+def apply_route(
+    host: dict,
+    changes: dict[Path, str | None],
+    action: str,
+    label: str,
+    expect: tuple[Path, int] | None = None,
+) -> str | None:
+    """Write the files (None deletes one), reload Caddy, undo everything on failure.
+
+    Every write path goes through here. With expect, the change is refused when that
+    file no longer has the modification time it had when it was loaded.
+    """
     with WRITE_LOCK:
-        previous = path.read_bytes() if path.exists() else None
+        if expect and file_mtime(expect[0]) != expect[1]:
+            raise Conflict
+        previous = {path: path.read_bytes() if path.exists() else None for path in changes}
         try:
-            if content is None:
-                path.unlink()
-            else:
-                path.write_bytes(content.encode())
+            for path, content in changes.items():
+                if content is None:
+                    path.unlink()
+                else:
+                    path.write_bytes(content.encode())
             error = caddy_load(host)
         except OSError as os_error:
             error = str(os_error)
         if error:
             # A broken file left on disk would stop Caddy from starting the next time.
-            if previous is None:
-                path.unlink(missing_ok=True)
-            else:
-                path.write_bytes(previous)
+            for path, content in previous.items():
+                if content is None:
+                    path.unlink(missing_ok=True)
+                else:
+                    path.write_bytes(content)
             # If the reload only timed out, Caddy may hold the new config: bring it back in line.
             caddy_load(host)
-        audit(host, path.stem, action, error)
+        audit(host, label, action, error)
         return error
+
+
+def adopt_route(content: str, host: dict) -> tuple[dict | None, str]:
+    """Metadata for a hand-written file, or the reason it cannot be taken over.
+
+    This is no Caddyfile parser: it accepts exactly what render_route would produce,
+    give or take whitespace and line order, and refuses everything else.
+    """
+    lines = [line.split() for line in content.splitlines() if line.strip() and not line.startswith(META_PREFIX)]
+    if len(lines) < 3 or len(lines[0]) != 2 or lines[0][1] != "{" or lines[-1] != ["}"]:
+        return None, "it is not a single site block"
+    address = re.match(r"^(http://)?([^:/]+)(?::([0-9]+))?$", lines[0][0])
+    if not address:
+        return None, "its address is not a plain hostname"
+    form = {"host": address.group(2), "port": address.group(3) or "", "tls": "none" if address.group(1) else "default"}
+    for tokens in lines[1:-1]:
+        if tokens == ["import", host["tls_snippet"]]:
+            form["tls"] = "acme_ca"
+        elif tokens == ["tls", "internal"]:
+            form["tls"] = "internal"
+        elif tokens[0] == "reverse_proxy" and len(tokens) == 2:
+            form.update(type="reverse_proxy", upstream=tokens[1])
+        elif tokens[0] == "redir" and len(tokens) == 3 and tokens[1].endswith("{uri}"):
+            form.update(type="redirect", target=tokens[1].removesuffix("{uri}"), code=tokens[2])
+        elif tokens[:2] == ["root", "*"] and len(tokens) == 3:
+            form.update(type="static", root=tokens[2])
+        elif tokens != ["file_server"]:
+            return None, f"it contains a line Caddyman would not write: {' '.join(tokens)}"
+    if "type" not in form:
+        return None, "it has no reverse_proxy, redir or root line"
+    route, error = route_from_form(form, host)
+    if error:
+        return None, error
+    rendered = [line.split() for line in render_route(route, host).splitlines()[1:]]
+    if rendered[0] != lines[0] or sorted(rendered[1:-1]) != sorted(lines[1:-1]):
+        return None, "its content differs from what Caddyman would write for it"
+    return route, ""
 
 
 def target_reachable(upstream: str) -> bool:
@@ -601,16 +663,16 @@ def pick_host(host_id: str | None) -> tuple[list[dict], dict | None]:
     return hosts, next((item for item in hosts if item["id"] == host_id), hosts[0] if hosts else None)
 
 
-def route_form_page(request: Request, host: dict, route: dict, error: str | None = None):
-    return page(
-        request,
-        "route_form.html",
-        status_code=400 if error else 200,
-        host=host,
-        route=route,
-        error=error,
-        acme_ca=acme_ca_available(host),
-    )
+def route_form_page(request: Request, host: dict, route: dict, error: str | None = None, **context):
+    context.setdefault("status_code", 400 if error else 200)
+    return page(request, "route_form.html", host=host, route=route, error=error, acme_ca=acme_ca_available(host), **context)
+
+
+def existing_route(host_id: str | None, name: str) -> tuple[dict | None, Path | None]:
+    """The host and the file of a route that is on disk, or a None for what is missing."""
+    _, current = pick_host(host_id)
+    path = route_path(current, name) if current else None
+    return current, path if path and path.is_file() else None
 
 
 @app.get("/")
@@ -643,7 +705,7 @@ async def route_create(request: Request, host: str | None = None):
         return route_form_page(request, current, route, "This hostname cannot be used as a file name.")
     if path.exists():
         return route_form_page(request, current, route, f"A route file {path.name} already exists.")
-    if error := apply_route(current, path, render_route(route, current), "create"):
+    if error := apply_route(current, {path: render_route(route, current)}, "create", path.stem):
         return route_form_page(request, current, route, f"Caddy rejected the route, nothing was changed: {error}")
     url = f"/?host={current['id']}"
     if route["type"] == "reverse_proxy" and not target_reachable(route["upstream"]):
@@ -658,9 +720,93 @@ def route_delete(name: str, host: str | None = None):
     if path is None or not path.exists():
         return redirect("/", "error", "This route does not exist.")
     url = f"/?host={current['id']}"
-    if error := apply_route(current, path, None, "delete"):
+    if error := apply_route(current, {path: None}, "delete", path.stem):
         return redirect(url, "error", f"Caddy rejected the reload, {path.name} was kept: {error}")
     return redirect(url, "ok", f"{path.name} was removed.")
+
+
+def raw_page(request: Request, host: dict, name: str, content: str, mtime: int, **context):
+    adoptable = adopt_route(content, host)[0] is not None
+    return page(request, "route_raw.html", host=host, name=name, content=content, mtime=mtime, adoptable=adoptable, **context)
+
+
+@app.get("/routes/{name}/edit")
+def route_edit(request: Request, name: str, host: str | None = None, raw: bool = False):
+    current, path = existing_route(host, name)
+    if path is None:
+        return redirect("/", "error", "This route does not exist.")
+    # Read the time first: a change between the two reads then shows up as a conflict on save.
+    mtime = file_mtime(path)
+    route = None if raw else read_route(path, current)
+    if route:
+        return route_form_page(request, current, route, name=name, mtime=mtime)
+    try:
+        content = path.read_text(encoding="utf-8")
+    except UnicodeDecodeError:
+        return redirect(f"/?host={current['id']}", "error", f"{path.name} is not UTF-8 text and cannot be edited here.")
+    return raw_page(request, current, name, content, mtime)
+
+
+@app.post("/routes/{name}/edit")
+async def route_update(request: Request, name: str, host: str | None = None):
+    current, path = existing_route(host, name)
+    if path is None:
+        return redirect("/", "error", "This route does not exist.")
+    form = await request.form()
+    mtime = int(form["mtime"]) if str(form.get("mtime", "")).isdigit() else 0
+    raw = form.get("mode") == "raw"
+    route, new_path = None, path
+    if raw:
+        # Goes to Caddy unchecked by design: the reload validates it, and a rejected file is undone.
+        content = str(form.get("content", "")).replace("\r\n", "\n").rstrip() + "\n"
+        error = None if content.strip() else "The file would be empty. Delete the route instead."
+    else:
+        route, error = route_from_form(form, current)
+        if not error:
+            content = render_route(route, current)
+            new_path = route_path(current, route_file_name(route, current))
+            if new_path is None:
+                error = "This hostname cannot be used as a file name."
+            elif new_path != path and new_path.exists():
+                error = f"A route file {new_path.name} already exists."
+
+    def again(**context):
+        if raw:
+            return raw_page(request, current, name, content, context.pop("mtime", mtime), **context)
+        return route_form_page(request, current, route, name=name, **{"mtime": mtime, **context})
+
+    if error:
+        return again(error=error, status_code=400)
+    changes = {new_path: content}
+    if new_path != path:
+        changes[path] = None
+    label = name if new_path == path else f"{name} -> {new_path.stem}"
+    try:
+        error = apply_route(current, changes, "update", label, expect=(path, mtime))
+    except Conflict:
+        # Saving once more from this page overwrites what is on disk, knowingly.
+        disk = path.read_text(encoding="utf-8", errors="replace") if path.exists() else "(the file was deleted)"
+        return again(conflict={"disk": disk, "yours": content}, mtime=file_mtime(path), status_code=409)
+    if error:
+        return again(error=f"Caddy rejected the change, nothing was changed: {error}", status_code=400)
+    url = f"/?host={current['id']}"
+    if route and route["type"] == "reverse_proxy" and not target_reachable(route["upstream"]):
+        return redirect(url, "warn", f"{new_path.name} is saved, but {route['upstream']} does not answer yet.")
+    return redirect(url, "ok", f"{new_path.name} is saved and live.")
+
+
+@app.post("/routes/{name}/adopt")
+def route_adopt(name: str, host: str | None = None):
+    current, path = existing_route(host, name)
+    if path is None:
+        return redirect("/", "error", "This route does not exist.")
+    url = f"/?host={current['id']}"
+    route, reason = adopt_route(path.read_text(encoding="utf-8", errors="replace"), current)
+    if route is None:
+        return redirect(url, "warn", f"{path.name} was left as it is: {reason}.")
+    if error := apply_route(current, {path: render_route(route, current)}, "adopt", name):
+        return redirect(url, "error", f"Caddy rejected the reload, {path.name} was left as it is: {error}")
+    return redirect(url, "ok", f"{path.name} now opens in the form.")
 
 
 @app.post("/routes/{name}/check")

@@ -180,7 +180,7 @@ class TestHosts(AppTest):
         self.assertEqual(os.listdir(self.sites), [])
 
 
-class TestRoutes(AppTest):
+class RouteTest(AppTest):
     def setUp(self):
         super().setUp()
         self.setup_admin()
@@ -224,6 +224,8 @@ class TestRoutes(AppTest):
     def reject(self):
         self.load.return_value = mock.Mock(status_code=400, json=lambda: {"error": "unknown directive"})
 
+
+class TestRoutes(RouteTest):
     def test_reverse_proxy_file(self):
         self.assertEqual(self.create().headers["location"], "/?host=h1")
         self.assertEqual(
@@ -332,6 +334,121 @@ class TestRoutes(AppTest):
         self.assertEqual(self.create().headers["location"], "/?host=h1")
         self.assertIn("does not answer yet", self.client.get("/").text)
         self.assertTrue(os.path.exists(os.path.join(self.sites, "pdf.caddy")))
+
+
+class TestEdit(RouteTest):
+    def setUp(self):
+        super().setUp()
+        self.create()
+        self.original = self.read("pdf.caddy")
+
+    def mtime(self, name="pdf.caddy"):
+        return str(os.stat(os.path.join(self.sites, name)).st_mtime_ns)
+
+    def edit(self, name="pdf", mtime=None, **overrides):
+        data = {"mode": "form", "mtime": mtime or self.mtime(f"{name}.caddy"), **self.form(**overrides)}
+        return self.client.post(f"/routes/{name}/edit", data=data)
+
+    def write(self, name, text):
+        with open(os.path.join(self.sites, name), "w", encoding="utf-8", newline="\n") as handle:
+            handle.write(text)
+
+    def test_own_route_opens_in_the_form_and_saves(self):
+        page = self.client.get("/routes/pdf/edit").text
+        self.assertIn('name="mode" value="form"', page)
+        self.assertIn("10.0.0.5:9005", page)
+        self.assertEqual(self.edit(upstream="10.0.0.6:80").headers["location"], "/?host=h1")
+        self.assertIn("reverse_proxy 10.0.0.6:80\n", self.read("pdf.caddy"))
+        self.assertEqual(main.read_audit()[0]["action"], "update")
+
+    def test_changing_the_hostname_renames_the_file(self):
+        self.edit(host="scan")
+        self.assertEqual(os.listdir(self.sites), ["scan.caddy"])
+        self.assertIn("scan.lab.test {", self.read("scan.caddy"))
+        self.assertEqual(main.read_audit()[0]["route"], "pdf -> scan")
+
+    def test_rename_never_overwrites_another_route(self):
+        self.create(host="scan")
+        self.assertEqual(self.edit(host="scan").status_code, 400)
+        self.assertEqual(self.read("pdf.caddy"), self.original)
+
+    def test_rejected_rename_restores_both_files(self):
+        self.reject()
+        self.assertEqual(self.edit(host="scan").status_code, 400)
+        self.assertEqual(os.listdir(self.sites), ["pdf.caddy"])
+        self.assertEqual(self.read("pdf.caddy"), self.original)
+
+    def test_change_on_disk_is_shown_instead_of_overwritten(self):
+        stale = self.mtime()
+        self.write("pdf.caddy", "pdf.lab.test {\n\trespond 418\n}\n")
+        os.utime(os.path.join(self.sites, "pdf.caddy"), ns=(1, 1))
+        response = self.edit(mtime=stale, upstream="10.0.0.6:80")
+        self.assertEqual(response.status_code, 409)
+        self.assertIn("respond 418", response.text)  # what is on disk
+        self.assertIn("10.0.0.6:80", response.text)  # what was about to be saved
+        self.assertIn("respond 418", self.read("pdf.caddy"))
+        # The page now carries the new time, so saving again is a deliberate overwrite.
+        self.assertIn('name="mtime" value="1"', response.text)
+        self.assertEqual(self.edit(mtime="1", upstream="10.0.0.6:80").headers["location"], "/?host=h1")
+        self.assertIn("10.0.0.6:80", self.read("pdf.caddy"))
+
+    def test_foreign_file_opens_as_text_and_saves(self):
+        self.write("legacy.caddy", "legacy.lab.test {\n\trespond 200\n}\n")
+        page = self.client.get("/routes/legacy/edit").text
+        self.assertIn("<textarea", page)
+        self.assertNotIn("Adopt this route", page)
+        data = {"mode": "raw", "mtime": self.mtime("legacy.caddy"), "content": "legacy.lab.test {\r\n\trespond 204\r\n}"}
+        self.assertEqual(self.client.post("/routes/legacy/edit", data=data).headers["location"], "/?host=h1")
+        self.assertEqual(self.read("legacy.caddy"), "legacy.lab.test {\n\trespond 204\n}\n")
+
+    def test_rejected_text_is_put_back(self):
+        before = "legacy.lab.test {\n\trespond 200\n}\n"
+        self.write("legacy.caddy", before)
+        self.reject()
+        data = {"mode": "raw", "mtime": self.mtime("legacy.caddy"), "content": "legacy.lab.test {\n\tnonsense\n}\n"}
+        response = self.client.post("/routes/legacy/edit", data=data)
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("nonsense", response.text)  # the attempt stays in the editor
+        self.assertEqual(self.read("legacy.caddy"), before)
+
+    def test_own_route_can_be_opened_as_text(self):
+        self.assertIn("<textarea", self.client.get("/routes/pdf/edit?raw=1").text)
+
+    def test_adopt_a_newsite_file(self):
+        self.write("wiki.caddy", "wiki.lab.test {\n    reverse_proxy 10.0.0.7:3000\n    import stepca\n}\n")
+        self.assertIn("Adopt this route", self.client.get("/routes/wiki/edit").text)
+        self.client.post("/routes/wiki/adopt")
+        route = main.read_route(main.Path(self.sites) / "wiki.caddy", self.host)
+        self.assertEqual((route["type"], route["upstream"], route["tls"]), ("reverse_proxy", "10.0.0.7:3000", "acme_ca"))
+        self.assertIn('name="mode" value="form"', self.client.get("/routes/wiki/edit").text)
+
+    def test_adopt_recognises_every_type(self):
+        cases = {
+            "http://a.lab.test:8080 {\n\troot * /srv/www\n\tfile_server\n}\n": ("static", "none"),
+            "a.lab.test {\n\ttls internal\n\tredir https://b.lab.test{uri} 302\n}\n": ("redirect", "internal"),
+            "a.lab.test {\n\treverse_proxy https://10.0.0.7:8443\n}\n": ("reverse_proxy", "default"),
+        }
+        for text, expected in cases.items():
+            route, reason = main.adopt_route(text, self.host)
+            self.assertEqual((route["type"], route["tls"]), expected, reason)
+
+    def test_adopt_refuses_what_it_does_not_fully_understand(self):
+        refused = [
+            "a.lab.test {\n\treverse_proxy 10.0.0.7:3000\n\theader X-Frame-Options DENY\n}\n",
+            "a.lab.test {\n\treverse_proxy 10.0.0.7:3000 10.0.0.8:3000\n}\n",
+            "a.lab.test, b.lab.test {\n\treverse_proxy 10.0.0.7:3000\n}\n",
+            "a.lab.test {\n\timport other\n\treverse_proxy 10.0.0.7:3000\n}\n",
+            "a.lab.test {\n\treverse_proxy 10.0.0.7:3000\n}\nb.lab.test {\n\trespond 200\n}\n",
+            "a.lab.test {\n\ttls internal\n}\n",
+            "a.lab.test {\n\t# keep\n\treverse_proxy 10.0.0.7:3000\n}\n",
+        ]
+        for text in refused:
+            with self.subTest(text):
+                self.assertIsNone(main.adopt_route(text, self.host)[0])
+        self.write("odd.caddy", refused[0])
+        self.client.post("/routes/odd/adopt")
+        self.assertEqual(self.read("odd.caddy"), refused[0])
+        self.assertIn("left as it is", self.client.get("/").text)
 
 
 if __name__ == "__main__":

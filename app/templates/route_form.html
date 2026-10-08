@@ -1,9 +1,15 @@
 {% extends "base.html" %}
-{% block title %}Add route - Caddyman{% endblock %}
+{% block title %}{{ "Edit route" if name else "Add route" }} - Caddyman{% endblock %}
 {% block content %}
-<form method="post" action="/routes/new?host={{ host.id }}" class="card wide route">
-	<h1>Add a route</h1>
+<form method="post" class="card wide route"
+	action="{{ '/routes/' ~ name|urlencode ~ '/edit' if name else '/routes/new' }}?host={{ host.id }}">
+	<h1>{{ "Edit " ~ name ~ ".caddy" if name else "Add a route" }}</h1>
 	{% if error %}<p class="error" role="alert">{{ error }}</p>{% endif %}
+	{% include "conflict.html" %}
+	{% if name %}
+	<input type="hidden" name="mode" value="form">
+	<input type="hidden" name="mtime" value="{{ mtime }}">
+	{% endif %}
 
 	<fieldset class="choice">
 		<legend>Type</legend>
@@ -56,6 +62,10 @@
 	<input id="port" name="port" value="{{ route.port or '' }}" inputmode="numeric" placeholder="443">
 	<small>Any other port has to be published on the Caddy container. Caddyman cannot check or change that.</small>
 
-	<button type="submit">Save and reload Caddy</button>
+	<button type="submit">{{ "Overwrite and reload Caddy" if conflict else "Save and reload Caddy" }}</button>
+	{% if name %}
+	<p class="below">Changing the hostname renames the file.
+		<a href="/routes/{{ name|urlencode }}/edit?host={{ host.id }}&amp;raw=1">Edit as text instead</a></p>
+	{% endif %}
 </form>
 {% endblock %}

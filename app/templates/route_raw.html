@@ -1,0 +1,21 @@
+{% extends "base.html" %}
+{% block title %}Edit route - Caddyman{% endblock %}
+{% block content %}
+<form method="post" action="/routes/{{ name|urlencode }}/edit?host={{ host.id }}" class="card wide">
+	<h1>Edit {{ name }}.caddy</h1>
+	<p>This file was not created here or was changed by hand, so it opens as text. Caddy checks it on save; if Caddy rejects it, the file is put back as it was.</p>
+	{% if error %}<p class="error" role="alert">{{ error }}</p>{% endif %}
+	{% include "conflict.html" %}
+	<input type="hidden" name="mode" value="raw">
+	<input type="hidden" name="mtime" value="{{ mtime }}">
+	<label for="content">Caddyfile</label>
+	<textarea id="content" name="content" rows="14" spellcheck="false" required autofocus>{{ content }}</textarea>
+	<button type="submit">{{ "Overwrite and reload Caddy" if conflict else "Save and reload Caddy" }}</button>
+</form>
+{% if adoptable %}
+<form method="post" action="/routes/{{ name|urlencode }}/adopt?host={{ host.id }}" class="card wide">
+	<p>This file matches a pattern Caddyman knows. Adopting it adds a metadata line, after which it opens in the form.</p>
+	<button type="submit" class="secondary">Adopt this route</button>
+</form>
+{% endif %}
+{% endblock %}
