@@ -30,7 +30,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from itsdangerous import BadSignature, URLSafeTimedSerializer
 
-VERSION = "0.8.6"
+VERSION = "0.8.7"
 # Shown in the footer. The AGPL asks that everyone using this over a network can get the source,
 # so a modified copy has to point to its own.
 SOURCE_URL = os.getenv("CADDYMAN_SOURCE_URL", "https://github.com/Marschux/Caddyman")
@@ -1057,19 +1057,6 @@ def route_adopt(name: str, host: str | None = None):
     if error := apply_route(current, {path: render_route(route, current)}, "adopt", name):
         return redirect(url, "error", f"Caddy rejected the reload, {path.name} was left as it is: {error}")
     return redirect(url, "ok", f"{path.name} now opens in the form.")
-
-
-@app.post("/routes/{name}/check")
-def route_check(name: str, host: str | None = None):
-    _, current = pick_host(host)
-    path = route_path(current, name) if current else None
-    route = read_route(path, current) if path else None
-    if not route or route["type"] != "reverse_proxy":
-        return redirect("/", "error", "Only reverse proxy routes created here can be checked.")
-    url = f"/?host={current['id']}"
-    if target_reachable(route["upstream"]):
-        return redirect(url, "ok", f"{route['upstream']} accepts connections.")
-    return redirect(url, "warn", f"{route['upstream']} does not answer.")
 
 
 def host_settings_url() -> str:

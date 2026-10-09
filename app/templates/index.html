@@ -33,11 +33,6 @@
 			<td colspan="4" class="empty">Not created here, or edited by hand</td>
 			{% endif %}
 			<td class="actions">
-				{% if route and route.type == "reverse_proxy" %}
-				<form method="post" action="/routes/{{ item.name|urlencode }}/check?host={{ host.id }}">
-					<button type="submit" class="link">Test target</button>
-				</form>
-				{% endif %}
 				{% if not route %}
 				<form method="post" action="/routes/{{ item.name|urlencode }}/adopt?host={{ host.id }}">
 					<button type="submit" class="link">Adopt</button>
