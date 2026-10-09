@@ -28,8 +28,9 @@ SHA-1    {{ item.sha1 }}</pre>
 
 <section>
 	<h2>Windows</h2>
-	<p class="empty">In PowerShell <strong>as administrator</strong>, from the folder with the download:</p>
-	<pre>Import-Certificate -FilePath .\root-ca.crt -CertStoreLocation Cert:\LocalMachine\Root</pre>
+	<p class="empty">In PowerShell <strong>as administrator</strong>. The path points at your download folder; change it
+		if the file is somewhere else:</p>
+	<pre>Import-Certificate -FilePath "$env:USERPROFILE\Downloads\root-ca.crt" -CertStoreLocation Cert:\LocalMachine\Root</pre>
 	<p class="empty">Do not use the import wizard with "automatically select the certificate store": it files a CA under
 		intermediate authorities of the current user, where Windows does not trust it and says nothing.</p>
 </section>
