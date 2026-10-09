@@ -17,7 +17,7 @@ from concurrent.futures import ThreadPoolExecutor
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from pathlib import Path
-from urllib.parse import urlsplit
+from urllib.parse import urljoin, urlsplit
 
 import bcrypt
 import httpx
@@ -30,7 +30,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from itsdangerous import BadSignature, URLSafeTimedSerializer
 
-VERSION = "0.8.8"
+VERSION = "0.8.9"
 # Shown in the footer. The AGPL asks that everyone using this over a network can get the source,
 # so a modified copy has to point to its own.
 SOURCE_URL = os.getenv("CADDYMAN_SOURCE_URL", "https://github.com/Marschux/Caddyman")
@@ -907,6 +907,42 @@ def route_links(route: dict | None) -> tuple[str, str]:
     return site, target if target.startswith(("http://", "https://")) else ""
 
 
+ICON_TIMEOUT = 3
+ICON_MAX_BYTES = 256 * 1024
+ICON_TYPES = {"image/x-icon", "image/vnd.microsoft.icon", "image/png", "image/svg+xml", "image/gif", "image/jpeg", "image/webp"}
+ICON_LINK_RE = re.compile(r"""<link\b[^>]*\brel=["']?[^"'>]*\bicon\b[^>]*>""", re.IGNORECASE)
+ICON_HREF_RE = re.compile(r"""\bhref=["']?([^"'\s>]+)""", re.IGNORECASE)
+
+
+def fetch_icon(upstream: str) -> tuple[bytes, str] | None:
+    """The icon a target shows in a browser tab: the one its start page names, else /favicon.ico."""
+    base = upstream if "://" in upstream else f"http://{upstream}"
+    candidates = [urljoin(base, "/favicon.ico")]
+    # Unverified on purpose: a target behind the proxy usually carries a certificate
+    # nobody trusts, and all this takes from it is a picture.
+    with httpx.Client(verify=False, follow_redirects=True, timeout=ICON_TIMEOUT) as client:
+        try:
+            page = client.get(base)
+            link = ICON_LINK_RE.search(page.text[:65536])
+            if href := link and ICON_HREF_RE.search(link.group(0)):
+                candidates.insert(0, urljoin(str(page.url), href.group(1)))
+        except (httpx.HTTPError, httpx.InvalidURL, ValueError):
+            # A target that does not answer here will not answer for its icon either.
+            return None
+        for url in candidates:
+            try:
+                response = client.get(url)
+            except (httpx.HTTPError, httpx.InvalidURL, ValueError):
+                continue
+            kind = response.headers.get("content-type", "").split(";")[0].strip().lower()
+            # Plenty of servers hand out favicon.ico without naming its type.
+            if response.content[:4] == b"\x00\x00\x01\x00":
+                kind = "image/x-icon"
+            if response.status_code == 200 and kind in ICON_TYPES and 0 < len(response.content) <= ICON_MAX_BYTES:
+                return response.content, kind
+    return None
+
+
 def pick_host(host_id: str | None) -> tuple[list[dict], dict | None]:
     hosts = load_hosts()
     return hosts, next((item for item in hosts if item["id"] == host_id), hosts[0] if hosts else None)
@@ -1071,6 +1107,20 @@ def route_adopt(name: str, host: str | None = None):
     if error := apply_route(current, {path: render_route(route, current)}, "adopt", name):
         return redirect(url, "error", f"Caddy rejected the reload, {path.name} was left as it is: {error}")
     return redirect(url, "ok", f"{path.name} now opens in the form.")
+
+
+@app.get("/routes/{name}/icon")
+def route_icon(name: str, host: str | None = None):
+    current, path = existing_route(host, name)
+    route = read_route(path, current) if path else None
+    icon = fetch_icon(route["upstream"]) if route and route["type"] == "reverse_proxy" else None
+    # The browser keeps the answer for an hour, a missing icon included: nothing is cached here.
+    headers = {"Cache-Control": "private, max-age=3600"}
+    if icon is None:
+        return Response(status_code=404, headers=headers)
+    # The picture comes from somewhere else and is served from here: it must never run as a document.
+    headers.update({"Content-Security-Policy": "sandbox; default-src 'none'", "X-Content-Type-Options": "nosniff"})
+    return Response(icon[0], media_type=icon[1], headers=headers)
 
 
 def host_settings_url() -> str:

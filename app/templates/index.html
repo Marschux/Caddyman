@@ -1,12 +1,12 @@
 {% extends "base.html" %}
 {% block content %}
 <div class="heading">
-	<h1>Routes{% if routes %} <span class="count">{{ routes|length }}</span>{% endif %}</h1>
+	<h1>Routes</h1>
 	<a class="button" href="/routes/new?host={{ host.id }}">Add route</a>
 </div>
 <table>
 	<thead>
-		<tr><th>Host</th><th>Target</th><th>TLS</th><th>Certificate</th><th></th></tr>
+		<tr><th>Host</th><th>Type</th><th>Target</th><th>TLS</th><th>Certificate</th><th></th></tr>
 	</thead>
 	<tbody>
 		{% for item in routes %}
@@ -14,10 +14,13 @@
 		<tr>
 			{% if route %}
 			<td class="nowrap">
+				{# The slot stays when there is no icon, so the hostnames line up. #}
+				<span class="icon">{% if route.type == "reverse_proxy" %}<img src="/routes/{{ item.name|urlencode }}/icon?host={{ host.id }}" alt="" width="16" height="16" loading="lazy" onerror="this.remove()">{% endif %}</span>
 				<a class="out" href="{{ item.site }}" target="_blank" rel="noopener noreferrer"><strong>{{ route.host }}{{ ":" ~ route.port if route.port }}</strong></a>
-				<small>{{ {"reverse_proxy": "Reverse proxy", "redirect": "Redirect", "static": "Static files"}[route.type] }}</small>
 			</td>
-			<td>{% if item.link %}<a class="out" href="{{ item.link }}" target="_blank" rel="noopener noreferrer"><code>{{ route.upstream or route.target }}</code></a>
+			<td class="nowrap">{{ {"reverse_proxy": "Reverse proxy", "redirect": "Redirect", "static": "Static files"}[route.type] }}</td>
+			{# A redirect can point at a long address and may wrap; host:port and a path stay on one line. #}
+			<td{% if route.type != "redirect" %} class="nowrap"{% endif %}>{% if item.link %}<a class="out" href="{{ item.link }}" target="_blank" rel="noopener noreferrer"><code>{{ route.upstream or route.target }}</code></a>
 				{% else %}<code>{{ route.upstream or route.target or route.root }}</code>{% endif %}
 				{% if item.target_down %}<span class="cert warn" title="No TCP connection from Caddyman to this target. Caddy may see it differently.">Not reachable</span>{% endif %}
 				{% if route.auth_user %}<span class="tag">Basic auth</span>{% endif %}
@@ -33,23 +36,23 @@
 			</td>
 			{% else %}
 			<td><code>{{ item.name }}.caddy</code></td>
-			<td colspan="3" class="empty">Not created here, or edited by hand</td>
+			<td colspan="4" class="empty">Not created here, or edited by hand</td>
 			{% endif %}
 			<td class="actions">
 				{% if not route %}
 				<form method="post" action="/routes/{{ item.name|urlencode }}/adopt?host={{ host.id }}">
-					<button type="submit" class="link">Adopt</button>
+					<button type="submit">Adopt</button>
 				</form>
 				{% endif %}
-				<a href="/routes/{{ item.name|urlencode }}/edit?host={{ host.id }}">Edit</a>
+				<a class="button" href="/routes/{{ item.name|urlencode }}/edit?host={{ host.id }}">Edit</a>
 				<form method="post" action="/routes/{{ item.name|urlencode }}/delete?host={{ host.id }}"
 					data-confirm="Delete {{ item.name }}.caddy and reload Caddy?" onsubmit="return confirm(this.dataset.confirm)">
-					<button type="submit" class="link danger">Delete</button>
+					<button type="submit" class="danger">Delete</button>
 				</form>
 			</td>
 		</tr>
 		{% else %}
-		<tr><td colspan="5" class="empty">No routes yet.</td></tr>
+		<tr><td colspan="6" class="empty">No routes yet.</td></tr>
 		{% endfor %}
 	</tbody>
 </table>

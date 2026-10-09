@@ -148,10 +148,15 @@ td.nowrap { white-space: nowrap; }
 /* Not a flex container: a table cell has to stay a table cell or the row borders break. */
 .actions { white-space: nowrap; text-align: right; }
 .actions form { display: inline; }
-.actions > * + * { margin-left: 16px; }
-td small { margin-top: 2px; }
+.actions > * + * { margin-left: 8px; }
+/* Outlined, so they stay visible on the lifted row under the pointer. */
+.actions button, .actions a.button { width: auto; margin: 0; padding: 6px 14px; font-size: 13px; color: var(--ink); background: none; border-color: var(--hairline-strong); }
+.actions button:hover, .actions a.button:hover { background: var(--surface-3); border-color: var(--surface-3); }
+.actions button.danger { color: var(--error); }
+.actions button.danger:hover { background: var(--error-bg); border-color: var(--error); }
 td > .tag:first-child { margin-left: 0; }
-.count { margin-left: 6px; padding: 3px 12px; vertical-align: middle; background: var(--surface-2); border-radius: 9999px; color: var(--ink-muted); font-size: 14px; font-weight: 600; letter-spacing: 0; }
+.icon { display: inline-block; width: 16px; height: 16px; margin-right: 10px; vertical-align: -3px; }
+.icon img { display: block; border-radius: 3px; }
 /* Opens somewhere else: reads as the value it wraps, the arrow shows on hover. */
 a.out { color: var(--ink); }
 a.out::after { content: "\2197"; margin-left: 6px; color: var(--product); font-size: 12px; opacity: 0; }
