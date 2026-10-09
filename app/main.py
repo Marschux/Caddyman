@@ -30,7 +30,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from itsdangerous import BadSignature, URLSafeTimedSerializer
 
-VERSION = "0.8.7"
+VERSION = "0.8.8"
 # Shown in the footer. The AGPL asks that everyone using this over a network can get the source,
 # so a modified copy has to point to its own.
 SOURCE_URL = os.getenv("CADDYMAN_SOURCE_URL", "https://github.com/Marschux/Caddyman")
@@ -894,6 +894,19 @@ def certificate_status(host: dict, route: dict | None) -> dict | None:
     return status
 
 
+def route_links(route: dict | None) -> tuple[str, str]:
+    """Where a click on the hostname and on the target leads. Empty where there is nothing to open."""
+    if not route:
+        return "", ""
+    port = f":{route['port']}" if route.get("port") else ""
+    site = f"{'http' if route['tls'] == 'none' else 'https'}://{route['host']}{port}"
+    target = route.get("upstream") or route.get("target") or ""
+    if route["type"] == "reverse_proxy" and "://" not in target:
+        target = f"http://{target}"
+    # Only ever a web address: the value comes from a file somebody may have edited.
+    return site, target if target.startswith(("http://", "https://")) else ""
+
+
 def pick_host(host_id: str | None) -> tuple[list[dict], dict | None]:
     hosts = load_hosts()
     return hosts, next((item for item in hosts if item["id"] == host_id), hosts[0] if hosts else None)
@@ -930,6 +943,7 @@ def index(request: Request, host: str | None = None):
     for item, status, target_down in zip(routes, statuses, down):
         item["certificate"] = status
         item["target_down"] = target_down
+        item["site"], item["link"] = route_links(item["route"])
     return page(request, "index.html", hosts=hosts, host=current, routes=routes)
 
 

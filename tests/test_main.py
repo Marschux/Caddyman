@@ -388,6 +388,17 @@ class TestRoutes(RouteTest):
             self.assertTrue(self.real_reachable(upstream))
             self.assertEqual(connect.call_args.args[0], ("10.0.0.5", port))
 
+    def test_list_links_host_and_target(self):
+        links = lambda **route: main.route_links({"host": "pdf.lab.test", "port": "", "tls": "acme_ca", **route})  # noqa: E731
+        self.assertEqual(links(type="reverse_proxy", upstream="10.0.0.5:9005"), ("https://pdf.lab.test", "http://10.0.0.5:9005"))
+        self.assertEqual(links(type="reverse_proxy", upstream="https://10.0.0.5", tls="none", port="8080"),
+                         ("http://pdf.lab.test:8080", "https://10.0.0.5"))
+        self.assertEqual(links(type="redirect", target="https://x.test/a")[1], "https://x.test/a")
+        self.assertEqual(links(type="redirect", target="javascript:alert(1)")[1], "")
+        self.assertEqual(links(type="static", root="/srv/www")[1], "")
+        self.create()
+        self.assertIn('href="https://pdf.lab.test"', self.client.get("/").text)
+
     def test_list_marks_unreachable_target(self):
         self.create()
         self.create(type="static", host="docs", root="/srv/www", tls="none")

@@ -2,7 +2,6 @@
 {% block title %}Status - Caddyman{% endblock %}
 {% block content %}
 <h1>Status</h1>
-<p class="empty">These checks only read. Caddyman never changes the base Caddyfile.</p>
 {% for host in hosts %}
 <section id="host-{{ host.id }}">
 	<div class="heading">

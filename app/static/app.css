@@ -149,6 +149,13 @@ td.nowrap { white-space: nowrap; }
 .actions { white-space: nowrap; text-align: right; }
 .actions form { display: inline; }
 .actions > * + * { margin-left: 16px; }
+td small { margin-top: 2px; }
+td > .tag:first-child { margin-left: 0; }
+.count { margin-left: 6px; padding: 3px 12px; vertical-align: middle; background: var(--surface-2); border-radius: 9999px; color: var(--ink-muted); font-size: 14px; font-weight: 600; letter-spacing: 0; }
+/* Opens somewhere else: reads as the value it wraps, the arrow shows on hover. */
+a.out { color: var(--ink); }
+a.out::after { content: "\2197"; margin-left: 6px; color: var(--product); font-size: 12px; opacity: 0; }
+a.out:hover::after, a.out:focus-visible::after { opacity: 1; }
 
 section { margin-top: 48px; }
 section > h2 { margin-bottom: 8px; }
@@ -197,7 +204,7 @@ label.check { display: flex; gap: 10px; align-items: baseline; font-weight: 500;
 .cert.fail::before { background: var(--error); }
 .cert.warn { color: var(--warn); }
 .cert.fail { color: var(--error); }
-code + .cert { margin-left: 8px; white-space: nowrap; }
+a + .cert, code + .cert { margin-left: 8px; white-space: nowrap; }
 
 /* The fields of the other layout stay hidden; the server ignores them. */
 .hostform .for-mounted, .hostform .for-managed { display: none; }

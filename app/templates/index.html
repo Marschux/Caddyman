@@ -1,25 +1,28 @@
 {% extends "base.html" %}
 {% block content %}
 <div class="heading">
-	<h1>Routes</h1>
+	<h1>Routes{% if routes %} <span class="count">{{ routes|length }}</span>{% endif %}</h1>
 	<a class="button" href="/routes/new?host={{ host.id }}">Add route</a>
 </div>
 <table>
 	<thead>
-		<tr><th>Host</th><th>Type</th><th>Target</th><th>TLS</th><th>Certificate</th><th></th></tr>
+		<tr><th>Host</th><th>Target</th><th>TLS</th><th>Certificate</th><th></th></tr>
 	</thead>
 	<tbody>
 		{% for item in routes %}
 		{% set route = item.route %}
 		<tr>
 			{% if route %}
-			<td class="nowrap"><strong>{{ route.host }}{{ ":" ~ route.port if route.port }}</strong></td>
-			<td class="nowrap">{{ {"reverse_proxy": "Reverse proxy", "redirect": "Redirect", "static": "Static files"}[route.type] }}</td>
-			<td><code>{{ route.upstream or route.target or route.root }}</code>
+			<td class="nowrap">
+				<a class="out" href="{{ item.site }}" target="_blank" rel="noopener noreferrer"><strong>{{ route.host }}{{ ":" ~ route.port if route.port }}</strong></a>
+				<small>{{ {"reverse_proxy": "Reverse proxy", "redirect": "Redirect", "static": "Static files"}[route.type] }}</small>
+			</td>
+			<td>{% if item.link %}<a class="out" href="{{ item.link }}" target="_blank" rel="noopener noreferrer"><code>{{ route.upstream or route.target }}</code></a>
+				{% else %}<code>{{ route.upstream or route.target or route.root }}</code>{% endif %}
 				{% if item.target_down %}<span class="cert warn" title="No TCP connection from Caddyman to this target. Caddy may see it differently.">Not reachable</span>{% endif %}
 				{% if route.auth_user %}<span class="tag">Basic auth</span>{% endif %}
 				{% if route.host_header %}<span class="tag">Host header</span>{% endif %}</td>
-			<td class="nowrap">{{ {"acme_ca": "Own ACME CA", "default": "Caddy default", "internal": "Caddy internal", "none": "None"}[route.tls] }}</td>
+			<td class="nowrap"><span class="tag">{{ {"acme_ca": "Own ACME CA", "default": "Caddy default", "internal": "Caddy internal", "none": "None"}[route.tls] }}</span></td>
 			<td>
 				{% set cert = item.certificate %}
 				{% if cert %}
@@ -30,7 +33,7 @@
 			</td>
 			{% else %}
 			<td><code>{{ item.name }}.caddy</code></td>
-			<td colspan="4" class="empty">Not created here, or edited by hand</td>
+			<td colspan="3" class="empty">Not created here, or edited by hand</td>
 			{% endif %}
 			<td class="actions">
 				{% if not route %}
@@ -46,7 +49,7 @@
 			</td>
 		</tr>
 		{% else %}
-		<tr><td colspan="6" class="empty">No routes yet.</td></tr>
+		<tr><td colspan="5" class="empty">No routes yet.</td></tr>
 		{% endfor %}
 	</tbody>
 </table>
