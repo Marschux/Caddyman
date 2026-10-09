@@ -1,5 +1,18 @@
 # Changelog
 
+## 2026-10-09 17:37
+- feat: login page without the bar, brand centred above the form, version 0.8.14
+- feat: root CA hint as its own card on the login page, version 0.8.13
+- feat: root certificate without a login, check code and a self-checking install command, version 0.8.12
+- fix: Windows import command points at the download folder, version 0.8.11
+- feat: target icons removed from the route list again, version 0.8.10
+- feat: target icons, outlined buttons and a single-line route list, version 0.8.9
+- feat: route list with links, counter and type under the hostname, version 0.8.8
+- feat: test target button removed from the route list, version 0.8.7
+- feat: target without a port, version 0.8.6
+- feat: unreachable targets marked in the route list, version 0.8.5
+
+
 ## 2026-10-09 01:47
 - feat: admin API behind a login by default, version 0.8.4
 
