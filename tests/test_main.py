@@ -378,6 +378,13 @@ class TestRoutes(RouteTest):
         self.assertIn("does not answer yet", self.client.get("/").text)
         self.assertTrue(os.path.exists(os.path.join(self.sites, "pdf.caddy")))
 
+    def test_list_marks_unreachable_target(self):
+        self.create()
+        self.create(type="static", host="docs", root="/srv/www", tls="none")
+        self.assertNotIn("Not reachable", self.client.get("/").text)
+        main.target_reachable.return_value = False
+        self.assertEqual(self.client.get("/").text.count("Not reachable"), 1)  # reverse proxies only
+
 
 class TestCa(RouteTest):
     # Not a real certificate: the page only needs something that decodes from PEM.

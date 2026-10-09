@@ -197,6 +197,7 @@ label.check { display: flex; gap: 10px; align-items: baseline; font-weight: 500;
 .cert.fail::before { background: var(--error); }
 .cert.warn { color: var(--warn); }
 .cert.fail { color: var(--error); }
+code + .cert { margin-left: 8px; white-space: nowrap; }
 
 /* The fields of the other layout stay hidden; the server ignores them. */
 .hostform .for-mounted, .hostform .for-managed { display: none; }

@@ -30,7 +30,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from itsdangerous import BadSignature, URLSafeTimedSerializer
 
-VERSION = "0.8.4"
+VERSION = "0.8.5"
 # Shown in the footer. The AGPL asks that everyone using this over a network can get the source,
 # so a modified copy has to point to its own.
 SOURCE_URL = os.getenv("CADDYMAN_SOURCE_URL", "https://github.com/Marschux/Caddyman")
@@ -826,10 +826,13 @@ def adopt_route(content: str, host: dict) -> tuple[dict | None, str]:
 
 def target_reachable(upstream: str) -> bool:
     match = UPSTREAM_RE.match(upstream)
+    # A metadata line edited by hand can carry a target the form would have refused.
+    if not match:
+        return False
     try:
         with socket.create_connection((match.group(2), int(match.group(4))), timeout=REACH_TIMEOUT):
             return True
-    except OSError:
+    except (OSError, OverflowError):
         return False
 
 
@@ -915,12 +918,16 @@ def index(request: Request, host: str | None = None):
     if current is None:
         return RedirectResponse("/hosts/new", status_code=303)
     routes = list_routes(current)
-    # One handshake per route on every page load, nothing cached. Fine for the
-    # dozens of routes a homelab has; cache for a minute if the list ever feels slow.
+    # One handshake and one connection to the target per route on every page load,
+    # nothing cached. Fine for the dozens of routes a homelab has; cache for a minute
+    # if the list ever feels slow.
+    proxied = lambda item: item["route"] and item["route"]["type"] == "reverse_proxy"  # noqa: E731
     with ThreadPoolExecutor(max_workers=8) as pool:
         statuses = pool.map(lambda item: certificate_status(current, item["route"]), routes)
-    for item, status in zip(routes, statuses):
+        down = pool.map(lambda item: bool(proxied(item)) and not target_reachable(item["route"]["upstream"]), routes)
+    for item, status, target_down in zip(routes, statuses, down):
         item["certificate"] = status
+        item["target_down"] = target_down
     return page(request, "index.html", hosts=hosts, host=current, routes=routes)
 
 
