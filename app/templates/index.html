@@ -14,8 +14,6 @@
 		<tr>
 			{% if route %}
 			<td class="nowrap">
-				{# The slot stays when there is no icon, so the hostnames line up. #}
-				<span class="icon">{% if route.type == "reverse_proxy" %}<img src="/routes/{{ item.name|urlencode }}/icon?host={{ host.id }}" alt="" width="16" height="16" loading="lazy" onerror="this.remove()">{% endif %}</span>
 				<a class="out" href="{{ item.site }}" target="_blank" rel="noopener noreferrer"><strong>{{ route.host }}{{ ":" ~ route.port if route.port }}</strong></a>
 			</td>
 			<td class="nowrap">{{ {"reverse_proxy": "Reverse proxy", "redirect": "Redirect", "static": "Static files"}[route.type] }}</td>

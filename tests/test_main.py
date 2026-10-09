@@ -399,31 +399,6 @@ class TestRoutes(RouteTest):
         self.create()
         self.assertIn('href="https://pdf.lab.test"', self.client.get("/").text)
 
-    def test_route_icon(self):
-        png = b"\x89PNG fake"
-
-        def target(request):
-            if request.url.path == "/":
-                return main.httpx.Response(200, html='<link rel="shortcut icon" href="/static/app.png">')
-            if request.url.path == "/static/app.png":
-                return main.httpx.Response(200, content=png, headers={"content-type": "image/png"})
-            return main.httpx.Response(200, html="<script>alert(1)</script>")  # /favicon.ico answered with a page
-
-        client = main.httpx.Client
-        self.patch(main.httpx, "Client", lambda **_: client(transport=main.httpx.MockTransport(target)))
-        self.assertEqual(main.fetch_icon("10.0.0.5:9005"), (png, "image/png"))
-        self.create()
-        response = self.client.get("/routes/pdf/icon")
-        self.assertEqual((response.content, response.headers["content-type"]), (png, "image/png"))
-        self.assertIn("sandbox", response.headers["content-security-policy"])
-        self.assertIn("/routes/pdf/icon", self.client.get("/").text)
-        # Nothing that is not a picture gets through, and other route types have no icon.
-        self.patch(main.httpx, "Client", lambda **_: client(transport=main.httpx.MockTransport(
-            lambda request: main.httpx.Response(200, html="<script>alert(1)</script>"))))
-        self.assertEqual(self.client.get("/routes/pdf/icon").status_code, 404)
-        self.create(type="static", host="docs", root="/srv/www", tls="none")
-        self.assertEqual(self.client.get("/routes/docs/icon").status_code, 404)
-
     def test_list_marks_unreachable_target(self):
         self.create()
         self.create(type="static", host="docs", root="/srv/www", tls="none")

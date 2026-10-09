@@ -155,8 +155,6 @@ td.nowrap { white-space: nowrap; }
 .actions button.danger { color: var(--error); }
 .actions button.danger:hover { background: var(--error-bg); border-color: var(--error); }
 td > .tag:first-child { margin-left: 0; }
-.icon { display: inline-block; width: 16px; height: 16px; margin-right: 10px; vertical-align: -3px; }
-.icon img { display: block; border-radius: 3px; }
 /* Opens somewhere else: reads as the value it wraps, the arrow shows on hover. */
 a.out { color: var(--ink); }
 a.out::after { content: "\2197"; margin-left: 6px; color: var(--product); font-size: 12px; opacity: 0; }
