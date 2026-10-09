@@ -8,13 +8,10 @@
 	<link rel="stylesheet" href="/static/app.css">
 </head>
 <body>
+	{% block header %}
 	<header>
 		<a class="brand" href="/">
-			<svg width="24" height="24" viewBox="0 0 24 24" aria-hidden="true">
-				<rect width="24" height="24" rx="4" fill="#14c6cb"/>
-				<path d="M8.5 11V8.8a3.5 3.5 0 0 1 7 0V11" fill="none" stroke="#000" stroke-width="1.8" stroke-linecap="round"/>
-				<rect x="6.5" y="11" width="11" height="7.5" rx="1.5" fill="#000"/>
-			</svg>
+			{% include "logo.svg" %}
 			Caddyman
 		</a>
 		{% if request.state.user %}
@@ -32,6 +29,7 @@
 		</form>
 		{% endif %}
 	</header>
+	{% endblock %}
 	<main>
 		{% if flash %}<p class="flash {{ flash[0] }}" role="status">{{ flash[1] }}</p>{% endif %}
 		{% block content %}{% endblock %}

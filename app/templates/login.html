@@ -1,6 +1,9 @@
 {% extends "base.html" %}
 {% block title %}Log in - Caddyman{% endblock %}
+{# No bar on this page: the name sits above the form instead. #}
+{% block header %}{% endblock %}
 {% block content %}
+<p class="brand above">{% include "logo.svg" %} Caddyman</p>
 <form method="post" action="/login" class="card">
 	<h1>Log in</h1>
 	{% if error %}<p class="error" role="alert">{{ error }}</p>{% endif %}
