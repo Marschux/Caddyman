@@ -9,6 +9,10 @@
 	<label for="password">Password</label>
 	<input id="password" name="password" type="password" autocomplete="current-password" required>
 	<button type="submit">Log in</button>
-	<p class="below">Only here for the certificate? <a href="/trust">Get the root CA</a> without logging in.</p>
 </form>
+<div class="card">
+	<h2>Only here for the certificate?</h2>
+	<p class="below">The root CA and how to install it are open to everyone.</p>
+	<p class="below"><a class="button" href="/trust">Get the root CA</a></p>
+</div>
 {% endblock %}
