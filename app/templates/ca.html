@@ -1,18 +1,35 @@
 {% extends "base.html" %}
 {% block title %}Root CA - Caddyman{% endblock %}
+{# One template for two pages: /ca for the admin, /trust for everybody else. The open page
+   shows nothing a forged copy of it could lie about, so no fingerprint and no check code. #}
 {% block content %}
 <div class="heading">
 	<h1>Root CA</h1>
-	{% if not error %}<a class="button" href="/ca/root-ca.crt?host={{ host.id }}">Download root-ca.crt</a>{% endif %}
+	{% if not error %}<a class="button" href="/root-ca.crt">Download root-ca.crt</a>{% endif %}
 </div>
 
-{% if error %}
+{% if error and public %}
+<p class="flash error" role="alert">The certificate is not available right now.</p>
+{% elif error %}
 <p class="flash error" role="alert">{{ error }}</p>
 <p class="empty">The source is part of the <a href="/hosts/{{ host.id }}/edit">Caddy settings</a>.
 	Without a root CA source, Caddy's own internal CA is used.</p>
 {% else %}
+{% if public %}
+<p class="empty">Every device that should open the sites behind this proxy without a warning needs this certificate once.
+	Whoever runs this Caddyman gives you a <strong>check code</strong>. Ask for it in person or on the phone:
+	it is what proves that the certificate you got is the real one.</p>
+{% else %}
 <p class="empty">Every device that should trust the routes of {{ host.name }} needs this certificate once.
 	{% if internal %}This is Caddy's own internal CA, because the host has no root CA source configured.{% endif %}</p>
+
+<section>
+	<h2>For people without a login</h2>
+	<p class="empty">The page <a href="/trust">/trust</a> and the download work without logging in. Send the link, and
+		give this check code another way, in person or on the phone:</p>
+	<pre>{{ check_code }}</pre>
+	<p class="empty">Somebody who can tamper with the connection can swap the certificate, but not what you say out loud.</p>
+</section>
 
 <section>
 	<h2>Fingerprint</h2>
@@ -25,11 +42,17 @@ SHA-1    {{ item.sha1 }}</pre>
 	<p class="empty">Windows shows the SHA-1 value as "Thumbprint". On the command line:</p>
 	<pre>openssl x509 -in root-ca.crt -noout -fingerprint -sha256</pre>
 </section>
+{% endif %}
 
 <section>
 	<h2>Windows</h2>
-	<p class="empty">In PowerShell <strong>as administrator</strong>. The path points at your download folder; change it
-		if the file is somewhere else:</p>
+	<p class="empty">Paste this into PowerShell <strong>as administrator</strong>. The certificate is part of the command, so
+		there is nothing to download. It asks for the check code and installs only if the code fits:</p>
+	<pre>$cert = [Security.Cryptography.X509Certificates.X509Certificate2]::new([Convert]::FromBase64String("{{ der_base64 }}"))
+$code = -join ([Security.Cryptography.SHA256]::Create().ComputeHash($cert.RawData)[0..5] | ForEach-Object { $_.ToString("X2") })
+if (((Read-Host "Check code") -replace "[^0-9A-Fa-f]") -eq $code) { $store = [Security.Cryptography.X509Certificates.X509Store]::new("Root", "LocalMachine"); $store.Open("ReadWrite"); $store.Add($cert); $store.Close(); "Installed: " + $cert.Subject } else { "Wrong check code, nothing was installed." }</pre>
+	<p class="empty">Or with the downloaded file. The path points at your download folder; change it if the file is
+		somewhere else:</p>
 	<pre>Import-Certificate -FilePath "$env:USERPROFILE\Downloads\root-ca.crt" -CertStoreLocation Cert:\LocalMachine\Root</pre>
 	<p class="empty">Do not use the import wizard with "automatically select the certificate store": it files a CA under
 		intermediate authorities of the current user, where Windows does not trust it and says nothing.</p>
@@ -37,6 +60,8 @@ SHA-1    {{ item.sha1 }}</pre>
 
 <section>
 	<h2>Debian and Ubuntu</h2>
+	<p class="empty">Print the check code of the downloaded file first and compare it:</p>
+	<pre>openssl x509 -in root-ca.crt -noout -fingerprint -sha256 | cut -d= -f2 | tr -d : | cut -c1-12</pre>
 	<pre>sudo cp root-ca.crt /usr/local/share/ca-certificates/root-ca.crt
 sudo update-ca-certificates</pre>
 	<p class="empty">The file name has to end in <code>.crt</code>.</p>
@@ -50,6 +75,7 @@ sudo update-ca-certificates</pre>
 	<pre>security.enterprise_roots.enabled</pre>
 </section>
 
+{% if not public %}
 <section>
 	<h2>Back up the CA itself</h2>
 	<p class="empty">This matters more than a backup of the routes. Routes are retyped in an hour; if the root key is lost,
@@ -65,5 +91,6 @@ sudo update-ca-certificates</pre>
 	{% endif %}
 	<p class="empty">The archive contains the private key of the CA. Store it accordingly.</p>
 </section>
+{% endif %}
 {% endif %}
 {% endblock %}

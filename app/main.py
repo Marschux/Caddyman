@@ -30,7 +30,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from itsdangerous import BadSignature, URLSafeTimedSerializer
 
-VERSION = "0.8.11"
+VERSION = "0.8.12"
 # Shown in the footer. The AGPL asks that everyone using this over a network can get the source,
 # so a modified copy has to point to its own.
 SOURCE_URL = os.getenv("CADDYMAN_SOURCE_URL", "https://github.com/Marschux/Caddyman")
@@ -176,6 +176,11 @@ app.mount("/static", StaticFiles(directory=BASE_DIR / "static"), name="static")
 templates = Jinja2Templates(directory=BASE_DIR / "templates")
 
 
+# Open without a login: the root certificate is public by nature, and the people who
+# need it are exactly those who have no account here.
+PUBLIC_PATHS = {"/trust", "/root-ca.crt"}
+
+
 @app.middleware("http")
 async def require_session(request: Request, call_next):
     path = request.url.path
@@ -188,7 +193,7 @@ async def require_session(request: Request, call_next):
             return RedirectResponse("/setup", status_code=303)
     elif path == "/setup":
         return RedirectResponse("/", status_code=303)
-    elif path != "/login" and not request.state.user:
+    elif path != "/login" and path not in PUBLIC_PATHS and not request.state.user:
         return RedirectResponse("/login", status_code=303)
     return await call_next(request)
 
@@ -1200,18 +1205,71 @@ def fingerprints(pem: str) -> list[dict]:
     return result
 
 
+ROOT_CA_SECONDS = 60
+ROOT_CA_CACHE: dict[str, tuple[float, tuple | ValueError]] = {}
+
+
+def public_root_ca(host: dict) -> tuple[str, str, bool]:
+    """fetch_root_ca for the pages without a login: anyone can call those, so the source is asked once a minute at most."""
+    cached = ROOT_CA_CACHE.get(host["id"])
+    if not cached or cached[0] < time.monotonic():
+        try:
+            result = fetch_root_ca(host)
+        except ValueError as error:
+            result = error
+        cached = ROOT_CA_CACHE[host["id"]] = (time.monotonic() + ROOT_CA_SECONDS, result)
+    if isinstance(cached[1], ValueError):
+        raise cached[1]
+    return cached[1]
+
+
+def ca_context(host: dict, fetch=fetch_root_ca) -> dict:
+    context = {"host": host}
+    try:
+        pem, context["source"], context["internal"] = fetch(host)
+        context["fingerprints"] = fingerprints(pem)
+        # The check code and the install command cover the first certificate only.
+        # A source that hands out several is still downloaded whole.
+        der = ssl.PEM_cert_to_DER_cert(PEM_RE.search(pem).group(0))
+        digest = hashlib.sha256(der).hexdigest().upper()
+        # 48 bits: short enough to say on the phone, too long to hit with a forged certificate by trying.
+        context["check_code"] = " ".join(digest[i : i + 4] for i in (0, 4, 8))
+        context["der_base64"] = base64.b64encode(der).decode()
+    except ValueError as error:
+        context["error"] = str(error)
+    return context
+
+
 @app.get("/ca")
 def ca_page(request: Request, host: str | None = None):
     hosts, current = pick_host(host)
     if current is None:
         return RedirectResponse("/hosts/new", status_code=303)
-    context = {"hosts": hosts, "host": current}
+    return page(request, "ca.html", hosts=hosts, **ca_context(current))
+
+
+@app.get("/trust")
+def trust_page(request: Request):
+    _, current = pick_host(None)
+    if current is None:
+        return Response(status_code=404)
+    context = ca_context(current, public_root_ca)
+    return page(request, "ca.html", public=True, status_code=503 if "error" in context else 200, **context)
+
+
+@app.get("/root-ca.crt")
+def root_ca_public():
+    _, current = pick_host(None)
+    if current is None:
+        return Response(status_code=404)
     try:
-        pem, context["source"], context["internal"] = fetch_root_ca(current)
-        context["fingerprints"] = fingerprints(pem)
-    except ValueError as error:
-        context["error"] = str(error)
-    return page(request, "ca.html", **context)
+        pem, _, _ = public_root_ca(current)
+        fingerprints(pem)
+    except ValueError:
+        # No details here: the message names the admin API.
+        return Response("The certificate is not available right now.", status_code=503, media_type="text/plain")
+    headers = {"Content-Disposition": 'attachment; filename="root-ca.crt"'}
+    return Response(pem, media_type="application/x-x509-ca-cert", headers=headers)
 
 
 @app.get("/ca/root-ca.crt")

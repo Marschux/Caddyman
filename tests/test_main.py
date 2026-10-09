@@ -217,6 +217,7 @@ class RouteTest(AppTest):
         super().setUp()
         self.setup_admin()
         main.AUDIT_FILE.unlink(missing_ok=True)
+        main.ROOT_CA_CACHE.clear()
         self.dir = tempfile.TemporaryDirectory()
         self.addCleanup(self.dir.cleanup)
         self.sites = os.path.join(self.dir.name, "sites")
@@ -448,6 +449,27 @@ class TestCa(RouteTest):
     def test_needs_a_session(self):
         self.client.cookies.clear()
         self.assertEqual(self.client.get("/ca/root-ca.crt").headers["location"], "/login")
+        self.assertEqual(self.client.get("/ca").headers["location"], "/login")
+
+    def test_open_page_and_download_without_a_session(self):
+        self.answer(json={"root_certificate": self.PEM})
+        self.assertIn("9F86 D081 884C", self.client.get("/ca").text)  # the admin sees the check code
+        self.client.cookies.clear()
+        page = self.client.get("/trust")
+        self.assertEqual(page.status_code, 200)
+        # Nothing a forged copy of the page could lie about, and nothing about the setup behind it.
+        for hidden in ("9F86 D081 884C", self.SHA256, "/pki/ca/local", "Back up the CA"):
+            self.assertNotIn(hidden, page.text)
+        self.assertIn('FromBase64String("dGVzdA==")', page.text)
+        self.assertEqual(self.client.get("/root-ca.crt").text, self.PEM + "\n")
+        # Anyone can call these, so the source is not asked again for every request.
+        self.assertEqual(self.get.call_count, 2)  # once for /ca, once for the open pages
+        main.ROOT_CA_CACHE.clear()
+        self.answer(text="gone", status_code=500)
+        self.assertEqual(self.client.get("/root-ca.crt").status_code, 503)
+        failed = self.client.get("/trust")
+        self.assertEqual(failed.status_code, 503)
+        self.assertNotIn("did not answer", failed.text)  # the full message names the admin API
 
 
 class TestManaged(AppTest):
