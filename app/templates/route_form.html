@@ -26,7 +26,7 @@
 	<div class="for-reverse_proxy">
 		<label for="upstream">Target</label>
 		<input id="upstream" name="upstream" value="{{ route.upstream or '' }}" placeholder="192.168.1.20:8080">
-		<small><code>host:port</code>, or <code>https://host:port</code> if the service itself speaks TLS. WebSockets need no extra setting.</small>
+		<small><code>host:port</code>, or <code>https://host:port</code> if the service itself speaks TLS. Without a port it is 80, or 443 for <code>https://</code>. WebSockets need no extra setting.</small>
 
 		<details {{ "open" if route.auth_user or route.host_header }}>
 			<summary>More options</summary>

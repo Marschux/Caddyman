@@ -30,7 +30,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from itsdangerous import BadSignature, URLSafeTimedSerializer
 
-VERSION = "0.8.5"
+VERSION = "0.8.6"
 # Shown in the footer. The AGPL asks that everyone using this over a network can get the source,
 # so a modified copy has to point to its own.
 SOURCE_URL = os.getenv("CADDYMAN_SOURCE_URL", "https://github.com/Marschux/Caddyman")
@@ -524,7 +524,8 @@ META_PREFIX = "# caddyman "
 ROUTE_TYPES = ("reverse_proxy", "redirect", "static")
 TLS_MODES = ("acme_ca", "default", "internal", "none")
 REDIRECT_CODES = ("301", "302", "308")
-UPSTREAM_RE = re.compile(r"^(https?://)?([A-Za-z0-9]([A-Za-z0-9.-]*[A-Za-z0-9])?):([0-9]{1,5})$")
+# The port may be left out: Caddy then takes 443 for https:// and 80 for everything else.
+UPSTREAM_RE = re.compile(r"^(https?://)?([A-Za-z0-9]([A-Za-z0-9.-]*[A-Za-z0-9])?)(?::([0-9]{1,5}))?$")
 # Everything below ends up in a file Caddy executes, so each value is held to a
 # character set that cannot open a block, start a directive or add a line.
 REDIRECT_RE = re.compile(r"^https?://[A-Za-z0-9.-]+(:[0-9]{1,5})?(/[A-Za-z0-9._~/-]*)?$")
@@ -576,8 +577,8 @@ def route_from_form(form, host: dict, previous: dict | None = None) -> tuple[dic
     if route["type"] == "reverse_proxy":
         route["upstream"] = get("upstream")
         match = UPSTREAM_RE.match(route["upstream"])
-        if not match or not valid_port(match.group(4)):
-            return route, "The target has to look like host:port or http://host:port."
+        if not match or (match.group(4) and not valid_port(match.group(4))):
+            return route, "The target has to look like host, host:port or http://host:port."
         if auth_user := get("auth_user"):
             if not AUTH_USER_RE.match(auth_user):
                 return route, "The basic auth username may only contain letters, digits, '.', '_', '@' and '-'."
@@ -829,8 +830,9 @@ def target_reachable(upstream: str) -> bool:
     # A metadata line edited by hand can carry a target the form would have refused.
     if not match:
         return False
+    port = int(match.group(4) or (443 if match.group(1) == "https://" else 80))
     try:
-        with socket.create_connection((match.group(2), int(match.group(4))), timeout=REACH_TIMEOUT):
+        with socket.create_connection((match.group(2), port), timeout=REACH_TIMEOUT):
             return True
     except (OSError, OverflowError):
         return False

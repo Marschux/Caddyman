@@ -236,6 +236,7 @@ class RouteTest(AppTest):
         main.save_hosts([self.host])
         # Nothing here may reach a real Caddy or a real target.
         self.load = self.patch(main.httpx, "post", mock.Mock(return_value=mock.Mock(status_code=200)))
+        self.real_reachable = main.target_reachable
         self.patch(main, "target_reachable", mock.Mock(return_value=True))
         self.served = self.patch(main, "served_certificate", mock.Mock(side_effect=OSError("offline")))
 
@@ -296,7 +297,7 @@ class TestRoutes(RouteTest):
             {"host": ""},
             {"port": "70000"},
             {"port": "80 {"},
-            {"upstream": "10.0.0.5"},
+            {"upstream": "10.0.0.5:"},
             {"upstream": "10.0.0.5:99999"},
             {"upstream": "10.0.0.5:80\n\trespond 200"},
             {"upstream": "unix//run/x.sock"},
@@ -377,6 +378,15 @@ class TestRoutes(RouteTest):
         self.assertEqual(self.create().headers["location"], "/?host=h1")
         self.assertIn("does not answer yet", self.client.get("/").text)
         self.assertTrue(os.path.exists(os.path.join(self.sites, "pdf.caddy")))
+
+    def test_target_without_port(self):
+        self.assertEqual(self.create(upstream="http://10.0.0.5").headers["location"], "/?host=h1")
+        self.assertIn("reverse_proxy http://10.0.0.5\n", self.read("pdf.caddy"))
+        # The reachability test falls back to the port Caddy would take.
+        connect = self.patch(main.socket, "create_connection", mock.MagicMock())
+        for upstream, port in (("10.0.0.5", 80), ("http://10.0.0.5", 80), ("https://10.0.0.5", 443), ("10.0.0.5:9005", 9005)):
+            self.assertTrue(self.real_reachable(upstream))
+            self.assertEqual(connect.call_args.args[0], ("10.0.0.5", port))
 
     def test_list_marks_unreachable_target(self):
         self.create()
