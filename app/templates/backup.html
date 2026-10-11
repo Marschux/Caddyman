@@ -1,14 +1,12 @@
 {% extends "base.html" %}
 {% block title %}Backup - Caddyman{% endblock %}
 {% block content %}
-<div class="heading">
-	<h1>Backup</h1>
-</div>
+{% include "system_nav.html" %}
 {% if error %}<p class="flash error" role="alert">{{ error }}</p>{% endif %}
 
 {% if plan is defined %}
 <section>
-	<h2>Restore into {{ target.name }}</h2>
+	<h2>Restore these routes?</h2>
 	{% if fresh %}<p class="empty">No host is set up yet, so the host settings from the archive are restored as well.</p>{% endif %}
 	<p class="empty">Nothing has been changed yet. Routes on disk that are not in the archive are kept.</p>
 	<table class="spaced">

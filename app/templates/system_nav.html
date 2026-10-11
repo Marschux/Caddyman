@@ -1,0 +1,10 @@
+{# The pages of the System tab, as a list at the left edge like in the settings. Everybody
+   sees the status; logs and backup show by right, and the server checks again. #}
+{% set rights = request.state.me.permissions %}
+{% set here = request.url.path %}
+<h1>System</h1>
+<aside class="side">
+	<a href="/status" {{ 'aria-current="page"' if here.startswith("/status") }}>Status</a>
+	{% if "logs" in rights %}<a href="/logs" {{ 'aria-current="page"' if here.startswith("/logs") }}>Logs</a>{% endif %}
+	{% if "backup" in rights %}<a href="/backup" {{ 'aria-current="page"' if here.startswith("/backup") }}>Backup</a>{% endif %}
+</aside>

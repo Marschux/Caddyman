@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% block title %}Status - Caddyman{% endblock %}
 {% block content %}
-<h1>Status</h1>
+{% include "system_nav.html" %}
 {% set rights = request.state.me.permissions %}
 {% if no_https and "routes" in rights %}
 <div class="notice">
