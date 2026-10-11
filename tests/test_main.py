@@ -59,6 +59,15 @@ class TestAuth(AppTest):
         self.assertEqual(self.setup_admin(token="").status_code, 400)
         self.assertFalse(main.AUTH_FILE.exists())
 
+    def test_setup_token_can_come_from_the_environment(self):
+        with mock.patch.object(main, "ENV_SETUP_TOKEN", "my own token"), mock.patch("builtins.print") as log:
+            with TestClient(main.app, follow_redirects=False) as client:
+                self.assertNotIn("my own token", str(log.call_args_list))  # not repeated in the log
+                self.assertIn("CADDYMAN_SETUP_TOKEN", client.get("/setup").text)
+                form = {"username": "admin", "password": PASSWORD, "repeat": PASSWORD}
+                self.assertEqual(client.post("/setup", data={**form, "token": "wrong"}).status_code, 400)
+                self.assertEqual(client.post("/setup", data={**form, "token": "my own token"}).headers["location"], "/")
+
     def test_setup_rejects_bad_passwords(self):
         self.assertEqual(self.setup_admin(repeat="different").status_code, 400)
         self.assertEqual(self.setup_admin(password="short", repeat="short").status_code, 400)

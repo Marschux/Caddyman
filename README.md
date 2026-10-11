@@ -65,7 +65,8 @@ Caddyfile, sites directory and log directory at the paths the Caddy container us
 Docker network `proxy-net`. Adjust the host paths and the network to your setup.
 
 **3. Create the account.** Open `http://<host>:5052/setup` and enter the token from
-`docker logs caddyman`.
+`docker logs caddyman`. No way to read the log? Set `CADDYMAN_SETUP_TOKEN` to a token of your
+own before the first start.
 
 **4. Tell Caddyman where Caddy runs.** The defaults fit the compose file; add the username and
 password of the `:2020` site.
@@ -122,6 +123,7 @@ The `handle_path` block serves the log to the Logs page and can be left out.
 | Variable | Default | |
 |---|---|---|
 | `CADDYMAN_SECRET_KEY` | generated | Signs sessions and encrypts the admin API password. `openssl rand -base64 32` |
+| `CADDYMAN_SETUP_TOKEN` | random, in the log | Your own token for the setup page |
 | `CADDYMAN_ADMIN_USER` | | With the hash below: skips the setup page |
 | `CADDYMAN_ADMIN_PASSWORD_HASH` | | bcrypt. In a `.env`, write every `$` as `$$` |
 | `CADDYMAN_FORWARDED_ALLOW_IPS` | `127.0.0.1` | Whose `X-Forwarded-*` headers are trusted. Behind Caddy: its address or the Docker subnet |

@@ -46,6 +46,8 @@ AUDIT_SHOWN = 100
 FLASH_COOKIE = "caddyman_flash"
 ENV_ADMIN_USER = os.getenv("CADDYMAN_ADMIN_USER", "")
 ENV_ADMIN_PASSWORD_HASH = os.getenv("CADDYMAN_ADMIN_PASSWORD_HASH", "")
+# For installs where nobody gets to read the container log.
+ENV_SETUP_TOKEN = os.getenv("CADDYMAN_SETUP_TOKEN", "").strip()
 
 SESSION_COOKIE = "caddyman_session"
 SESSION_SECONDS = 7 * 24 * 3600
@@ -163,9 +165,11 @@ def start_session(response: RedirectResponse, request: Request, username: str) -
 async def lifespan(app: FastAPI):
     global SETUP_TOKEN
     if load_admin() is None:
-        SETUP_TOKEN = secrets.token_hex(8)
+        SETUP_TOKEN = ENV_SETUP_TOKEN or secrets.token_hex(8)
         port = os.getenv("CADDYMAN_PORT", "5052")
-        print(f"Setup required. Open http://<host>:{port}/setup\nToken: {SETUP_TOKEN}", flush=True)
+        # A token somebody chose is not repeated in the log.
+        shown = "the value of CADDYMAN_SETUP_TOKEN" if ENV_SETUP_TOKEN else SETUP_TOKEN
+        print(f"Setup required. Open http://<host>:{port}/setup\nToken: {shown}", flush=True)
     if not SECRET_KEY_FROM_ENV:
         print("CADDYMAN_SECRET_KEY is not set, using a generated key from the data directory.", flush=True)
     yield
@@ -233,7 +237,7 @@ def healthz():
 
 @app.get("/setup")
 def setup_form(request: Request):
-    return page(request, "setup.html")
+    return page(request, "setup.html", own_token=bool(ENV_SETUP_TOKEN))
 
 
 @app.post("/setup")
@@ -251,13 +255,14 @@ def setup_submit(
         error = f"Too many attempts. Try again in {wait} seconds."
     elif not SETUP_TOKEN or not secrets.compare_digest(token.strip().encode(), SETUP_TOKEN.encode()):
         record_fail(address)
-        error = "The token does not match the one in the container log."
+        error = "The token does not match."
     elif not username or len(username) > 64:
         error = "The username needs 1 to 64 characters."
     else:
         error = password_problem(password, repeat)
     if error:
-        return page(request, "setup.html", status_code=400, error=error, username=username)
+        context = {"error": error, "username": username, "own_token": bool(ENV_SETUP_TOKEN)}
+        return page(request, "setup.html", status_code=400, **context)
     write_private(AUTH_FILE, json.dumps({"username": username, "password_hash": hash_password(password)}))
     SETUP_TOKEN = None
     return start_session(RedirectResponse("/", status_code=303), request, username)
