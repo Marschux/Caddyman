@@ -35,7 +35,10 @@
 	<label for="repeat">Repeat password</label>
 	<input id="repeat" name="repeat" type="password" autocomplete="new-password" minlength="8" {{ "required" if must }}>
 	{% if not new %}<small>A new password logs this account out everywhere.</small>
-	{% elif invite %}<small>Without a password the account gets a mail with a link to set its own. The link works once, for one day.</small>{% endif %}
+	{% elif invite %}<small>Without a password the account gets a mail with a link to set its own. The link works once, for one day.</small>
+	{% else %}<small>Mail is not set up, so the password has to be given here. With
+		{% if "settings" in request.state.me.permissions %}<a href="/settings/mail">mail set up</a>{% else %}mail set up{% endif %},
+		the account can be invited and sets its own.</small>{% endif %}
 
 	{% if user.totp %}
 	<label class="check"><input type="checkbox" name="reset_totp" value="1"> Switch off two-factor login for this account</label>
