@@ -24,12 +24,12 @@
 				{% if route.auth_user %}<span class="tag">Basic auth</span>{% endif %}
 				{% if route.host_header %}<span class="tag">Host header</span>{% endif %}</td>
 			<td class="nowrap"><span class="tag">{{ {"acme_ca": "Own ACME CA", "default": "Caddy default", "internal": "Caddy internal", "none": "None"}[route.tls] }}</span></td>
-			<td>
+			<td class="nowrap">
 				{% set cert = item.certificate %}
 				{% if cert %}
+				{# The explanation lives in the tooltip, so a route with a problem stays one line like the others. #}
 				<span class="cert {{ cert.level }}" title="{{ cert.detail }}">{{ cert.text }}</span>
-				{% if cert.level in ("warn", "fail") %}<small>{{ cert.detail }}
-					<a href="/logs?q={{ route.host|urlencode }}&amp;quiet=1">Show its log</a></small>{% endif %}
+				{% if cert.level in ("warn", "fail") %}<a href="/logs?q={{ route.host|urlencode }}&amp;quiet=1">Show its log</a>{% endif %}
 				{% else %}<span class="empty">-</span>{% endif %}
 			</td>
 			{% else %}

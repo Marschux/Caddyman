@@ -705,7 +705,8 @@ class TestCertificates(RouteTest):
         self.served.return_value = make_certificate("Caddy Local Authority - ECC Intermediate")
         page = self.client.get("/").text
         self.assertIn('class="cert warn"', page)
-        self.assertIn("internal CA instead of your ACME CA", page)
+        # The explanation is the tooltip only, so the row stays one line.
+        self.assertEqual(page.count("internal CA instead of your ACME CA"), 1)
 
 
 class TestLogs(RouteTest):
