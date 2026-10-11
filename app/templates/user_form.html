@@ -1,8 +1,9 @@
 {% extends "base.html" %}
 {% block title %}{{ "Add user" if new else "Edit " ~ user.username }} - Caddyman{% endblock %}
 {% block content %}
+{% include "settings_nav.html" %}
 <form method="post" class="card wide">
-	<h1>{{ "Add a user" if new else "Edit " ~ user.username }}</h1>
+	<h2>{{ "Add a user" if new else "Edit " ~ user.username }}</h2>
 	{% if error %}<p class="error" role="alert">{{ error }}</p>{% endif %}
 
 	{% if new %}
@@ -39,6 +40,6 @@
 	{% endif %}
 
 	<button type="submit">Save</button>
-	<p class="below"><a href="/users">Back to the users</a></p>
+	<p class="below"><a href="/settings/users">Back to the users</a></p>
 </form>
 {% endblock %}

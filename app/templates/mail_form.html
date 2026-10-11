@@ -1,8 +1,9 @@
 {% extends "base.html" %}
 {% block title %}Mail - Caddyman{% endblock %}
 {% block content %}
-<form method="post" action="/users/mail" class="card wide">
-	<h1>Mail</h1>
+{% include "settings_nav.html" %}
+<form method="post" action="/settings/mail" class="card wide">
+	<h2>Mail</h2>
 	<p>Only used for "Forgot password?" on the login page. Leave the mail server empty to switch it off.</p>
 	{% if error %}<p class="error" role="alert">{{ error }}</p>{% endif %}
 
@@ -34,9 +35,8 @@
 	<input id="sender" name="sender" type="email" value="{{ mail.sender }}" placeholder="caddyman@example.com">
 
 	<button type="submit">Save</button>
-	<p class="below"><a href="/users">Back to the users</a></p>
 </form>
-<form method="post" action="/users/test-mail" class="card wide">
+<form method="post" action="/settings/mail/test" class="card wide">
 	<p>Sends a mail to the address in your own profile, with the settings as they are saved. An error from the mail
 		server is shown here word for word.</p>
 	<button type="submit" class="secondary">Send a test mail</button>

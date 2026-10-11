@@ -102,17 +102,17 @@ Caddy, including every service behind the proxy. The status page marks it.
 
 ## Users
 
-The account from the setup page may do everything. Under "Users" it adds further accounts and
-ticks what each of them may do: change routes and reload Caddy, the Root CA page, backup and
-restore, logs, the Caddy settings, managing users. An account without any right still sees the
-route list and the status page. The change log on the status page names who did what.
+The account from the setup page may do everything. Under "Settings", "Users" it adds further
+accounts and ticks what each of them may do: change routes and reload Caddy, the Root CA page,
+backup and restore, logs, the settings, managing users. An account without any right still sees
+the route list and the status page. The change log on the status page names who did what.
 
 Every account can switch on two-factor login in its profile: scan the QR code with an
 authenticator app, keep the recovery codes. Whoever manages users can switch it off again for
-somebody who lost both.
+somebody who lost both. "Settings", "Security" makes it a must for every account.
 
 "Forgot password?" on the login page mails a link that works once and for one hour. It appears
-once a mail server is entered under "Users", "Set up mail", and reaches accounts that have an
+once a mail server is entered under "Settings", "Mail", and reaches accounts that have an
 email address. Without mail, whoever manages users sets a new password under "Edit".
 
 ## Caddy on another machine

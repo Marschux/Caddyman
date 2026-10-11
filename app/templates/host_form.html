@@ -1,8 +1,10 @@
 {% extends "base.html" %}
 {% block title %}{{ "Caddy settings" if host.id else "Set up Caddy" }} - Caddyman{% endblock %}
 {% block content %}
+{# The first setup is a dialog of its own; afterwards this is the first block of the Settings tab. #}
+{% if host.id %}{% include "settings_nav.html" %}{% endif %}
 <form method="post" class="card wide hostform">
-	<h1>{{ "Caddy settings" if host.id else "Set up your Caddy" }}</h1>
+	{% if host.id %}<h2>Caddy</h2>{% else %}<h1>Set up your Caddy</h1>{% endif %}
 	{% if first %}<p>Caddyman needs to know where your Caddy runs before it can manage routes.
 		Moving from another install? <a href="/backup">Restore a backup</a> instead.</p>{% endif %}
 	{% if error %}<p class="error" role="alert">{{ error }}</p>{% endif %}
@@ -60,13 +62,6 @@
 	<label for="root_ca_url">Root CA source <span class="optional">optional</span></label>
 	<input id="root_ca_url" name="root_ca_url" value="{{ host.root_ca_url }}" placeholder="https://ca.home.example:9001/roots.pem">
 	<small>Where the root certificate for your clients can be downloaded.</small>
-
-	<label class="check"><input type="checkbox" name="public_ca" value="1" {{ "checked" if host.public_ca }}>
-		Offer the root CA without a login</label>
-	<small>Opens <a href="/trust">/trust</a> and the download to everyone who can reach Caddyman.</small>
-	<label class="check"><input type="checkbox" name="login_ca_hint" value="1" {{ "checked" if host.login_ca_hint }}>
-		Point to it on the login page</label>
-	<small>A card below the login form. It only shows while the root CA is offered without a login.</small>
 
 	<label for="domain_suffix">Domain suffix <span class="optional">optional</span></label>
 	<input id="domain_suffix" name="domain_suffix" value="{{ host.domain_suffix }}" placeholder="home.example">

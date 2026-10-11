@@ -1,6 +1,7 @@
 {% extends "base.html" %}
 {% block title %}Profile - Caddyman{% endblock %}
 {% block content %}
+{% if required %}<p class="flash warn" role="status">Two-factor login is required here. Set it up below to get to the other pages.</p>{% endif %}
 <form method="post" action="/profile" class="card wide">
 	<h1><span class="avatar big">{{ me|initials }}</span> {{ me.username }}</h1>
 	{% if error %}<p class="error" role="alert">{{ error }}</p>{% endif %}

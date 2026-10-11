@@ -30,6 +30,7 @@ class AppTest(unittest.TestCase):
         main.AUTH_FILE.unlink(missing_ok=True)
         main.HOSTS_FILE.unlink(missing_ok=True)
         main.MAIL_FILE.unlink(missing_ok=True)
+        main.SETTINGS_FILE.unlink(missing_ok=True)
         main.LOGIN_FAILS.clear()
         # Entering the client runs the startup that creates the setup token.
         self.client = TestClient(main.app, follow_redirects=False)
@@ -441,7 +442,7 @@ class TestRoutes(RouteTest):
 class TestUsers(RouteTest):
     def add_user(self, name="viewer", **fields):
         form = {"username": name, "password": PASSWORD, "repeat": PASSWORD, **fields}
-        return self.client.post("/users/new", data=form)
+        return self.client.post("/settings/users/new", data=form)
 
     def log_in(self, name, password=PASSWORD):
         client = TestClient(main.app, follow_redirects=False)
@@ -453,26 +454,27 @@ class TestUsers(RouteTest):
         self.assertEqual(main.load_users()[0]["permissions"], list(main.PERMISSIONS))
         client, response = self.log_in("admin")
         self.assertEqual(response.headers["location"], "/")
-        self.assertEqual(client.get("/users").status_code, 200)
+        self.assertEqual(client.get("/settings/users").status_code, 200)
 
     def test_rights_are_checked_for_every_area(self):
-        self.assertEqual(self.add_user().headers["location"], "/users")
+        self.assertEqual(self.add_user().headers["location"], "/settings/users")
         viewer, _ = self.log_in("viewer")
         for path in ("/", "/status", "/profile"):
             self.assertEqual(viewer.get(path).status_code, 200, path)
-        for path in ("/users", "/users/new", "/backup", "/backup/download", "/logs", "/ca", "/ca/root-ca.crt", "/hosts/h1/edit", "/routes/new"):
+        for path in ("/settings/users", "/settings/users/new", "/backup", "/backup/download", "/logs", "/ca", "/ca/root-ca.crt", "/hosts/h1/edit", "/routes/new",
+                     "/settings", "/settings/caddy", "/settings/root-ca", "/settings/mail", "/settings/security"):
             self.assertEqual(viewer.get(path).status_code, 403, path)
         self.assertEqual(viewer.post("/routes/new", data=self.form()).status_code, 403)
         self.assertEqual(viewer.post("/hosts/h1/push").status_code, 403)
         self.assertEqual(viewer.post("/hosts/h1/delete").status_code, 403)
-        self.assertEqual(viewer.post("/users/admin/delete").status_code, 403)
+        self.assertEqual(viewer.post("/settings/users/admin/delete").status_code, 403)
         self.assertEqual(os.listdir(self.sites), [])
         self.assertEqual(len(main.load_hosts()), 1)
         # Nothing to click that would be refused anyway.
         self.assertNotIn("Add route", viewer.get("/").text)
-        self.assertNotIn('href="/users"', viewer.get("/").text)
+        self.assertNotIn('href="/settings"', viewer.get("/").text)
         # One right more, and exactly that area opens.
-        self.client.post("/users/viewer/edit", data={"right_routes": "1"})
+        self.client.post("/settings/users/viewer/edit", data={"right_routes": "1"})
         self.assertEqual(viewer.post("/routes/new", data=self.form()).headers["location"], "/?host=h1")
         self.assertEqual(main.read_audit()[0]["user"], "viewer")
         self.assertEqual(viewer.post("/hosts/h1/push").status_code, 303)
@@ -488,13 +490,49 @@ class TestUsers(RouteTest):
         self.assertEqual(self.add_user("bob", email="EVE@lab.test").status_code, 400)  # one account per address
         self.assertNotIn(PASSWORD, main.AUTH_FILE.read_text())
         # Nobody removes themselves, by deleting or by dropping the right.
-        self.assertIn("cannot delete your own", self.client.get(self.client.post("/users/admin/delete").headers["location"]).text)
-        self.assertEqual(self.client.post("/users/admin/edit", data={"right_routes": "1"}).status_code, 400)
+        self.assertIn("cannot delete your own", self.client.get(self.client.post("/settings/users/admin/delete").headers["location"]).text)
+        self.assertEqual(self.client.post("/settings/users/admin/edit", data={"right_routes": "1"}).status_code, 400)
         self.assertEqual(len(main.load_users()), 2)
         eve, _ = self.log_in("eve")
-        self.assertEqual(eve.post("/users/admin/delete").headers["location"], "/users")
+        self.assertEqual(eve.post("/settings/users/admin/delete").headers["location"], "/settings/users")
         self.assertEqual([user["username"] for user in main.load_users()], ["eve"])
         self.assertEqual(self.client.get("/").headers["location"], "/login")  # a deleted account is logged out
+
+    def test_settings_tab_shows_each_account_its_own_blocks(self):
+        self.assertEqual(self.client.get("/settings").headers["location"], "/settings/caddy")
+        self.assertEqual(self.client.get("/settings/caddy").headers["location"], "/hosts/h1/edit")
+        everything = self.client.get("/hosts/h1/edit").text
+        for block in ("/settings/caddy", "/settings/root-ca", "/settings/mail", "/settings/users", "/settings/security"):
+            self.assertIn(f'href="{block}"', everything)
+        # Managing users does not open the connection to Caddy.
+        self.add_user("eve", right_users="1")
+        eve, _ = self.log_in("eve")
+        self.assertIn('href="/settings"', eve.get("/").text)
+        self.assertEqual(eve.get("/settings").headers["location"], "/settings/users")
+        page = eve.get("/settings/users")
+        self.assertEqual(page.status_code, 200)
+        self.assertNotIn('href="/settings/mail"', page.text)
+        for path in ("/settings/mail", "/settings/security", "/hosts/h1/edit"):
+            self.assertEqual(eve.get(path).status_code, 403, path)
+
+    def test_second_factor_can_be_required_for_everybody(self):
+        self.add_user()
+        viewer, _ = self.log_in("viewer")
+        self.assertEqual(viewer.get("/").status_code, 200)
+        self.assertIn("viewer", self.client.get("/settings/security").text)  # named as being without one
+        self.client.post("/settings/security", data={"require_2fa": "1"})
+        # Nothing but the profile until it is set up, for the one who switched it on as well.
+        for client in (viewer, self.client):
+            self.assertEqual(client.get("/").headers["location"], "/profile#two-factor")
+            self.assertEqual(client.get("/status").headers["location"], "/profile#two-factor")
+            self.assertIn("is required here", client.get("/profile").text)
+        self.assertEqual(self.client.post("/routes/new", data=self.form()).headers["location"], "/profile#two-factor")
+        self.assertEqual(os.listdir(self.sites), [])
+        viewer.post("/profile/2fa/start")
+        secret = main.totp_secret(main.find_user(main.load_users(), "viewer"), "totp_pending")
+        viewer.post("/profile/2fa/confirm", data={"code": main.totp_code(secret, int(main.time.time()) // main.TOTP_SECONDS)})
+        self.assertEqual(viewer.get("/").status_code, 200)
+        self.assertEqual(self.client.get("/").status_code, 303)
 
     def test_changing_the_password_ends_the_other_sessions(self):
         other, _ = self.log_in("admin")
@@ -551,15 +589,15 @@ class TestUsers(RouteTest):
         settings = {"public_url": "https://caddyman.lab.test/", "host": "smtp.lab.test", "port": "587", "security": "starttls",
                     "user": "caddyman", "password": "mail-secret", "sender": "caddyman@lab.test"}
         for wrong in ({"sender": "nobody"}, {"port": "0"}, {"public_url": "caddyman.lab.test"}, {"security": "magic"}):
-            self.assertEqual(self.client.post("/users/mail", data={**settings, **wrong}).status_code, 400)
-        self.assertEqual(self.client.post("/users/mail", data=settings).headers["location"], "/users/mail")
+            self.assertEqual(self.client.post("/settings/mail", data={**settings, **wrong}).status_code, 400)
+        self.assertEqual(self.client.post("/settings/mail", data=settings).headers["location"], "/settings/mail")
         self.assertNotIn("mail-secret", main.MAIL_FILE.read_text())  # encrypted at rest
-        self.assertNotIn("mail-secret", self.client.get("/users/mail").text)
+        self.assertNotIn("mail-secret", self.client.get("/settings/mail").text)
         # An empty password field keeps the stored one.
-        self.client.post("/users/mail", data={**settings, "password": ""})
+        self.client.post("/settings/mail", data={**settings, "password": ""})
         self.assertEqual(main.VAULT.decrypt(main.load_mail()["password_enc"].encode()), b"mail-secret")
         mail = self.patch(main, "send_mail", mock.Mock(return_value="connection refused"))
-        self.assertIn("connection refused", self.client.get(self.client.post("/users/test-mail").headers["location"]).text)
+        self.assertIn("connection refused", self.client.get(self.client.post("/settings/mail/test").headers["location"]).text)
         mail.return_value = None
         thread = self.patch(main.threading, "Thread", mock.Mock())
         self.assertIn("/forgot", guest.get("/login").text)
@@ -651,19 +689,26 @@ class TestCa(RouteTest):
 
     def test_open_page_and_login_hint_can_be_switched_off(self):
         self.answer(json={"root_certificate": self.PEM})
-        self.client.cookies.clear()
-        self.assertIn('href="/trust"', self.client.get("/login").text)
-        main.save_hosts([{**self.host, "login_ca_hint": ""}])
-        self.assertNotIn('href="/trust"', self.client.get("/login").text)
-        self.assertEqual(self.client.get("/trust").status_code, 200)  # only the card is gone
-        main.save_hosts([{**self.host, "public_ca": ""}])
-        self.assertNotIn('href="/trust"', self.client.get("/login").text)
+        guest = TestClient(main.app, follow_redirects=False)
+        self.assertIn('href="/trust"', guest.get("/login").text)
+        self.client.post("/settings/root-ca", data={"public_ca": "1"})
+        self.assertNotIn('href="/trust"', guest.get("/login").text)
+        self.assertEqual(guest.get("/trust").status_code, 200)  # only the card is gone
+        self.client.post("/settings/root-ca", data={"login_ca_hint": "1"})
+        self.assertNotIn('href="/trust"', guest.get("/login").text)
         for path in main.PUBLIC_PATHS:
-            self.assertEqual(self.client.get(path).headers["location"], "/login")
-        # A host saved before the checkboxes existed keeps both.
-        main.save_hosts([{key: value for key, value in self.host.items() if key not in ("public_ca", "login_ca_hint")}])
-        self.assertIn('href="/trust"', self.client.get("/login").text)
-        self.assertEqual(self.client.get("/trust").status_code, 200)
+            self.assertEqual(guest.get(path).headers["location"], "/login")
+        self.assertEqual(self.client.get("/settings/root-ca").text.count(" checked"), 1)
+
+    def test_switches_from_the_old_caddy_settings_are_kept(self):
+        # Up to 0.9.0 the two switches were stored with the host. Saving the Caddy form must not open the page again.
+        self.answer(json={"root_certificate": self.PEM})
+        main.save_hosts([{**self.host, "public_ca": "", "login_ca_hint": "1"}])
+        guest = TestClient(main.app, follow_redirects=False)
+        self.assertEqual(guest.get("/trust").headers["location"], "/login")
+        self.assertEqual(self.client.post("/hosts/h1/edit", data=self.host).headers["location"], "/status")
+        self.assertNotIn("public_ca", main.load_hosts()[0])
+        self.assertEqual(guest.get("/trust").headers["location"], "/login")
 
 
 class TestManaged(AppTest):

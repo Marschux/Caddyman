@@ -22,7 +22,6 @@
 			<button type="submit" class="link">Reload Caddy</button>
 		</form>
 		{% endif %}
-		{% if "settings" in rights %}<a href="/hosts/{{ host.id }}/edit">Settings</a>{% endif %}
 	</div>
 	<ul class="checks">
 		{% for check in host.checks %}

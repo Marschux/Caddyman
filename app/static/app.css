@@ -75,6 +75,13 @@ nav a { display: flex; align-items: center; padding: 0 12px; color: var(--ink-mu
 nav a:hover { color: var(--ink); }
 nav a[aria-current] { color: var(--ink); border-bottom-color: var(--product); }
 
+/* The blocks inside a tab: the same underline as the bar, one size down. */
+.tabs { display: flex; flex-wrap: wrap; gap: 4px; margin: -8px 0 8px; border-bottom: 1px solid var(--hairline-soft); }
+.tabs a { padding: 10px 12px; margin-bottom: -1px; color: var(--ink-muted); text-decoration: none; border-bottom: 2px solid transparent; }
+.tabs a:hover { color: var(--ink); }
+.tabs a[aria-current] { color: var(--ink); border-bottom-color: var(--product); }
+.tabs ~ .heading { margin-top: 32px; }
+
 main { flex: 1; width: 100%; max-width: 1280px; margin: 0 auto; padding: 48px 32px; }
 footer { padding: 32px; color: var(--ink-subtle); font-size: 13px; letter-spacing: 0.2px; text-align: center; }
 footer a { color: var(--ink-muted); }

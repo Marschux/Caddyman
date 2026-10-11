@@ -104,7 +104,7 @@ PERMISSIONS = {
     "ca": "Root CA page",
     "backup": "Backup and restore",
     "logs": "Logs",
-    "settings": "Caddy settings",
+    "settings": "Settings: Caddy, root CA, mail, security",
     "users": "Manage users",
 }
 USERS_LOCK = threading.Lock()
@@ -271,19 +271,49 @@ templates.env.globals["PERMISSIONS"] = PERMISSIONS
 PUBLIC_PATHS = {"/trust", "/root-ca.crt"}
 
 
-def host_flag(key: str) -> bool:
-    """A checkbox from the Caddy settings. A host saved before the checkbox existed counts as ticked."""
+# Switches that belong to Caddyman itself, not to the Caddy it manages. "1" or "".
+SETTINGS_FILE = DATA_DIR / "settings.json"
+SETTING_DEFAULTS = {"public_ca": "1", "login_ca_hint": "1", "require_2fa": ""}
+
+
+def load_settings() -> dict:
+    try:
+        stored = json.loads(SETTINGS_FILE.read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        stored = {}
+    # Up to 0.9.0 the two root CA switches were part of the Caddy settings. What somebody
+    # chose there still counts until it is saved here.
     hosts = load_hosts()
-    return bool(hosts and hosts[0].get(key, "1"))
+    old = {key: hosts[0][key] for key in ("public_ca", "login_ca_hint") if hosts and key in hosts[0]}
+    return {**SETTING_DEFAULTS, **old, **stored}
+
+
+def save_settings(**changes) -> None:
+    write_private(SETTINGS_FILE, json.dumps({**load_settings(), **changes}, indent=2))
+
+
+def flag(key: str) -> bool:
+    return bool(load_settings()[key])
 
 
 # The way in: logging in, the second factor and a forgotten password.
 LOGIN_PATHS = {"/login", "/login/code", "/forgot", "/reset"}
-AREAS = (("/users", "users"), ("/hosts", "settings"), ("/routes", "routes"), ("/backup", "backup"), ("/logs", "logs"), ("/ca", "ca"))
+# The first prefix that fits decides, so the users below /settings come before /settings itself.
+AREAS = (
+    ("/settings/users", "users"),
+    ("/settings", "settings"),
+    ("/hosts", "settings"),
+    ("/routes", "routes"),
+    ("/backup", "backup"),
+    ("/logs", "logs"),
+    ("/ca", "ca"),
+)
 
 
 def needed_permission(path: str) -> str | None:
     """The right a request needs. Decided here by its path, so no endpoint can forget its own check."""
+    if path == "/settings":
+        return None  # only forwards to the first block this account may open
     if re.fullmatch(r"/hosts/[^/]+/push", path):
         return "routes"  # "Reload Caddy" lives under /hosts but is part of working with routes
     return next((right for prefix, right in AREAS if path == prefix or path.startswith(prefix + "/")), None)
@@ -303,13 +333,16 @@ async def require_session(request: Request, call_next):
     elif path == "/setup":
         return RedirectResponse("/", status_code=303)
     elif not me:
-        if path not in LOGIN_PATHS and not (path in PUBLIC_PATHS and host_flag("public_ca")):
+        if path not in LOGIN_PATHS and not (path in PUBLIC_PATHS and flag("public_ca")):
             return RedirectResponse("/login", status_code=303)
     else:
         CURRENT_USER.set(me["username"])
         right = needed_permission(path)
         if right and right not in me["permissions"]:
             return page(request, "forbidden.html", status_code=403, right=PERMISSIONS[right])
+        # Where the second factor is required, an account without one gets as far as its profile.
+        if not me.get("totp") and path != "/logout" and not path.startswith("/profile") and flag("require_2fa"):
+            return RedirectResponse("/profile#two-factor", status_code=303)
     return await call_next(request)
 
 
@@ -390,7 +423,7 @@ def setup_submit(
 
 def login_page(request: Request, **context):
     # The card would lead straight back here if the open page is switched off.
-    ca_hint = host_flag("public_ca") and host_flag("login_ca_hint")
+    ca_hint = bool(load_hosts()) and flag("public_ca") and flag("login_ca_hint")
     return page(request, "login.html", ca_hint=ca_hint, mail_ready=mail_ready(), **context)
 
 
@@ -630,7 +663,7 @@ def profile_page(request: Request, **context):
     if secret:
         uri = f"otpauth://totp/Caddyman:{quote(me['username'])}?secret={secret}&issuer=Caddyman"
         context.update(pending_secret=secret, qr=segno.make(uri, error="m").svg_inline(scale=5, border=2, dark="#000", light="#fff"))
-    return page(request, "profile.html", me=me, **context)
+    return page(request, "profile.html", me=me, required=flag("require_2fa") and not me.get("totp"), **context)
 
 
 @app.get("/profile")
@@ -691,18 +724,56 @@ def profile_2fa_disable(request: Request, current: str = Form("")):
     return redirect("/profile", "ok", "Two-factor login is switched off.")
 
 
-@app.get("/users")
+@app.get("/settings")
+def settings_home(request: Request):
+    rights = request.state.me["permissions"]
+    if "settings" in rights:
+        return RedirectResponse("/settings/caddy", status_code=303)
+    if "users" in rights:
+        return RedirectResponse("/settings/users", status_code=303)
+    return page(request, "forbidden.html", status_code=403, right=PERMISSIONS["settings"])
+
+
+@app.get("/settings/caddy")
+def settings_caddy():
+    return RedirectResponse(host_settings_url(), status_code=303)
+
+
+@app.get("/settings/root-ca")
+def settings_root_ca(request: Request):
+    return page(request, "settings_root_ca.html", settings=load_settings())
+
+
+@app.post("/settings/root-ca")
+def settings_root_ca_save(public_ca: str = Form(""), login_ca_hint: str = Form("")):
+    save_settings(public_ca=public_ca and "1", login_ca_hint=login_ca_hint and "1")
+    return redirect("/settings/root-ca", "ok", "Saved.")
+
+
+@app.get("/settings/security")
+def settings_security(request: Request):
+    without = [user["username"] for user in load_users() if not user.get("totp")]
+    return page(request, "settings_security.html", settings=load_settings(), without=without)
+
+
+@app.post("/settings/security")
+def settings_security_save(require_2fa: str = Form("")):
+    save_settings(require_2fa=require_2fa and "1")
+    return redirect("/settings/security", "ok", "Saved.")
+
+
+@app.get("/settings/users")
 def users_list(request: Request):
     mail = load_mail()
     return page(request, "users.html", users=load_users(), mail=mail, mail_ready=mail_ready(mail))
 
 
-@app.get("/users/mail")
+@app.get("/settings/mail")
 def mail_form(request: Request):
     return page(request, "mail_form.html", mail=load_mail(), securities=MAIL_SECURITY)
 
 
-@app.post("/users/mail")
+@app.post("/settings/mail")
 async def mail_save(request: Request):
     form = await request.form()
     stored = load_mail()
@@ -716,44 +787,44 @@ async def mail_save(request: Request):
         mail["password_enc"] = stored["password_enc"]  # an empty field keeps the password of the same login
     write_private(MAIL_FILE, json.dumps(mail, indent=2))
     if not mail["host"]:
-        return redirect("/users", "ok", 'Mail is switched off. The login page no longer offers "Forgot password?".')
-    return redirect("/users/mail", "ok", "The mail settings are saved. Send a test mail to check them.")
+        return redirect("/settings/mail", "ok", 'Mail is switched off. The login page no longer offers "Forgot password?".')
+    return redirect("/settings/mail", "ok", "The mail settings are saved. Send a test mail to check them.")
 
 
-@app.post("/users/test-mail")
+@app.post("/settings/mail/test")
 def users_test_mail(request: Request):
     me, mail = request.state.me, load_mail()
     if not mail_ready(mail):
-        return redirect("/users/mail", "error", "Mail is not set up yet.")
+        return redirect("/settings/mail", "error", "Mail is not set up yet.")
     if not me.get("email"):
-        return redirect("/users/mail", "error", "Your own profile has no email address to send the test to.")
+        return redirect("/settings/mail", "error", "Your own profile has no email address to send the test to.")
     if error := send_mail(me["email"], "Caddyman: test mail", f"Mail from Caddyman works. Links will point at {mail['public_url']}\n"):
-        return redirect("/users/mail", "error", f"The mail was not sent: {error}")
-    return redirect("/users/mail", "ok", f"A test mail is on its way to {me['email']}.")
+        return redirect("/settings/mail", "error", f"The mail was not sent: {error}")
+    return redirect("/settings/mail", "ok", f"A test mail is on its way to {me['email']}.")
 
 
-@app.get("/users/new")
+@app.get("/settings/users/new")
 def user_new(request: Request):
     return page(request, "user_form.html", user={"permissions": []}, new=True)
 
 
-@app.get("/users/{name:path}/edit")
+@app.get("/settings/users/{name:path}/edit")
 def user_edit(request: Request, name: str):
     user = find_user(load_users(), name)
     if user is None:
-        return redirect("/users", "error", "This user does not exist.")
+        return redirect("/settings/users", "error", "This user does not exist.")
     return page(request, "user_form.html", user=user)
 
 
-@app.post("/users/new")
-@app.post("/users/{name:path}/edit")
+@app.post("/settings/users/new")
+@app.post("/settings/users/{name:path}/edit")
 async def user_save(request: Request, name: str | None = None):
     form = await request.form()
     with USERS_LOCK:
         users = load_users()
         existing = find_user(users, name) if name is not None else None
         if name is not None and existing is None:
-            return redirect("/users", "error", "This user does not exist.")
+            return redirect("/settings/users", "error", "This user does not exist.")
         user = {
             **(existing or {}),
             "username": existing["username"] if existing else str(form.get("username", "")).strip(),
@@ -777,17 +848,17 @@ async def user_save(request: Request, name: str | None = None):
                 user.pop(key, None)
         save_users([user if other is existing else other for other in users] if existing else [*users, user])
     if existing and existing["username"] == request.state.user and password:
-        return start_session(redirect("/users", "ok", f"{user['username']} is saved."), request, user)
-    return redirect("/users", "ok", f"{user['username']} is saved.")
+        return start_session(redirect("/settings/users", "ok", f"{user['username']} is saved."), request, user)
+    return redirect("/settings/users", "ok", f"{user['username']} is saved.")
 
 
-@app.post("/users/{name:path}/delete")
+@app.post("/settings/users/{name:path}/delete")
 def user_delete(request: Request, name: str):
     if name == request.state.user:
-        return redirect("/users", "error", "You cannot delete your own account.")
+        return redirect("/settings/users", "error", "You cannot delete your own account.")
     with USERS_LOCK:
         save_users([user for user in load_users() if user["username"] != name])
-    return redirect("/users", "ok", f"{name} is deleted.")
+    return redirect("/settings/users", "ok", f"{name} is deleted.")
 
 
 HOST_DEFAULTS = {
@@ -797,9 +868,6 @@ HOST_DEFAULTS = {
     "tls_snippet": "",
     "root_ca_url": "",
     "domain_suffix": "",
-    # Two checkboxes, kept as text like every other field here: "1" or "".
-    "public_ca": "1",
-    "login_ca_hint": "1",
 }
 HOSTNAME_RE = re.compile(r"^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9-]+)*$")
 SNIPPET_RE = re.compile(r"^[A-Za-z0-9_-]+$")
@@ -1664,6 +1732,8 @@ async def host_save(request: Request, host_id: str | None = None):
         # The one base Caddyfile this tool writes: its own copy, which Caddy never reads from disk.
         Path(host["sites_dir"]).mkdir(parents=True, exist_ok=True)
         write_private(Path(host["caddyfile"]), base + "\n")
+    # Before the host is rewritten without them: keep the root CA switches an older version stored in it.
+    save_settings()
     save_hosts([host if item["id"] == host["id"] else item for item in hosts] if existing else [*hosts, host])
     return RedirectResponse("/status", status_code=303)
 

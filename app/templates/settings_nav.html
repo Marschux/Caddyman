@@ -1,0 +1,13 @@
+{# The blocks of the Settings tab. Shown by right, like the main tabs; the server checks again. #}
+{% set rights = request.state.me.permissions %}
+{% set here = request.url.path %}
+<h1>Settings</h1>
+<div class="tabs">
+	{% if "settings" in rights %}
+	<a href="/settings/caddy" {{ 'aria-current="page"' if here.startswith("/hosts") }}>Caddy</a>
+	<a href="/settings/root-ca" {{ 'aria-current="page"' if here.startswith("/settings/root-ca") }}>Root CA</a>
+	<a href="/settings/mail" {{ 'aria-current="page"' if here.startswith("/settings/mail") }}>Mail</a>
+	{% endif %}
+	{% if "users" in rights %}<a href="/settings/users" {{ 'aria-current="page"' if here.startswith("/settings/users") }}>Users</a>{% endif %}
+	{% if "settings" in rights %}<a href="/settings/security" {{ 'aria-current="page"' if here.startswith("/settings/security") }}>Security</a>{% endif %}
+</div>

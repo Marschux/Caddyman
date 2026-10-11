@@ -1,0 +1,16 @@
+{% extends "base.html" %}
+{% block title %}Root CA settings - Caddyman{% endblock %}
+{% block content %}
+{% include "settings_nav.html" %}
+<form method="post" action="/settings/root-ca" class="card wide">
+	<h2>Root CA</h2>
+	<p>Who gets to the root certificate without an account here.</p>
+	<label class="check"><input type="checkbox" name="public_ca" value="1" {{ "checked" if settings.public_ca }}>
+		Offer the root CA without a login</label>
+	<small>Opens <a href="/trust">/trust</a> and the download to everyone who can reach Caddyman.</small>
+	<label class="check"><input type="checkbox" name="login_ca_hint" value="1" {{ "checked" if settings.login_ca_hint }}>
+		Point to it on the login page</label>
+	<small>A card below the login form. It only shows while the root CA is offered without a login.</small>
+	<button type="submit">Save</button>
+</form>
+{% endblock %}
