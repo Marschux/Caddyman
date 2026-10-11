@@ -163,7 +163,7 @@ status page shows its check code, the same one the Root CA page gives.
 | `CADDYMAN_LOG_DIR` | `/var/log/caddy` | Where Caddy's log directory is mounted |
 | `CADDYMAN_DATA_DIR` | `/data` | Account, settings, change log |
 | `CADDYMAN_HOST` / `CADDYMAN_PORT` | `0.0.0.0` / `5052` | |
-| `CADDYMAN_SOURCE_URL` | this repository | The "Source" link in the footer. Point it at your own source if you run a modified copy |
+| `CADDYMAN_SOURCE_URL` | this repository | Where the version number in the footer links to. Point it at your own source if you run a modified copy |
 
 ## Good to know
 
