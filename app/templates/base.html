@@ -19,7 +19,7 @@
 		{% set account = request.state.me %}
 		{# Only what this account may open. The server checks the same again for every request. #}
 		<nav>
-			<a href="/" {{ 'aria-current="page"' if path == "/" or path.startswith("/routes") }}>Routes</a>
+			<a href="/" {{ 'aria-current="page"' if path == "/" or path.startswith(("/routes", "/groups")) }}>Routes</a>
 			{% if "ca" in account.permissions %}<a href="/ca" {{ 'aria-current="page"' if path.startswith("/ca") }}>Root CA</a>{% endif %}
 			<a href="/status" {{ 'aria-current="page"' if path.startswith(("/status", "/logs", "/backup")) }}>System</a>
 			{% if "settings" in account.permissions or "users" in account.permissions %}<a href="/settings" {{ 'aria-current="page"' if path.startswith("/settings") or path.startswith("/hosts") }}>Settings</a>{% endif %}

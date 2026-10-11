@@ -163,11 +163,12 @@ button:focus-visible, a:focus-visible, summary:focus-visible { outline: 2px soli
 button.link { width: auto; margin: 0; padding: 0; font-weight: 500; color: var(--link); background: none; border: 0; border-radius: 4px; }
 button.link:hover { background: none; text-decoration: underline; text-underline-offset: 3px; }
 button.danger { color: var(--error); }
-button.secondary { margin-top: 0; color: var(--ink); background: var(--surface-2); border-color: var(--surface-2); }
-button.secondary:hover { background: var(--surface-3); border-color: var(--surface-3); }
+button.secondary, a.button.secondary { margin-top: 0; color: var(--ink); background: var(--surface-2); border-color: var(--surface-2); }
+button.secondary:hover, a.button.secondary:hover { background: var(--surface-3); border-color: var(--surface-3); }
 
 .heading { display: flex; justify-content: space-between; align-items: center; gap: 16px; margin-bottom: 24px; }
 .heading h1 { margin: 0; }
+.heading .buttons { display: flex; gap: 8px; }
 
 /* Separate borders so the rounded corners can clip the rows. */
 table { width: 100%; border-collapse: separate; border-spacing: 0; background: var(--surface-1); border: 1px solid var(--hairline); border-radius: 12px; overflow: hidden; }
@@ -188,6 +189,9 @@ td.nowrap { white-space: nowrap; }
 .actions button:hover, .actions a.button:hover { background: var(--surface-3); border-color: var(--surface-3); }
 .actions button.danger { color: var(--error); }
 .actions button.danger:hover { background: var(--error-bg); border-color: var(--error); }
+.actions input { width: 200px; padding: 5px 10px; font-size: 13px; }
+/* The name of a group above its routes. */
+tr.group th { padding: 10px 16px; color: var(--ink-muted); background: var(--surface-2); }
 td > .tag:first-child { margin-left: 0; }
 /* Opens somewhere else: reads as the value it wraps, the arrow shows on hover. */
 a.out { color: var(--ink); }
@@ -239,6 +243,7 @@ form.inline select { width: auto; padding: 8px 12px; font-size: 14px; }
 form.row { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; margin-top: 16px; }
 form.row button { width: auto; margin: 0; }
 form.row input[type="file"] { width: auto; flex: 1; min-width: 220px; }
+form.row input:not([type]) { width: auto; flex: 0 1 320px; }
 
 .conflict { margin-top: 12px; padding: 16px; border: 1px solid var(--warn); border-radius: 8px; background: var(--warn-bg); }
 .conflict p { margin: 0 0 6px; color: var(--ink); }

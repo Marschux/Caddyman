@@ -1,0 +1,44 @@
+{% extends "base.html" %}
+{% block title %}Groups - Caddyman{% endblock %}
+{% block content %}
+<div class="heading">
+	<h1>Groups</h1>
+	<a class="button secondary" href="/">Back to the routes</a>
+</div>
+<p class="empty">Groups only sort the list of routes; Caddy does not know about them. A route gets its group in its form.</p>
+
+<form method="post" action="/groups" class="row">
+	<input name="name" required maxlength="40" placeholder="Media" aria-label="Name of the new group" autofocus>
+	<button type="submit">Add group</button>
+</form>
+
+<table class="spaced">
+	<thead>
+		<tr><th>Group</th><th>Routes</th><th></th></tr>
+	</thead>
+	<tbody>
+		{% for name, count in groups %}
+		<tr>
+			<td><strong>{{ name }}</strong></td>
+			<td>{{ count }}</td>
+			<td class="actions">
+				<form method="post" action="/groups/rename">
+					<input type="hidden" name="old" value="{{ name }}">
+					<input name="new" value="{{ name }}" required maxlength="40" aria-label="New name for {{ name }}">
+					<button type="submit">Rename</button>
+				</form>
+				<form method="post" action="/groups/delete"
+					data-confirm="Remove the group {{ name }}? Its routes are kept." onsubmit="return confirm(this.dataset.confirm)">
+					<input type="hidden" name="name" value="{{ name }}">
+					<button type="submit" class="danger">Delete</button>
+				</form>
+			</td>
+		</tr>
+		{% else %}
+		<tr><td colspan="3" class="empty">No groups yet.</td></tr>
+		{% endfor %}
+	</tbody>
+</table>
+<p class="empty">The group is written into the route file. Renaming or deleting a group that has routes rewrites those
+	files and reloads Caddy. Routes edited as text have no group.</p>
+{% endblock %}

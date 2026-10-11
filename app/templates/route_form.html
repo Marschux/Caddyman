@@ -79,6 +79,17 @@
 	<input id="port" name="port" value="{{ route.port or '' }}" inputmode="numeric" placeholder="443">
 	<small>Any other port has to be published on the Caddy container. Caddyman cannot check or change that.</small>
 
+	{% if groups %}
+	<label for="group">Group <span class="optional">optional</span></label>
+	<select id="group" name="group">
+		<option value="">No group</option>
+		{% for group in groups %}
+		<option value="{{ group }}" {{ "selected" if route.group == group }}>{{ group }}</option>
+		{% endfor %}
+	</select>
+	<small>Only sorts the list of routes. <a href="/groups">Manage groups</a></small>
+	{% endif %}
+
 	<button type="submit">{{ "Overwrite and reload Caddy" if conflict else "Save and reload Caddy" }}</button>
 	{% if name %}
 	<p class="below">Changing the hostname renames the file.

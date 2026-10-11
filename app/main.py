@@ -305,6 +305,7 @@ AREAS = (
     ("/settings", "settings"),
     ("/hosts", "settings"),
     ("/routes", "routes"),
+    ("/groups", "routes"),
     ("/backup", "backup"),
     ("/logs", "logs"),
     ("/ca", "ca"),
@@ -1146,6 +1147,10 @@ STATIC_ROOT_RE = re.compile(r"^/[A-Za-z0-9._/-]*$")
 AUTH_USER_RE = re.compile(r"^[A-Za-z0-9._@-]{1,64}$")
 BCRYPT_RE = re.compile(r"^\$2[aby]\$[0-9]{2}\$[./A-Za-z0-9]{53}$")
 ROUTE_NAME_RE = re.compile(r"^[A-Za-z0-9]([A-Za-z0-9._-]*[A-Za-z0-9])?$")
+# Groups only sort the list. Which route is in which group stands in the route file; this
+# file only keeps the names, so a group can exist before a route uses it.
+GROUPS_FILE = DATA_DIR / "groups.json"
+GROUP_RE = re.compile(r"\w[\w .-]{0,39}")
 LOAD_TIMEOUT = 30
 REACH_TIMEOUT = 2
 # One writer at a time: write, reload and a possible undo must not interleave.
@@ -1179,6 +1184,10 @@ def route_from_form(form, host: dict, previous: dict | None = None) -> tuple[dic
     if host["domain_suffix"] and "." not in name and name:
         name = f"{name}.{host['domain_suffix']}"
     route = {"type": get("type"), "host": name, "port": get("port"), "tls": get("tls")}
+    if group := get("group"):
+        route["group"] = group
+        if not GROUP_RE.fullmatch(group):
+            return route, "A group name is up to 40 letters, digits, spaces, '.', '_' and '-'."
     if not HOSTNAME_RE.match(name) or ".." in name or len(name) > 253:
         return route, "The hostname may only contain lowercase letters, digits, '-' and '.'."
     if route["port"] and not valid_port(route["port"]):
@@ -1286,6 +1295,46 @@ def list_routes(host: dict) -> list[dict]:
     except OSError:
         return []
     return [{"name": path.stem, "route": read_route(path, host)} for path in paths]
+
+
+def route_group(route: dict | None) -> str:
+    """The group of a route, empty for none. The value comes from a file somebody may have edited."""
+    group = route.get("group") if route else ""
+    return group if isinstance(group, str) else ""
+
+
+def stored_groups() -> list[str]:
+    try:
+        return json.loads(GROUPS_FILE.read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        return []
+
+
+def save_groups(names) -> None:
+    write_private(GROUPS_FILE, json.dumps(sorted(set(names), key=str.lower), indent=2))
+
+
+def load_groups(host: dict) -> list[str]:
+    """Every group: the ones created here and the ones a route file names, as after a restore."""
+    used = {route_group(item["route"]) for item in list_routes(host)} - {""}
+    return sorted({*stored_groups(), *used}, key=str.lower)
+
+
+def regroup(host: dict, old: str, new: str) -> str | None:
+    """Move every route of a group to another name, or to none. One reload, undone as a whole."""
+    changes = {}
+    for item in list_routes(host):
+        route = item["route"]
+        if route_group(route) == old:
+            rest = {key: value for key, value in route.items() if key != "group"}
+            # Same place as in route_from_form, or the file would no longer count as ours.
+            head = {key: rest[key] for key in ("type", "host", "port", "tls")}
+            changes[Path(host["sites_dir"]) / f"{item['name']}.caddy"] = render_route(
+                {**head, **({"group": new} if new else {}), **rest}, host
+            )
+    # The files were read before the lock: an edit saved in that instant would be overwritten.
+    # Fine for one admin at a time; pass the mtimes to apply_route if that ever bites.
+    return apply_route(host, changes, "group", f"{old} -> {new or 'no group'}") if changes else None
 
 
 def caddy_body(host: dict) -> bytes:
@@ -1531,6 +1580,7 @@ def route_form_page(request: Request, host: dict, route: dict, error: str | None
     # Hostnames and targets of the real routes, for the game hidden in this form.
     proxied = [item["route"] for item in list_routes(host) if item["route"] and item["route"]["type"] == "reverse_proxy"]
     context["game_routes"] = [[item["host"], item["upstream"]] for item in proxied]
+    context["groups"] = load_groups(host)
     return page(request, "route_form.html", host=host, route=route, error=error, acme_ca=acme_ca_available(host), **context)
 
 
@@ -1558,6 +1608,9 @@ def index(request: Request, host: str | None = None):
         item["certificate"] = status
         item["target_down"] = target_down
         item["site"], item["link"] = route_links(item["route"])
+        item["group"] = route_group(item["route"])
+    # Groups in order, what has none at the end.
+    routes.sort(key=lambda item: (not item["group"], item["group"].lower()))
     return page(request, "index.html", hosts=hosts, host=current, routes=routes)
 
 
@@ -1705,6 +1758,59 @@ def route_adopt(name: str, host: str | None = None):
     if error := apply_route(current, {path: render_route(route, current)}, "adopt", name):
         return redirect(url, "error", f"Caddy rejected the reload, {path.name} was left as it is: {error}")
     return redirect(url, "ok", f"{path.name} now opens in the form.")
+
+
+@app.get("/groups")
+def groups_page(request: Request):
+    _, current = pick_host(None)
+    if current is None:
+        return RedirectResponse("/hosts/new", status_code=303)
+    members = [route_group(item["route"]) for item in list_routes(current)]
+    return page(request, "groups.html", groups=[(name, members.count(name)) for name in load_groups(current)])
+
+
+def taken(name: str, groups: list[str]) -> bool:
+    return name.lower() in (group.lower() for group in groups)
+
+
+@app.post("/groups")
+def group_add(name: str = Form("")):
+    _, current = pick_host(None)
+    name = name.strip()
+    if current is None or not GROUP_RE.fullmatch(name):
+        return redirect("/groups", "error", "A group name is up to 40 letters, digits, spaces, '.', '_' and '-'.")
+    if taken(name, load_groups(current)):
+        return redirect("/groups", "error", f"A group {name} already exists.")
+    save_groups([*stored_groups(), name])
+    return redirect("/groups", "ok", f"{name} was added. Pick it in the form of a route.")
+
+
+@app.post("/groups/rename")
+def group_rename(old: str = Form(""), new: str = Form("")):
+    _, current = pick_host(None)
+    new = new.strip()
+    groups = load_groups(current) if current else []
+    if old not in groups:
+        return redirect("/groups", "error", "This group does not exist.")
+    if not GROUP_RE.fullmatch(new):
+        return redirect("/groups", "error", "A group name is up to 40 letters, digits, spaces, '.', '_' and '-'.")
+    if taken(new, [group for group in groups if group != old]):
+        return redirect("/groups", "error", f"A group {new} already exists.")
+    if error := regroup(current, old, new):
+        return redirect("/groups", "error", f"Caddy rejected the reload, nothing was changed: {error}")
+    save_groups([new if group == old else group for group in [*stored_groups(), old]])
+    return redirect("/groups", "ok", f"{old} is now {new}.")
+
+
+@app.post("/groups/delete")
+def group_delete(name: str = Form("")):
+    _, current = pick_host(None)
+    if current is None or name not in load_groups(current):
+        return redirect("/groups", "error", "This group does not exist.")
+    if error := regroup(current, name, ""):
+        return redirect("/groups", "error", f"Caddy rejected the reload, nothing was changed: {error}")
+    save_groups(group for group in stored_groups() if group != name)
+    return redirect("/groups", "ok", f"{name} was removed. Its routes are kept, without a group.")
 
 
 def host_settings_url() -> str:

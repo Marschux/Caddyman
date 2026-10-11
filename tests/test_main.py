@@ -31,6 +31,7 @@ class AppTest(unittest.TestCase):
         main.HOSTS_FILE.unlink(missing_ok=True)
         main.MAIL_FILE.unlink(missing_ok=True)
         main.SETTINGS_FILE.unlink(missing_ok=True)
+        main.GROUPS_FILE.unlink(missing_ok=True)
         main.LOGIN_FAILS.clear()
         # Entering the client runs the startup that creates the setup token.
         self.client = TestClient(main.app, follow_redirects=False)
@@ -309,6 +310,41 @@ class TestRoutes(RouteTest):
         self.assertEqual(main.read_audit()[0]["result"], "ok")
         self.assertIn("pdf.lab.test", self.client.get("/").text)
 
+    def test_groups(self):
+        plain = '# caddyman {"type":"reverse_proxy","host":"pdf.lab.test","port":"","tls":"acme_ca","upstream":"10.0.0.5:9005"}'
+        self.create()
+        self.assertNotIn('name="group"', self.client.get("/routes/new").text)  # nothing to pick yet
+        self.assertEqual(self.client.post("/groups", data={"name": "Media"}).headers["location"], "/groups")
+        self.client.post("/groups", data={"name": "media"})  # the same name again
+        self.client.post("/groups", data={"name": "bad\"name"})
+        self.assertEqual(main.stored_groups(), ["Media"])
+        self.assertIn('<option value="Media"', self.client.get("/routes/new").text)
+        # The group stands in the route file, right after the keys every route has.
+        self.create(host="wiki", group="Media")
+        self.assertTrue(self.read("wiki.caddy").startswith(
+            '# caddyman {"type":"reverse_proxy","host":"wiki.lab.test","port":"","tls":"acme_ca","group":"Media","upstream"'))
+        self.assertIn('<option value="Media" selected', self.client.get("/routes/wiki/edit").text)
+        self.assertEqual(self.create(host="bad", group="{}").status_code, 400)
+        page = self.client.get("/").text
+        self.assertLess(page.index('colspan="6">Media<'), page.index("wiki.lab.test"))
+        self.assertLess(page.index('colspan="6">No group<'), page.index("pdf.lab.test"))
+        # A rejected rename leaves file and list alone, a good one rewrites the file and stays editable.
+        self.reject()
+        self.client.post("/groups/rename", data={"old": "Media", "new": "Films"})
+        self.assertIn('"group":"Media"', self.read("wiki.caddy"))
+        self.assertEqual(main.stored_groups(), ["Media"])
+        self.load.return_value = mock.Mock(status_code=200)
+        self.client.post("/groups/rename", data={"old": "Media", "new": "Films"})
+        self.assertIn('"group":"Films","upstream"', self.read("wiki.caddy"))
+        self.assertEqual(main.stored_groups(), ["Films"])
+        self.assertIn('<option value="Films" selected', self.client.get("/routes/wiki/edit").text)
+        # Deleting a group keeps its routes and leaves the file as if it never had one.
+        self.client.post("/groups/delete", data={"name": "Films"})
+        self.assertEqual(self.read("wiki.caddy").replace("wiki", "pdf"), self.read("pdf.caddy"))
+        self.assertEqual(self.read("pdf.caddy").splitlines()[0], plain)
+        self.assertEqual(main.stored_groups(), [])
+        self.assertNotIn('colspan="6">', self.client.get("/").text)
+
     def test_other_types_and_tls_modes(self):
         self.create(type="redirect", host="old", target="https://new.lab.test/", code="301", tls="internal")
         self.assertIn("old.lab.test {\n\ttls internal\n\tredir https://new.lab.test{uri} 301\n}\n", self.read("old.caddy"))
@@ -461,7 +497,7 @@ class TestUsers(RouteTest):
         viewer, _ = self.log_in("viewer")
         for path in ("/", "/status", "/profile"):
             self.assertEqual(viewer.get(path).status_code, 200, path)
-        for path in ("/settings/users", "/settings/users/new", "/backup", "/backup/download", "/logs", "/ca", "/ca/root-ca.crt", "/hosts/h1/edit", "/routes/new",
+        for path in ("/settings/users", "/settings/users/new", "/groups", "/backup", "/backup/download", "/logs", "/ca", "/ca/root-ca.crt", "/hosts/h1/edit", "/routes/new",
                      "/settings", "/settings/caddy", "/settings/mail", "/settings/security"):
             self.assertEqual(viewer.get(path).status_code, 403, path)
         self.assertEqual(viewer.post("/routes/new", data=self.form()).status_code, 403)
