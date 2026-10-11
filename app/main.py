@@ -1682,7 +1682,7 @@ def own_route(route: dict | None, request: Request) -> str:
     very request came in through it.
 
     Told by the port alone, like the hint on the status page: another service on the same
-    port gets the mark too, which costs a wrong tag and a sterner question before deleting.
+    port counts too, which costs a sterner question before deleting it.
     """
     if not route or route["type"] != "reverse_proxy" or not route["upstream"].endswith(f":{OWN_PORT}"):
         return ""
@@ -1700,9 +1700,6 @@ def route_form_page(request: Request, host: dict, route: dict, error: str | None
     proxied = [item["route"] for item in list_routes(host) if item["route"] and item["route"]["type"] == "reverse_proxy"]
     context["game_routes"] = [[item["host"], item["upstream"]] for item in proxied]
     context["groups"] = load_groups(host)
-    # Only for a route that exists: a new one cannot be the way somebody came in.
-    context["own"] = own_route(route, request) if context.get("name") and route.get("upstream") and route.get("host") else ""
-    context["own_port"] = OWN_PORT
     return page(request, "route_form.html", host=host, route=route, error=error, acme_ca=acme_ca_available(host), **context)
 
 

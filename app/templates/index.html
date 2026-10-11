@@ -41,7 +41,6 @@
 			<td{% if route.type != "redirect" %} class="nowrap"{% endif %}>{% if item.link %}<a class="out" href="{{ item.link }}" target="_blank" rel="noopener noreferrer"><code>{{ route.upstream or route.target }}</code></a>
 				{% else %}<code>{{ route.upstream or route.target or route.root }}</code>{% endif %}
 				{% if item.target_down %}<span class="cert warn" title="No TCP connection from Caddyman to this target. Caddy may see it differently.">Not reachable</span>{% endif %}
-				{% if item.own %}<span class="tag" title="This route leads to Caddyman itself.">Caddyman</span>{% endif %}
 				{% if route.auth_user %}<span class="tag">Basic auth</span>{% endif %}
 				{% if route.host_header %}<span class="tag">Host header</span>{% endif %}</td>
 			<td class="nowrap"><span class="tag">{{ {"acme_ca": "Own ACME CA", "default": "Caddy default", "internal": "Caddy internal", "none": "None"}[route.tls] }}</span></td>
