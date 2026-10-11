@@ -71,6 +71,21 @@ own before the first start.
 **4. Tell Caddyman where Caddy runs.** The defaults fit the compose file; add the username and
 password of the `:2020` site.
 
+**5. Put Caddyman itself behind HTTPS.** Until then your login crosses the network in the clear.
+The status page offers the route with one click. Set `CADDYMAN_FORWARDED_ALLOW_IPS` to Caddy's
+address or the Docker subnet afterwards, so Caddyman knows it is reached over HTTPS.
+
+To have even the setup page behind HTTPS, put the route into the sites directory by hand, restart
+Caddy, and open Caddyman under that name for step 3. It shows up in the route list later and can be adopted
+there:
+
+```
+caddyman.home.example {
+	import stepca
+	reverse_proxy caddyman:5052
+}
+```
+
 Settings are optional and go into a `.env`, see [`docker/.env.example`](docker/.env.example).
 
 ![Logs page](docs/screenshot-logs.png)

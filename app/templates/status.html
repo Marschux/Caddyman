@@ -2,6 +2,15 @@
 {% block title %}Status - Caddyman{% endblock %}
 {% block content %}
 <h1>Status</h1>
+{% if no_https %}
+<div class="notice">
+	<div>
+		<strong>Caddyman is reached without HTTPS</strong>
+		<p>Your login crosses the network in the clear. Give Caddyman a route of its own and open it under that name from then on.</p>
+	</div>
+	<a class="button" href="/routes/new?own=1">Add a route for Caddyman</a>
+</div>
+{% endif %}
 {% for host in hosts %}
 <section id="host-{{ host.id }}">
 	<div class="heading">

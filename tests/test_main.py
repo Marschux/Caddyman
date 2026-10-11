@@ -278,6 +278,16 @@ class RouteTest(AppTest):
 
 
 class TestRoutes(RouteTest):
+    def test_status_offers_a_route_for_caddyman_itself(self):
+        hint = 'href="/routes/new?own=1"'
+        self.assertIn(hint, self.client.get("/status").text)
+        form = self.client.get("/routes/new?own=1").text
+        self.assertIn('name="host" value="caddyman"', form)
+        self.assertIn(f'name="upstream" value="caddyman:{main.OWN_PORT}"', form)
+        self.assertNotIn('name="upstream" value="caddyman', self.client.get("/routes/new").text)
+        self.create(host="caddyman", upstream=f"caddyman:{main.OWN_PORT}")
+        self.assertNotIn(hint, self.client.get("/status").text)
+
     def test_reverse_proxy_file(self):
         self.assertEqual(self.create().headers["location"], "/?host=h1")
         self.assertEqual(

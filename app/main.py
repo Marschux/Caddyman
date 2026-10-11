@@ -46,6 +46,7 @@ AUDIT_SHOWN = 100
 FLASH_COOKIE = "caddyman_flash"
 # For installs where nobody gets to read the container log.
 ENV_SETUP_TOKEN = os.getenv("CADDYMAN_SETUP_TOKEN", "").strip()
+OWN_PORT = os.getenv("CADDYMAN_PORT", "5052")
 # Whoever knows the token becomes admin, so a chosen one must not be guessable.
 MIN_SETUP_TOKEN_CHARS = 12
 
@@ -163,7 +164,7 @@ def start_session(response: RedirectResponse, request: Request, username: str) -
 async def lifespan(app: FastAPI):
     global SETUP_TOKEN
     if load_admin() is None:
-        port = os.getenv("CADDYMAN_PORT", "5052")
+        port = OWN_PORT
         if setup_token_problem():
             # No fallback to a random token: whoever set one cannot read this log.
             SETUP_TOKEN = None
@@ -991,12 +992,32 @@ def index(request: Request, host: str | None = None):
 
 
 @app.get("/routes/new")
-def route_new(request: Request, host: str | None = None):
+def route_new(request: Request, host: str | None = None, own: bool = False):
     _, current = pick_host(host)
     if current is None:
         return RedirectResponse("/hosts/new", status_code=303)
     tls = "acme_ca" if acme_ca_available(current) else "default"
-    return route_form_page(request, current, {"type": "reverse_proxy", "tls": tls, "code": "308"})
+    route = {"type": "reverse_proxy", "tls": tls, "code": "308"}
+    if own:
+        # A Caddy next door reaches this container by name, one elsewhere by the address the browser used.
+        there = request.url.hostname if current.get("storage") == "managed" else "caddyman"
+        route.update(host="caddyman" if current["domain_suffix"] else "", upstream=f"{there}:{OWN_PORT}")
+    return route_form_page(request, current, route)
+
+
+def reached_without_https(request: Request, host: dict) -> bool:
+    """True while this page came in over plain HTTP and no route points at Caddyman itself.
+
+    The scheme alone is not enough: behind Caddy it still reads http unless
+    CADDYMAN_FORWARDED_ALLOW_IPS trusts Caddy. Any route file naming this port counts,
+    hand-written ones too; another service on the same port hides the hint, which is harmless.
+    """
+    if request.url.scheme == "https":
+        return False
+    try:
+        return not any(f":{OWN_PORT}".encode() in path.read_bytes() for path in Path(host["sites_dir"]).glob("*.caddy"))
+    except OSError:
+        return True
 
 
 @app.post("/routes/new")
@@ -1604,4 +1625,5 @@ def logs_page(request: Request, file: str = "", level: str = "", q: str = "", qu
 @app.get("/status")
 def status(request: Request):
     hosts = [{**host, "checks": preflight(host)} for host in load_hosts()]
-    return page(request, "status.html", hosts=hosts, audit=read_audit())
+    no_https = bool(hosts) and reached_without_https(request, hosts[0])
+    return page(request, "status.html", hosts=hosts, audit=read_audit(), no_https=no_https)
