@@ -301,7 +301,7 @@ th[aria-sort="descending"] button.sort::after { content: " \2193"; color: var(--
 form.row input[type="file"] { width: auto; flex: 1; min-width: 220px; }
 form.row input:not([type]) { width: auto; flex: 0 1 320px; }
 
-.conflict { margin-top: 12px; padding: 16px; border: 1px solid var(--warn); border-radius: 8px; background: var(--warn-bg); }
+.conflict { margin: 12px 0 20px; padding: 16px; border: 1px solid var(--warn); border-radius: 8px; background: var(--warn-bg); }
 .conflict p { margin: 0 0 6px; color: var(--ink); }
 .conflict pre { margin-bottom: 12px; }
 
