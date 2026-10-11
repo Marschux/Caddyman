@@ -1,0 +1,19 @@
+{% extends "base.html" %}
+{% block title %}Forgot password - Caddyman{% endblock %}
+{% block header %}{% endblock %}
+{% block content %}
+<p class="brand above">{% include "logo.svg" %} Caddyman</p>
+<form method="post" action="/forgot" class="card">
+	<h1>Forgot password</h1>
+	{% if error %}<p class="error" role="alert">{{ error }}</p>{% endif %}
+	{% if sent %}
+	{# The same answer whether the account exists or not. #}
+	<p>If an account with an email address matches, a mail with a link is on its way. The link works for one hour.</p>
+	{% else %}
+	<label for="account">Username or email</label>
+	<input id="account" name="account" autocomplete="username" required autofocus>
+	<button type="submit">Send the link</button>
+	{% endif %}
+	<p class="below"><a href="/login">Back to the login</a></p>
+</form>
+{% endblock %}

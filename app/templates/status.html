@@ -2,7 +2,8 @@
 {% block title %}Status - Caddyman{% endblock %}
 {% block content %}
 <h1>Status</h1>
-{% if no_https %}
+{% set rights = request.state.me.permissions %}
+{% if no_https and "routes" in rights %}
 <div class="notice">
 	<div>
 		<strong>Caddyman is reached without HTTPS</strong>
@@ -15,11 +16,13 @@
 <section id="host-{{ host.id }}">
 	<div class="heading">
 		<h2>Caddy</h2>
+		{% if "routes" in rights %}
 		<form method="post" action="/hosts/{{ host.id }}/push" class="inline"
 			data-confirm="Send the configuration to Caddy now? It replaces what Caddy currently runs." onsubmit="return confirm(this.dataset.confirm)">
 			<button type="submit" class="link">Reload Caddy</button>
 		</form>
-		<a href="/hosts/{{ host.id }}/edit">Settings</a>
+		{% endif %}
+		{% if "settings" in rights %}<a href="/hosts/{{ host.id }}/edit">Settings</a>{% endif %}
 	</div>
 	<ul class="checks">
 		{% for check in host.checks %}
@@ -45,18 +48,19 @@
 	<h2>Recent changes</h2>
 	<table class="spaced">
 		<thead>
-			<tr><th>Time (UTC)</th><th>Route</th><th>Action</th><th>Reload</th></tr>
+			<tr><th>Time (UTC)</th><th>User</th><th>Route</th><th>Action</th><th>Reload</th></tr>
 		</thead>
 		<tbody>
 			{% for entry in audit %}
 			<tr>
 				<td>{{ entry.time }}</td>
+				<td>{{ entry.user or "-" }}</td>
 				<td>{{ entry.route }}</td>
 				<td>{{ entry.action }}</td>
 				<td>{% if entry.result == "ok" %}<span class="badge ok">OK</span>{% else %}<code>{{ entry.result }}</code>{% endif %}</td>
 			</tr>
 			{% else %}
-			<tr><td colspan="4" class="empty">Nothing has been changed yet.</td></tr>
+			<tr><td colspan="5" class="empty">Nothing has been changed yet.</td></tr>
 			{% endfor %}
 		</tbody>
 	</table>

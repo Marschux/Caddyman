@@ -1,8 +1,10 @@
 {% extends "base.html" %}
 {% block content %}
+{# Without the right to change routes the list is read only; the server refuses the rest anyway. #}
+{% set may_change = "routes" in request.state.me.permissions %}
 <div class="heading">
 	<h1>Routes</h1>
-	<a class="button" href="/routes/new?host={{ host.id }}">Add route</a>
+	{% if may_change %}<a class="button" href="/routes/new?host={{ host.id }}">Add route</a>{% endif %}
 </div>
 <table>
 	<thead>
@@ -29,7 +31,7 @@
 				{% if cert %}
 				{# The explanation lives in the tooltip, so a route with a problem stays one line like the others. #}
 				<span class="cert {{ cert.level }}" title="{{ cert.detail }}">{{ cert.text }}</span>
-				{% if cert.level in ("warn", "fail") %}<a href="/logs?q={{ route.host|urlencode }}&amp;quiet=1">Show its log</a>{% endif %}
+				{% if cert.level in ("warn", "fail") and "logs" in request.state.me.permissions %}<a href="/logs?q={{ route.host|urlencode }}&amp;quiet=1">Show its log</a>{% endif %}
 				{% else %}<span class="empty">-</span>{% endif %}
 			</td>
 			{% else %}
@@ -37,6 +39,7 @@
 			<td colspan="4" class="empty">Not created here, or edited by hand</td>
 			{% endif %}
 			<td class="actions">
+				{% if may_change %}
 				{% if not route %}
 				<form method="post" action="/routes/{{ item.name|urlencode }}/adopt?host={{ host.id }}">
 					<button type="submit">Adopt</button>
@@ -47,6 +50,7 @@
 					data-confirm="Delete {{ item.name }}.caddy and reload Caddy?" onsubmit="return confirm(this.dataset.confirm)">
 					<button type="submit" class="danger">Delete</button>
 				</form>
+				{% endif %}
 			</td>
 		</tr>
 		{% else %}

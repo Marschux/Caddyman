@@ -1,0 +1,44 @@
+{% extends "base.html" %}
+{% block title %}{{ "Add user" if new else "Edit " ~ user.username }} - Caddyman{% endblock %}
+{% block content %}
+<form method="post" class="card wide">
+	<h1>{{ "Add a user" if new else "Edit " ~ user.username }}</h1>
+	{% if error %}<p class="error" role="alert">{{ error }}</p>{% endif %}
+
+	{% if new %}
+	<label for="username">Username</label>
+	<input id="username" name="username" value="{{ user.username or '' }}" maxlength="64" autocomplete="off" required autofocus>
+	<small>It cannot be changed afterwards.</small>
+	{% endif %}
+
+	<label for="realname">Name <span class="optional">optional</span></label>
+	<input id="realname" name="realname" value="{{ user.realname or '' }}" maxlength="64" autocomplete="off">
+
+	<label for="email">Email <span class="optional">optional</span></label>
+	<input id="email" name="email" type="email" value="{{ user.email or '' }}" maxlength="254" autocomplete="off">
+	<small>Only used to mail a link for a forgotten password.</small>
+
+	<fieldset class="rights">
+		<legend>Rights</legend>
+		{% for right, label in PERMISSIONS.items() %}
+		<label class="check"><input type="checkbox" name="right_{{ right }}" value="1" {{ "checked" if right in user.permissions }}> {{ label }}</label>
+		{% endfor %}
+		<small>Without any, the account can still see the route list, the status page and its own profile.</small>
+	</fieldset>
+
+	<label for="password">{{ "Password" if new else "New password" }}{% if not new %} <span class="optional">optional</span>{% endif %}</label>
+	<input id="password" name="password" type="password" autocomplete="new-password" minlength="8" {{ "required" if new }}
+		placeholder="{{ '' if new else 'Leave empty to keep the current password' }}">
+	<label for="repeat">Repeat password</label>
+	<input id="repeat" name="repeat" type="password" autocomplete="new-password" minlength="8" {{ "required" if new }}>
+	{% if not new %}<small>A new password logs this account out everywhere.</small>{% endif %}
+
+	{% if user.totp %}
+	<label class="check"><input type="checkbox" name="reset_totp" value="1"> Switch off two-factor login for this account</label>
+	<small>For somebody who lost the phone and the recovery codes.</small>
+	{% endif %}
+
+	<button type="submit">Save</button>
+	<p class="below"><a href="/users">Back to the users</a></p>
+</form>
+{% endblock %}

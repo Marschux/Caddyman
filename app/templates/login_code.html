@@ -1,0 +1,15 @@
+{% extends "base.html" %}
+{% block title %}Log in - Caddyman{% endblock %}
+{% block header %}{% endblock %}
+{% block content %}
+<p class="brand above">{% include "logo.svg" %} Caddyman</p>
+<form method="post" action="/login/code" class="card">
+	<h1>Second factor</h1>
+	{% if error %}<p class="error" role="alert">{{ error }}</p>{% endif %}
+	<label for="code">Code</label>
+	<input id="code" name="code" inputmode="numeric" autocomplete="one-time-code" required autofocus>
+	<small>The six digits from your authenticator app, or one of your recovery codes.</small>
+	<button type="submit">Log in</button>
+	<p class="below"><a href="/login">Start over</a></p>
+</form>
+{% endblock %}

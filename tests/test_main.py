@@ -437,6 +437,142 @@ class TestRoutes(RouteTest):
         self.assertEqual(self.client.get("/").text.count("Not reachable"), 1)  # reverse proxies only
 
 
+class TestUsers(RouteTest):
+    def add_user(self, name="viewer", **fields):
+        form = {"username": name, "password": PASSWORD, "repeat": PASSWORD, **fields}
+        return self.client.post("/users/new", data=form)
+
+    def log_in(self, name, password=PASSWORD):
+        client = TestClient(main.app, follow_redirects=False)
+        response = client.post("/login", data={"username": name, "password": password})
+        return client, response
+
+    def test_account_from_before_there_were_users_keeps_every_right(self):
+        main.write_private(main.AUTH_FILE, '{"username": "admin", "password_hash": "%s"}' % main.hash_password(PASSWORD))
+        self.assertEqual(main.load_users()[0]["permissions"], list(main.PERMISSIONS))
+        client, response = self.log_in("admin")
+        self.assertEqual(response.headers["location"], "/")
+        self.assertEqual(client.get("/users").status_code, 200)
+
+    def test_rights_are_checked_for_every_area(self):
+        self.assertEqual(self.add_user().headers["location"], "/users")
+        viewer, _ = self.log_in("viewer")
+        for path in ("/", "/status", "/profile"):
+            self.assertEqual(viewer.get(path).status_code, 200, path)
+        for path in ("/users", "/users/new", "/backup", "/backup/download", "/logs", "/ca", "/ca/root-ca.crt", "/hosts/h1/edit", "/routes/new"):
+            self.assertEqual(viewer.get(path).status_code, 403, path)
+        self.assertEqual(viewer.post("/routes/new", data=self.form()).status_code, 403)
+        self.assertEqual(viewer.post("/hosts/h1/push").status_code, 403)
+        self.assertEqual(viewer.post("/hosts/h1/delete").status_code, 403)
+        self.assertEqual(viewer.post("/users/admin/delete").status_code, 403)
+        self.assertEqual(os.listdir(self.sites), [])
+        self.assertEqual(len(main.load_hosts()), 1)
+        # Nothing to click that would be refused anyway.
+        self.assertNotIn("Add route", viewer.get("/").text)
+        self.assertNotIn('href="/users"', viewer.get("/").text)
+        # One right more, and exactly that area opens.
+        self.client.post("/users/viewer/edit", data={"right_routes": "1"})
+        self.assertEqual(viewer.post("/routes/new", data=self.form()).headers["location"], "/?host=h1")
+        self.assertEqual(main.read_audit()[0]["user"], "viewer")
+        self.assertEqual(viewer.post("/hosts/h1/push").status_code, 303)
+        self.assertEqual(viewer.get("/hosts/h1/edit").status_code, 403)
+
+    def test_users_are_validated_and_one_manager_always_remains(self):
+        bad = [{"name": ""}, {"name": "admin"}, {"email": "not an address"}, {"repeat": "different"}, {"password": "short", "repeat": "short"}]
+        for fields in bad:
+            with self.subTest(fields):
+                self.assertEqual(self.add_user(**fields).status_code, 400)
+        self.assertEqual(len(main.load_users()), 1)
+        self.add_user("eve", email="eve@lab.test", right_users="1")
+        self.assertEqual(self.add_user("bob", email="EVE@lab.test").status_code, 400)  # one account per address
+        self.assertNotIn(PASSWORD, main.AUTH_FILE.read_text())
+        # Nobody removes themselves, by deleting or by dropping the right.
+        self.assertIn("cannot delete your own", self.client.get(self.client.post("/users/admin/delete").headers["location"]).text)
+        self.assertEqual(self.client.post("/users/admin/edit", data={"right_routes": "1"}).status_code, 400)
+        self.assertEqual(len(main.load_users()), 2)
+        eve, _ = self.log_in("eve")
+        self.assertEqual(eve.post("/users/admin/delete").headers["location"], "/users")
+        self.assertEqual([user["username"] for user in main.load_users()], ["eve"])
+        self.assertEqual(self.client.get("/").headers["location"], "/login")  # a deleted account is logged out
+
+    def test_changing_the_password_ends_the_other_sessions(self):
+        other, _ = self.log_in("admin")
+        self.assertEqual(other.get("/").status_code, 200)
+        form = {"current": "wrong", "password": "another horse", "repeat": "another horse"}
+        self.assertEqual(self.client.post("/profile/password", data=form).status_code, 400)
+        self.assertEqual(self.client.post("/profile/password", data={**form, "current": PASSWORD}).headers["location"], "/profile")
+        self.assertEqual(self.client.get("/").status_code, 200)
+        self.assertEqual(other.get("/").headers["location"], "/login")
+        self.assertEqual(self.log_in("admin")[1].status_code, 401)
+        self.assertEqual(self.log_in("admin", "another horse")[1].headers["location"], "/")
+
+    def test_two_factor_login(self):
+        self.client.post("/profile/2fa/start")
+        secret = main.totp_secret(main.load_users()[0], "totp_pending")
+        self.assertIn(secret, self.client.get("/profile").text)
+        self.assertIn("<svg", self.client.get("/profile").text)
+        self.assertEqual(self.client.post("/profile/2fa/confirm", data={"code": "000000"}).status_code, 400)
+        step = int(main.time.time()) // main.TOTP_SECONDS
+        done = self.client.post("/profile/2fa/confirm", data={"code": main.totp_code(secret, step)})
+        codes = main.re.findall(r"[0-9a-f]{5}-[0-9a-f]{5}", done.text)
+        self.assertEqual(len(codes), main.RECOVERY_CODES)
+        self.assertNotIn(secret, main.AUTH_FILE.read_text())  # encrypted at rest
+        self.assertNotIn(codes[0].replace("-", ""), main.AUTH_FILE.read_text())
+
+        client, response = self.log_in("admin")
+        self.assertEqual(response.headers["location"], "/login/code")
+        self.assertEqual(client.get("/").headers["location"], "/login")  # the password alone opens nothing
+        self.assertEqual(client.post("/login/code", data={"code": "123456"}).status_code, 401)
+        # The code that switched it on was used once already and is not taken a second time.
+        self.assertEqual(client.post("/login/code", data={"code": main.totp_code(secret, step)}).status_code, 401)
+        self.assertEqual(client.post("/login/code", data={"code": main.totp_code(secret, step + 1)}).headers["location"], "/")
+        self.assertEqual(client.get("/").status_code, 200)
+
+        # A recovery code works in place of the app, once.
+        for expected in (303, 401):
+            main.LOGIN_FAILS.clear()
+            client, _ = self.log_in("admin")
+            self.assertEqual(client.post("/login/code", data={"code": codes[0].upper()}).status_code, expected)
+        # Without having passed the password there is no second step.
+        self.assertEqual(TestClient(main.app, follow_redirects=False).post("/login/code", data={"code": codes[1]}).headers["location"], "/login")
+
+        self.assertEqual(self.client.post("/profile/2fa/disable", data={"current": "wrong"}).status_code, 400)
+        self.client.post("/profile/2fa/disable", data={"current": PASSWORD})
+        self.assertEqual(self.log_in("admin")[1].headers["location"], "/")
+        self.assertNotIn("totp", main.load_users()[0])
+
+    def test_forgotten_password_by_mail(self):
+        self.client.post("/profile", data={"realname": "Ada Admin", "email": "ada@lab.test"})
+        self.assertIn(">AA<", self.client.get("/profile").text)  # initials stand in for a picture
+        guest = TestClient(main.app, follow_redirects=False)
+        self.assertEqual(guest.get("/forgot").status_code, 404)  # no mail server, no offer
+        self.assertNotIn("/forgot", guest.get("/login").text)
+        self.patch(main, "MAIL_READY", True)
+        self.patch(main, "PUBLIC_URL", "https://caddyman.lab.test")
+        mail = self.patch(main, "send_mail", mock.Mock(return_value=None))
+        thread = self.patch(main.threading, "Thread", mock.Mock())
+        self.assertIn("/forgot", guest.get("/login").text)
+        # The answer is the same for an account that does not exist, and no mail goes out.
+        unknown = guest.post("/forgot", data={"account": "nobody"})
+        known = guest.post("/forgot", data={"account": "ADA@lab.test"}, headers={"host": "evil.test"})
+        self.assertEqual(unknown.text, known.text)
+        self.assertEqual(thread.call_count, 1)
+        thread.call_args.kwargs["target"](*thread.call_args.kwargs["args"])
+        to, _, body = mail.call_args.args
+        self.assertEqual(to, "ada@lab.test")
+        # The link points at the configured address, whatever host the request named.
+        link = main.re.search(r"https://caddyman\.lab\.test(/reset\?token=\S+)", body).group(1)
+        self.assertEqual(guest.get(link).status_code, 200)
+        token = link.split("token=")[1]
+        form = {"token": token, "password": "another horse", "repeat": "another horse"}
+        self.assertEqual(guest.post("/reset", data={**form, "repeat": "x"}).status_code, 400)
+        self.assertEqual(guest.post("/reset", data=form).headers["location"], "/login")
+        self.assertEqual(self.log_in("admin", "another horse")[1].headers["location"], "/")
+        # Used once, the link is dead, and so is a made-up one.
+        self.assertEqual(guest.post("/reset", data=form).status_code, 400)
+        self.assertEqual(guest.get("/reset?token=forged").status_code, 400)
+
+
 class TestCa(RouteTest):
     # Not a real certificate: the page only needs something that decodes from PEM.
     PEM = "-----BEGIN CERTIFICATE-----\ndGVzdA==\n-----END CERTIFICATE-----"

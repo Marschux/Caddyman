@@ -1,0 +1,59 @@
+{% extends "base.html" %}
+{% block title %}Profile - Caddyman{% endblock %}
+{% block content %}
+<form method="post" action="/profile" class="card wide">
+	<h1><span class="avatar big">{{ me|initials }}</span> {{ me.username }}</h1>
+	{% if error %}<p class="error" role="alert">{{ error }}</p>{% endif %}
+	<label for="realname">Name <span class="optional">optional</span></label>
+	<input id="realname" name="realname" value="{{ form.realname if form else me.realname or '' }}" maxlength="64" autocomplete="name">
+	<label for="email">Email <span class="optional">optional</span></label>
+	<input id="email" name="email" type="email" value="{{ form.email if form else me.email or '' }}" maxlength="254" autocomplete="email">
+	<small>Only used to mail you a link when you forgot your password.</small>
+	<button type="submit">Save</button>
+</form>
+
+<form method="post" action="/profile/password" class="card wide">
+	<h2>Password</h2>
+	{% if password_error %}<p class="error" role="alert">{{ password_error }}</p>{% endif %}
+	<label for="current">Current password</label>
+	<input id="current" name="current" type="password" autocomplete="current-password" required>
+	<label for="password">New password</label>
+	<input id="password" name="password" type="password" autocomplete="new-password" minlength="8" required>
+	<label for="repeat">Repeat password</label>
+	<input id="repeat" name="repeat" type="password" autocomplete="new-password" minlength="8" required>
+	<small>Changing it logs this account out everywhere else.</small>
+	<button type="submit">Change password</button>
+</form>
+
+<div class="card wide" id="two-factor">
+	<h2>Two-factor login</h2>
+	{% if totp_error %}<p class="error" role="alert">{{ totp_error }}</p>{% endif %}
+	{% if recovery_codes %}
+	<p><strong>Two-factor login is on.</strong> Keep these recovery codes somewhere safe. Each works once, in place
+		of a code from the app, and they are not shown again:</p>
+	<pre>{{ recovery_codes|join("\n") }}</pre>
+	{% elif me.totp %}
+	<p>On. Logging in asks for a code from your authenticator app. {{ me.recovery|length }} recovery codes are left.</p>
+	<form method="post" action="/profile/2fa/disable">
+		<label for="disable_current">Password</label>
+		<input id="disable_current" name="current" type="password" autocomplete="current-password" required>
+		<button type="submit" class="secondary spaced">Switch off</button>
+	</form>
+	{% elif pending_secret %}
+	<p>Scan this with an authenticator app, then enter the code it shows.</p>
+	<div class="qr">{{ qr|safe }}</div>
+	<p>Or type the key in by hand:</p>
+	<pre>{{ pending_secret }}</pre>
+	<form method="post" action="/profile/2fa/confirm">
+		<label for="code">Code from the app</label>
+		<input id="code" name="code" inputmode="numeric" autocomplete="one-time-code" required>
+		<button type="submit">Switch on</button>
+	</form>
+	{% else %}
+	<p>Off. With it, logging in needs a code from an authenticator app on your phone as well as the password.</p>
+	<form method="post" action="/profile/2fa/start">
+		<button type="submit" class="secondary spaced">Set up</button>
+	</form>
+	{% endif %}
+</div>
+{% endblock %}

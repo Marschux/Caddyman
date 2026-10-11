@@ -12,6 +12,7 @@
 	<label for="password">Password</label>
 	<input id="password" name="password" type="password" autocomplete="current-password" required>
 	<button type="submit">Log in</button>
+	{% if mail_ready %}<p class="below"><a href="/forgot">Forgot password?</a></p>{% endif %}
 </form>
 {% if ca_hint %}
 <div class="card">

@@ -1,0 +1,48 @@
+{% extends "base.html" %}
+{% block title %}Users - Caddyman{% endblock %}
+{% block content %}
+<div class="heading">
+	<h1>Users</h1>
+	<a class="button" href="/users/new">Add user</a>
+</div>
+<table>
+	<thead>
+		<tr><th>User</th><th>Email</th><th>Rights</th><th>Two-factor</th><th></th></tr>
+	</thead>
+	<tbody>
+		{% for user in users %}
+		<tr>
+			<td class="nowrap"><span class="avatar">{{ user|initials }}</span>
+				<strong>{{ user.username }}</strong>{% if user.realname %} <span class="empty">{{ user.realname }}</span>{% endif %}</td>
+			<td>{{ user.email or "-" }}</td>
+			<td>{% for right, label in PERMISSIONS.items() if right in user.permissions %}<span class="tag" title="{{ label }}">{{ right }}</span>{% else %}<span class="empty">Read only</span>{% endfor %}</td>
+			<td class="nowrap">{% if user.totp %}<span class="cert ok">On</span>{% else %}<span class="cert">Off</span>{% endif %}</td>
+			<td class="actions">
+				<a class="button" href="/users/{{ user.username|urlencode }}/edit">Edit</a>
+				{% if user.username != request.state.user %}
+				<form method="post" action="/users/{{ user.username|urlencode }}/delete"
+					data-confirm="Delete the account {{ user.username }}?" onsubmit="return confirm(this.dataset.confirm)">
+					<button type="submit" class="danger">Delete</button>
+				</form>
+				{% endif %}
+			</td>
+		</tr>
+		{% endfor %}
+	</tbody>
+</table>
+
+<section>
+	<h2>Forgotten passwords</h2>
+	{% if mail_ready %}
+	<p class="empty">The login page offers "Forgot password?" and mails a link through <code>{{ smtp_host }}</code>
+		to accounts that have an email address.</p>
+	<form method="post" action="/users/test-mail" class="inline">
+		<button type="submit" class="link">Send a test mail to my own address</button>
+	</form>
+	{% else %}
+	<p class="empty">Mail is not set up, so the login page offers no "Forgot password?". Until then, set a new
+		password for somebody here under "Edit". To switch it on, start the container with
+		<code>CADDYMAN_SMTP_HOST</code>, <code>CADDYMAN_SMTP_FROM</code> and <code>CADDYMAN_PUBLIC_URL</code>.</p>
+	{% endif %}
+</section>
+{% endblock %}

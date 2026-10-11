@@ -100,6 +100,21 @@ The shortcut is `admin :2019` in the global options block, with `http://caddy:20
 in Caddyman. It works, but every container on the same Docker network can then reconfigure
 Caddy, including every service behind the proxy. The status page marks it.
 
+## Users
+
+The account from the setup page may do everything. Under "Users" it adds further accounts and
+ticks what each of them may do: change routes and reload Caddy, the Root CA page, backup and
+restore, logs, the Caddy settings, managing users. An account without any right still sees the
+route list and the status page. The change log on the status page names who did what.
+
+Every account can switch on two-factor login in its profile: scan the QR code with an
+authenticator app, keep the recovery codes. Whoever manages users can switch it off again for
+somebody who lost both.
+
+"Forgot password?" on the login page mails a link that works once and for one hour. It appears
+when `CADDYMAN_SMTP_HOST`, `CADDYMAN_SMTP_FROM` and `CADDYMAN_PUBLIC_URL` are set and the account
+has an email address. Without mail, whoever manages users sets a new password under "Edit".
+
 ## Caddy on another machine
 
 Choose "Caddyman only reaches Caddy over the network" in the setup dialog. That is the layout for
@@ -140,6 +155,11 @@ The `handle_path` block serves the log to the Logs page and can be left out.
 |---|---|---|
 | `CADDYMAN_SECRET_KEY` | generated | Signs sessions and encrypts the admin API password. `openssl rand -base64 32` |
 | `CADDYMAN_SETUP_TOKEN` | random, in the log | Your own token for the setup page, at least 12 characters |
+| `CADDYMAN_PUBLIC_URL` | | The address people open Caddyman under, e.g. `https://caddyman.home.example`. Mailed links point there |
+| `CADDYMAN_SMTP_HOST` / `CADDYMAN_SMTP_PORT` | / `587` | Mail server for "Forgot password?" |
+| `CADDYMAN_SMTP_USER` / `CADDYMAN_SMTP_PASSWORD` | | Its login, if it asks for one |
+| `CADDYMAN_SMTP_FROM` | the SMTP user | Sender address |
+| `CADDYMAN_SMTP_SECURITY` | `starttls` | `starttls`, `ssl` (port 465) or `none` |
 | `CADDYMAN_FORWARDED_ALLOW_IPS` | `127.0.0.1` | Whose `X-Forwarded-*` headers are trusted. Behind Caddy: its address or the Docker subnet |
 | `CADDYMAN_LOG_DIR` | `/var/log/caddy` | Where Caddy's log directory is mounted |
 | `CADDYMAN_DATA_DIR` | `/data` | Account, settings, change log |
@@ -152,8 +172,8 @@ The `handle_path` block serves the log to the Logs page and can be left out.
   protects.
 - **Keep port 5052 published**, even once Caddyman has a route of its own. It is the way back in
   if that route breaks.
-- **Forgot the password?** Delete `auth.json` from the data volume and restart. The setup page
-  returns with a new token in the log.
+- **Locked out for good?** Delete `auth.json` from the data volume and restart. The setup page
+  returns with a new token in the log. That removes every account, not just yours.
 - **Back up your CA separately.** The backup holds the routes, not the root CA. A lost root has
   to be imported on every device again.
 - **Restart both containers after editing the base Caddyfile by hand.** Mounted as a single

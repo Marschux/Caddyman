@@ -16,15 +16,18 @@
 		</a>
 		{% if request.state.user %}
 		{% set path = request.url.path %}
+		{% set account = request.state.me %}
+		{# Only what this account may open. The server checks the same again for every request. #}
 		<nav>
 			<a href="/" {{ 'aria-current="page"' if path == "/" or path.startswith("/routes") }}>Routes</a>
-			<a href="/ca" {{ 'aria-current="page"' if path.startswith("/ca") }}>Root CA</a>
-			<a href="/backup" {{ 'aria-current="page"' if path.startswith("/backup") }}>Backup</a>
-			<a href="/logs" {{ 'aria-current="page"' if path.startswith("/logs") }}>Logs</a>
+			{% if "ca" in account.permissions %}<a href="/ca" {{ 'aria-current="page"' if path.startswith("/ca") }}>Root CA</a>{% endif %}
+			{% if "backup" in account.permissions %}<a href="/backup" {{ 'aria-current="page"' if path.startswith("/backup") }}>Backup</a>{% endif %}
+			{% if "logs" in account.permissions %}<a href="/logs" {{ 'aria-current="page"' if path.startswith("/logs") }}>Logs</a>{% endif %}
 			<a href="/status" {{ 'aria-current="page"' if path.startswith("/status") or path.startswith("/hosts") }}>Status</a>
+			{% if "users" in account.permissions %}<a href="/users" {{ 'aria-current="page"' if path.startswith("/users") }}>Users</a>{% endif %}
 		</nav>
 		<form method="post" action="/logout">
-			<span>{{ request.state.user }}</span>
+			<a class="account" href="/profile"><span class="avatar">{{ account|initials }}</span>{{ account.realname or account.username }}</a>
 			<button type="submit" class="link">Log out</button>
 		</form>
 		{% endif %}

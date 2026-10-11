@@ -52,6 +52,18 @@ header {
 }
 
 header form { display: flex; gap: 16px; align-items: center; color: var(--ink-subtle); }
+.account { display: flex; align-items: center; gap: 8px; color: var(--ink-muted); }
+.account:hover { color: var(--ink); text-decoration: none; }
+/* Initials instead of a picture: nothing to upload, nothing to store. */
+.avatar { display: inline-flex; align-items: center; justify-content: center; flex: none; width: 28px; height: 28px; margin-right: 4px; color: var(--ink); background: var(--surface-3); border-radius: 50%; font-size: 11px; font-weight: 700; letter-spacing: 0.4px; vertical-align: middle; }
+.avatar.big { width: 44px; height: 44px; margin-right: 10px; font-size: 16px; }
+.qr { margin: 16px 0; }
+.qr svg { display: block; border-radius: 8px; }
+fieldset.rights { margin: 24px 0 0; padding: 0; border: 0; }
+fieldset.rights legend { padding: 0; color: var(--ink); font-size: 14px; font-weight: 600; }
+fieldset.rights label.check { margin: 10px 0 0; }
+button.spaced { margin-top: 16px; }
+.card h2 + p { margin-top: 12px; }
 .brand { display: flex; align-items: center; gap: 10px; font-size: 16px; font-weight: 700; letter-spacing: -0.2px; color: var(--ink); text-decoration: none; }
 .brand svg { flex: none; width: 24px; height: 24px; }
 /* Above a card on a page without the bar. */

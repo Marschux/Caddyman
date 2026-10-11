@@ -1,0 +1,9 @@
+{% extends "base.html" %}
+{% block title %}Not allowed - Caddyman{% endblock %}
+{% block content %}
+<div class="card">
+	<h1>Not allowed</h1>
+	<p>Your account lacks the right "{{ right }}". Whoever manages the users here can give it to you.</p>
+	<p class="below"><a href="/">Back to the routes</a></p>
+</div>
+{% endblock %}

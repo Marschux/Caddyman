@@ -2,25 +2,31 @@
 
 import base64
 import binascii
+import contextvars
 import hashlib
+import hmac
 import io
 import json
 import os
 import re
 import secrets
+import smtplib
 import socket
 import ssl
+import struct
 import threading
 import time
 import zipfile
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
+from email.message import EmailMessage
 from pathlib import Path
-from urllib.parse import urlsplit
+from urllib.parse import quote, urlsplit
 
 import bcrypt
 import httpx
+import segno
 from cryptography import x509
 from cryptography.fernet import Fernet, InvalidToken
 from cryptography.x509.oid import NameOID
@@ -92,15 +98,81 @@ SETUP_TOKEN: str | None = None
 LOGIN_FAILS: dict[str, list[float]] = {}  # address -> [fail count, locked until]
 
 
-def load_admin() -> dict | None:
+# One checkbox per area. Seeing the route list, the status page and the own profile needs none.
+PERMISSIONS = {
+    "routes": "Change routes and reload Caddy",
+    "ca": "Root CA page",
+    "backup": "Backup and restore",
+    "logs": "Logs",
+    "settings": "Caddy settings",
+    "users": "Manage users",
+}
+USERS_LOCK = threading.Lock()
+EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+$")
+# Who is acting, for the change log. Set per request by the middleware.
+CURRENT_USER: contextvars.ContextVar[str] = contextvars.ContextVar("user", default="-")
+
+
+def load_users() -> list[dict]:
     try:
-        return json.loads(AUTH_FILE.read_text(encoding="utf-8"))
+        data = json.loads(AUTH_FILE.read_text(encoding="utf-8"))
     except FileNotFoundError:
-        return None
+        return []
+    if isinstance(data, dict):
+        # The file of the single admin from before there were users: that account keeps every right.
+        return [{**data, "permissions": list(PERMISSIONS)}]
+    return data
+
+
+def save_users(users: list[dict]) -> None:
+    write_private(AUTH_FILE, json.dumps(users, indent=2))
+
+
+def find_user(users: list[dict], username: str) -> dict | None:
+    return next((user for user in users if user["username"] == username), None)
+
+
+def update_user(username: str, **fields) -> None:
+    """Read, change and write under one lock, so two requests cannot lose each other's change.
+
+    A field set to None is removed.
+    """
+    with USERS_LOCK:
+        users = load_users()
+        if user := find_user(users, username):
+            user.update(fields)
+            for key in [key for key, value in fields.items() if value is None]:
+                user.pop(key, None)
+            save_users(users)
+
+
+def user_problem(user: dict, others: list[dict]) -> str | None:
+    """What is wrong with the name fields of a user, checked against all other accounts."""
+    name, email = user["username"], user.get("email", "")
+    if not name or len(name) > 64 or name != name.strip() or not name.isprintable():
+        return "The username needs 1 to 64 characters."
+    if any(other["username"] == name for other in others):
+        return "This username is taken."
+    if len(user.get("realname", "")) > 64:
+        return "The name is longer than 64 characters."
+    if email and (len(email) > 254 or not EMAIL_RE.match(email)):
+        return "This does not look like an email address."
+    if email and any(other.get("email", "").lower() == email.lower() for other in others):
+        return "Another account already uses this email address."
+    return None
+
+
+def initials(user: dict) -> str:
+    words = (user.get("realname") or user["username"]).split()
+    return (words[0][0] + (words[-1][0] if len(words) > 1 else "")).upper()
 
 
 def hash_password(password: str) -> str:
     return bcrypt.hashpw(password.encode(), bcrypt.gensalt()).decode()
+
+
+# Checked when the username is unknown, so that answer takes as long as a wrong password.
+DUMMY_HASH = hash_password(secrets.token_hex(8))
 
 
 def check_password(password: str, password_hash: str) -> bool:
@@ -137,21 +209,29 @@ def record_fail(address: str) -> None:
         entry[1] = time.monotonic() + LOCK_SECONDS
 
 
-def session_user(request: Request, admin: dict | None) -> str | None:
-    cookie = request.cookies.get(SESSION_COOKIE)
-    if not cookie or not admin:
-        return None
+def session_value(user: dict) -> list[str]:
+    # The end of the password hash rides along: a changed password ends every session of that account.
+    return [user["username"], user["password_hash"][-8:]]
+
+
+def signed_user(signer: URLSafeTimedSerializer, value: str | None, users: list[dict], max_age: int) -> dict | None:
+    """The account a signed cookie or link stands for, if it is still good for that account."""
     try:
-        user = SESSIONS.loads(cookie, max_age=SESSION_SECONDS)
-    except BadSignature:
+        name, stamp = signer.loads(value or "", max_age=max_age)
+    except (BadSignature, ValueError, TypeError):
         return None
-    return user if user == admin["username"] else None
+    user = find_user(users, name)
+    return user if user and session_value(user)[1] == stamp else None
 
 
-def start_session(response: RedirectResponse, request: Request, username: str) -> RedirectResponse:
+def session_user(request: Request, users: list[dict]) -> dict | None:
+    return signed_user(SESSIONS, request.cookies.get(SESSION_COOKIE), users, SESSION_SECONDS)
+
+
+def start_session(response: RedirectResponse, request: Request, user: dict) -> RedirectResponse:
     response.set_cookie(
         SESSION_COOKIE,
-        SESSIONS.dumps(username),
+        SESSIONS.dumps(session_value(user)),
         max_age=SESSION_SECONDS,
         httponly=True,
         samesite="lax",
@@ -163,7 +243,7 @@ def start_session(response: RedirectResponse, request: Request, username: str) -
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     global SETUP_TOKEN
-    if load_admin() is None:
+    if not load_users():
         port = OWN_PORT
         if setup_token_problem():
             # No fallback to a random token: whoever set one cannot read this log.
@@ -182,6 +262,8 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="Caddyman", version=VERSION, lifespan=lifespan, docs_url=None, redoc_url=None, openapi_url=None)
 app.mount("/static", StaticFiles(directory=BASE_DIR / "static"), name="static")
 templates = Jinja2Templates(directory=BASE_DIR / "templates")
+templates.env.filters["initials"] = initials
+templates.env.globals["PERMISSIONS"] = PERMISSIONS
 
 
 # Open without a login: the root certificate is public by nature, and the people who
@@ -195,20 +277,39 @@ def host_flag(key: str) -> bool:
     return bool(hosts and hosts[0].get(key, "1"))
 
 
+# The way in: logging in, the second factor and a forgotten password.
+LOGIN_PATHS = {"/login", "/login/code", "/forgot", "/reset"}
+AREAS = (("/users", "users"), ("/hosts", "settings"), ("/routes", "routes"), ("/backup", "backup"), ("/logs", "logs"), ("/ca", "ca"))
+
+
+def needed_permission(path: str) -> str | None:
+    """The right a request needs. Decided here by its path, so no endpoint can forget its own check."""
+    if re.fullmatch(r"/hosts/[^/]+/push", path):
+        return "routes"  # "Reload Caddy" lives under /hosts but is part of working with routes
+    return next((right for prefix, right in AREAS if path == prefix or path.startswith(prefix + "/")), None)
+
+
 @app.middleware("http")
 async def require_session(request: Request, call_next):
     path = request.url.path
-    admin = load_admin()
-    request.state.user = session_user(request, admin)
+    users = load_users()
+    me = request.state.me = session_user(request, users)
+    request.state.user = me["username"] if me else None
     if path == "/healthz" or path.startswith("/static/"):
         pass
-    elif admin is None:
+    elif not users:
         if path != "/setup":
             return RedirectResponse("/setup", status_code=303)
     elif path == "/setup":
         return RedirectResponse("/", status_code=303)
-    elif path != "/login" and not request.state.user and not (path in PUBLIC_PATHS and host_flag("public_ca")):
-        return RedirectResponse("/login", status_code=303)
+    elif not me:
+        if path not in LOGIN_PATHS and not (path in PUBLIC_PATHS and host_flag("public_ca")):
+            return RedirectResponse("/login", status_code=303)
+    else:
+        CURRENT_USER.set(me["username"])
+        right = needed_permission(path)
+        if right and right not in me["permissions"]:
+            return page(request, "forbidden.html", status_code=403, right=PERMISSIONS[right])
     return await call_next(request)
 
 
@@ -276,21 +377,21 @@ def setup_submit(
     elif not SETUP_TOKEN or not secrets.compare_digest(token.strip().encode(), SETUP_TOKEN.encode()):
         record_fail(address)
         error = "The token does not match."
-    elif not username or len(username) > 64:
-        error = "The username needs 1 to 64 characters."
     else:
-        error = password_problem(password, repeat)
+        error = user_problem({"username": username}, []) or password_problem(password, repeat)
     if error:
         return setup_page(request, status_code=400, error=error, username=username)
-    write_private(AUTH_FILE, json.dumps({"username": username, "password_hash": hash_password(password)}))
+    # The first account may do everything, including handing out rights to the next ones.
+    user = {"username": username, "realname": "", "email": "", "password_hash": hash_password(password), "permissions": list(PERMISSIONS)}
+    save_users([user])
     SETUP_TOKEN = None
-    return start_session(RedirectResponse("/", status_code=303), request, username)
+    return start_session(RedirectResponse("/", status_code=303), request, user)
 
 
 def login_page(request: Request, **context):
     # The card would lead straight back here if the open page is switched off.
     ca_hint = host_flag("public_ca") and host_flag("login_ca_hint")
-    return page(request, "login.html", ca_hint=ca_hint, **context)
+    return page(request, "login.html", ca_hint=ca_hint, mail_ready=MAIL_READY, **context)
 
 
 @app.get("/login")
@@ -303,17 +404,98 @@ def login_form(request: Request):
 @app.post("/login")
 def login_submit(request: Request, username: str = Form(""), password: str = Form("")):
     address = client_address(request)
-    admin = load_admin()
     if wait := locked_seconds(address):
         return login_page(request, status_code=429, error=f"Too many attempts. Try again in {wait} seconds.")
-    # The hash is always checked, so a wrong username takes as long as a wrong password.
-    password_ok = check_password(password, admin["password_hash"])
-    username_ok = secrets.compare_digest(username.strip().encode(), admin["username"].encode())
-    if not (password_ok and username_ok):
+    user = find_user(load_users(), username.strip())
+    # A hash is always checked, so a wrong username takes as long as a wrong password.
+    password_ok = check_password(password, user["password_hash"] if user else DUMMY_HASH)
+    if not (user and password_ok):
         record_fail(address)
         return login_page(request, status_code=401, error="Wrong username or password.", username=username)
+    if user.get("totp"):
+        # Half way in: a short-lived cookie remembers who passed the password, nothing more.
+        response = RedirectResponse("/login/code", status_code=303)
+        secure = request.url.scheme == "https"
+        response.set_cookie(PENDING_COOKIE, PENDING.dumps(session_value(user)), max_age=PENDING_SECONDS, httponly=True, samesite="lax", secure=secure)
+        return response
     LOGIN_FAILS.pop(address, None)
-    return start_session(RedirectResponse("/", status_code=303), request, admin["username"])
+    return start_session(RedirectResponse("/", status_code=303), request, user)
+
+
+PENDING_COOKIE = "caddyman_2fa"
+PENDING_SECONDS = 300
+PENDING = URLSafeTimedSerializer(SECRET_KEY, salt="2fa")
+TOTP_SECONDS = 30
+RECOVERY_CODES = 8
+
+
+def totp_code(secret: str, step: int) -> str:
+    """RFC 6238 with the defaults every authenticator app uses: SHA-1, six digits, 30 seconds."""
+    digest = hmac.new(base64.b32decode(secret), struct.pack(">Q", step), "sha1").digest()
+    offset = digest[-1] & 15
+    number = struct.unpack(">I", digest[offset : offset + 4])[0] & 0x7FFFFFFF
+    return f"{number % 1_000_000:06d}"
+
+
+def totp_step(secret: str, code: str) -> int | None:
+    """The time step a code belongs to, or None. One step of clock drift either way is accepted."""
+    now = int(time.time()) // TOTP_SECONDS
+    typed = re.sub(r"\s", "", code).encode()
+    return next((step for step in (now, now - 1, now + 1) if secrets.compare_digest(totp_code(secret, step).encode(), typed)), None)
+
+
+def totp_secret(user: dict, key: str) -> str | None:
+    try:
+        return VAULT.decrypt(user.get(key, "").encode()).decode()
+    except (InvalidToken, ValueError):
+        # Not set, or encrypted with another secret key. A recovery code or a reset by an admin gets around that.
+        return None
+
+
+def recovery_digest(code: str) -> str:
+    return hashlib.sha256(re.sub(r"[^0-9a-z]", "", code.lower()).encode()).hexdigest()
+
+
+def second_factor_ok(user: dict, code: str) -> bool:
+    """Check an app code or a recovery code. Either one works exactly once."""
+    secret = totp_secret(user, "totp")
+    step = totp_step(secret, code) if secret else None
+    if step is not None and step > user.get("totp_last", 0):
+        update_user(user["username"], totp_last=step)
+        return True
+    left = [digest for digest in user.get("recovery", []) if digest != recovery_digest(code)]
+    if len(left) < len(user.get("recovery", [])):
+        update_user(user["username"], recovery=left)
+        return True
+    return False
+
+
+def pending_user(request: Request) -> dict | None:
+    return signed_user(PENDING, request.cookies.get(PENDING_COOKIE), load_users(), PENDING_SECONDS)
+
+
+@app.get("/login/code")
+def login_code_form(request: Request):
+    if request.state.user or not pending_user(request):
+        return RedirectResponse("/login", status_code=303)
+    return page(request, "login_code.html")
+
+
+@app.post("/login/code")
+def login_code_submit(request: Request, code: str = Form("")):
+    address = client_address(request)
+    user = pending_user(request)
+    if user is None:
+        return RedirectResponse("/login", status_code=303)
+    if wait := locked_seconds(address):
+        return page(request, "login_code.html", status_code=429, error=f"Too many attempts. Try again in {wait} seconds.")
+    if not second_factor_ok(user, code):
+        record_fail(address)
+        return page(request, "login_code.html", status_code=401, error="This code is not valid.")
+    LOGIN_FAILS.pop(address, None)
+    response = start_session(RedirectResponse("/", status_code=303), request, user)
+    response.delete_cookie(PENDING_COOKIE)
+    return response
 
 
 @app.post("/logout")
@@ -321,6 +503,242 @@ def logout():
     response = RedirectResponse("/login", status_code=303)
     response.delete_cookie(SESSION_COOKIE)
     return response
+
+
+# Mail is only for a forgotten password. It needs the public address as well: taking it from
+# the request would let anyone have a reset link mailed that points at a server of theirs.
+SMTP_HOST = os.getenv("CADDYMAN_SMTP_HOST", "").strip()
+SMTP_PORT = int(os.getenv("CADDYMAN_SMTP_PORT", "587"))
+SMTP_USER = os.getenv("CADDYMAN_SMTP_USER", "")
+SMTP_PASSWORD = os.getenv("CADDYMAN_SMTP_PASSWORD", "")
+SMTP_FROM = os.getenv("CADDYMAN_SMTP_FROM", "") or SMTP_USER
+SMTP_SECURITY = os.getenv("CADDYMAN_SMTP_SECURITY", "starttls").lower()  # starttls, ssl or none
+PUBLIC_URL = os.getenv("CADDYMAN_PUBLIC_URL", "").strip().rstrip("/")
+MAIL_READY = bool(SMTP_HOST and SMTP_FROM and PUBLIC_URL)
+RESET_SECONDS = 3600
+RESETS = URLSafeTimedSerializer(SECRET_KEY, salt="reset")
+
+
+def send_mail(to: str, subject: str, body: str) -> str | None:
+    """Send one plain-text mail. Returns the error, or None on success."""
+    message = EmailMessage()
+    message["From"], message["To"], message["Subject"] = SMTP_FROM, to, subject
+    message.set_content(body)
+    # The server's certificate is verified against the public CAs. A mail server with a
+    # certificate from a private CA needs that CA in the container's trust store.
+    context = ssl.create_default_context()
+    try:
+        if SMTP_SECURITY == "ssl":
+            server = smtplib.SMTP_SSL(SMTP_HOST, SMTP_PORT, timeout=10, context=context)
+        else:
+            server = smtplib.SMTP(SMTP_HOST, SMTP_PORT, timeout=10)
+        with server:
+            if SMTP_SECURITY == "starttls":
+                server.starttls(context=context)
+            if SMTP_USER:
+                server.login(SMTP_USER, SMTP_PASSWORD)
+            server.send_message(message)
+    except (OSError, smtplib.SMTPException) as error:
+        return str(error) or type(error).__name__
+    return None
+
+
+def send_reset_mail(user: dict) -> None:
+    link = f"{PUBLIC_URL}/reset?token={RESETS.dumps(session_value(user))}"
+    body = (
+        f"Somebody asked for a new password for the Caddyman account {user['username']}.\n\n"
+        f"Set one here, within the next hour:\n{link}\n\n"
+        "If that was not you, ignore this mail. Nothing changes until the link is used.\n"
+    )
+    if error := send_mail(user["email"], "Caddyman: set a new password", body):
+        print(f"Reset mail for {user['username']} was not sent: {error}", flush=True)
+
+
+@app.get("/forgot")
+def forgot_form(request: Request):
+    if not MAIL_READY:
+        return Response(status_code=404)
+    return page(request, "forgot.html")
+
+
+@app.post("/forgot")
+def forgot_submit(request: Request, account: str = Form("")):
+    if not MAIL_READY:
+        return Response(status_code=404)
+    address = client_address(request)
+    if wait := locked_seconds(address):
+        return page(request, "forgot.html", status_code=429, error=f"Too many attempts. Try again in {wait} seconds.")
+    # Every request counts, so nobody can have mails sent in a loop.
+    record_fail(address)
+    wanted = account.strip().lower()
+    for user in load_users():
+        if wanted and user.get("email") and wanted in (user["username"].lower(), user["email"].lower()):
+            # In the background: the answer must not take longer for an account that exists.
+            threading.Thread(target=send_reset_mail, args=(user,), daemon=True).start()
+            break
+    return page(request, "forgot.html", sent=True)
+
+
+@app.get("/reset")
+def reset_form(request: Request, token: str = ""):
+    valid = signed_user(RESETS, token, load_users(), RESET_SECONDS) is not None
+    return page(request, "reset.html", status_code=200 if valid else 400, token=token, valid=valid, mail_ready=MAIL_READY)
+
+
+@app.post("/reset")
+def reset_submit(request: Request, token: str = Form(""), password: str = Form(""), repeat: str = Form("")):
+    user = signed_user(RESETS, token, load_users(), RESET_SECONDS)
+    if user is None:
+        return page(request, "reset.html", status_code=400, token=token, valid=False, mail_ready=MAIL_READY)
+    if error := password_problem(password, repeat):
+        return page(request, "reset.html", status_code=400, token=token, valid=True, error=error)
+    # The link carries the end of the old hash, so it stops working with this very change.
+    update_user(user["username"], password_hash=hash_password(password))
+    return redirect("/login", "ok", "The password is changed. Log in with the new one.")
+
+
+def profile_page(request: Request, **context):
+    me = find_user(load_users(), request.state.user)
+    secret = totp_secret(me, "totp_pending") if not me.get("totp") else None
+    if secret:
+        uri = f"otpauth://totp/Caddyman:{quote(me['username'])}?secret={secret}&issuer=Caddyman"
+        context.update(pending_secret=secret, qr=segno.make(uri, error="m").svg_inline(scale=5, border=2, dark="#000", light="#fff"))
+    return page(request, "profile.html", me=me, **context)
+
+
+@app.get("/profile")
+def profile(request: Request):
+    return profile_page(request)
+
+
+@app.post("/profile")
+def profile_save(request: Request, realname: str = Form(""), email: str = Form("")):
+    users = load_users()
+    fields = {"realname": realname.strip(), "email": email.strip()}
+    others = [user for user in users if user["username"] != request.state.user]
+    if error := user_problem({"username": request.state.user, **fields}, others):
+        return profile_page(request, status_code=400, error=error, form=fields)
+    update_user(request.state.user, **fields)
+    return redirect("/profile", "ok", "Your profile is saved.")
+
+
+@app.post("/profile/password")
+def profile_password(request: Request, current: str = Form(""), password: str = Form(""), repeat: str = Form("")):
+    me = request.state.me
+    if not check_password(current, me["password_hash"]):
+        return profile_page(request, status_code=400, password_error="The current password is wrong.")
+    if error := password_problem(password, repeat):
+        return profile_page(request, status_code=400, password_error=error)
+    update_user(me["username"], password_hash=hash_password(password))
+    # Every other session of this account ends with the change; this one continues.
+    changed = find_user(load_users(), me["username"])
+    return start_session(redirect("/profile", "ok", "The password is changed."), request, changed)
+
+
+@app.post("/profile/2fa/start")
+def profile_2fa_start(request: Request):
+    secret = base64.b32encode(secrets.token_bytes(20)).decode()
+    update_user(request.state.user, totp_pending=VAULT.encrypt(secret.encode()).decode())
+    return RedirectResponse("/profile#two-factor", status_code=303)
+
+
+@app.post("/profile/2fa/confirm")
+def profile_2fa_confirm(request: Request, code: str = Form("")):
+    me = find_user(load_users(), request.state.user)
+    secret = totp_secret(me, "totp_pending")
+    step = totp_step(secret, code) if secret else None
+    if step is None:
+        return profile_page(request, status_code=400, totp_error="This code does not fit. Check the clock of your phone and try the next one.")
+    codes = [secrets.token_hex(5) for _ in range(RECOVERY_CODES)]
+    update_user(me["username"], totp=me["totp_pending"], totp_pending=None, totp_last=step, recovery=[recovery_digest(code) for code in codes])
+    # Shown this once and never again: only their hashes are kept.
+    return profile_page(request, recovery_codes=[f"{code[:5]}-{code[5:]}" for code in codes])
+
+
+@app.post("/profile/2fa/disable")
+def profile_2fa_disable(request: Request, current: str = Form("")):
+    me = request.state.me
+    if not check_password(current, me["password_hash"]):
+        return profile_page(request, status_code=400, totp_error="The password is wrong.")
+    update_user(me["username"], **{key: None for key in ("totp", "totp_pending", "totp_last", "recovery") if key in me})
+    return redirect("/profile", "ok", "Two-factor login is switched off.")
+
+
+def users_page(request: Request, **context):
+    return page(request, "users.html", users=load_users(), mail_ready=MAIL_READY, smtp_host=SMTP_HOST, **context)
+
+
+@app.get("/users")
+def users_list(request: Request):
+    return users_page(request)
+
+
+@app.post("/users/test-mail")
+def users_test_mail(request: Request):
+    me = request.state.me
+    if not MAIL_READY or not me.get("email"):
+        return redirect("/users", "error", "Mail is not set up, or your own profile has no email address.")
+    if error := send_mail(me["email"], "Caddyman: test mail", f"Mail from Caddyman works. Links will point at {PUBLIC_URL}\n"):
+        return redirect("/users", "error", f"The mail was not sent: {error}")
+    return redirect("/users", "ok", f"A test mail is on its way to {me['email']}.")
+
+
+@app.get("/users/new")
+def user_new(request: Request):
+    return page(request, "user_form.html", user={"permissions": []}, new=True)
+
+
+@app.get("/users/{name:path}/edit")
+def user_edit(request: Request, name: str):
+    user = find_user(load_users(), name)
+    if user is None:
+        return redirect("/users", "error", "This user does not exist.")
+    return page(request, "user_form.html", user=user)
+
+
+@app.post("/users/new")
+@app.post("/users/{name:path}/edit")
+async def user_save(request: Request, name: str | None = None):
+    form = await request.form()
+    with USERS_LOCK:
+        users = load_users()
+        existing = find_user(users, name) if name is not None else None
+        if name is not None and existing is None:
+            return redirect("/users", "error", "This user does not exist.")
+        user = {
+            **(existing or {}),
+            "username": existing["username"] if existing else str(form.get("username", "")).strip(),
+            "realname": str(form.get("realname", "")).strip(),
+            "email": str(form.get("email", "")).strip(),
+            "permissions": [right for right in PERMISSIONS if form.get(f"right_{right}")],
+        }
+        password, repeat = str(form.get("password", "")), str(form.get("repeat", ""))
+        error = user_problem(user, [other for other in users if other is not existing])
+        if not error and (password or not existing):
+            error = password_problem(password, repeat)
+        if not error and existing and existing["username"] == request.state.user and "users" not in user["permissions"]:
+            # Whoever manages users keeps that right for themselves, so there is always one left.
+            error = "You cannot take the right to manage users away from yourself."
+        if error:
+            return page(request, "user_form.html", status_code=400, error=error, user=user, new=not existing)
+        if password:
+            user["password_hash"] = hash_password(password)
+        if existing and form.get("reset_totp"):
+            for key in ("totp", "totp_pending", "totp_last", "recovery"):
+                user.pop(key, None)
+        save_users([user if other is existing else other for other in users] if existing else [*users, user])
+    if existing and existing["username"] == request.state.user and password:
+        return start_session(redirect("/users", "ok", f"{user['username']} is saved."), request, user)
+    return redirect("/users", "ok", f"{user['username']} is saved.")
+
+
+@app.post("/users/{name:path}/delete")
+def user_delete(request: Request, name: str):
+    if name == request.state.user:
+        return redirect("/users", "error", "You cannot delete your own account.")
+    with USERS_LOCK:
+        save_users([user for user in load_users() if user["username"] != name])
+    return redirect("/users", "ok", f"{name} is deleted.")
 
 
 HOST_DEFAULTS = {
@@ -761,6 +1179,7 @@ def caddy_load(host: dict) -> str | None:
 def audit(host: dict, route: str, action: str, error: str | None) -> None:
     entry = {
         "time": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S"),
+        "user": CURRENT_USER.get(),
         "route": route,
         "action": action,
         "result": error or "ok",
