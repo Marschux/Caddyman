@@ -3,10 +3,7 @@
 {# One template for two pages: /ca for the admin, /trust for everybody else. The open page
    shows nothing a forged copy of it could lie about, so no fingerprint and no check code. #}
 {% block content %}
-<div class="heading">
-	<h1>Root CA</h1>
-	{% if not error %}<a class="button" href="/root-ca.crt">Download root-ca.crt</a>{% endif %}
-</div>
+<h1>Root CA</h1>
 
 {% if error and public %}
 <p class="flash error" role="alert">The certificate is not available right now.</p>
@@ -27,6 +24,9 @@
 	<a href="?os={{ key }}" {{ 'aria-current="page"' if shown == key }}>{{ name }}</a>
 	{% endfor %}
 </aside>
+<div class="toolbar">
+	<div class="buttons"><a class="button" href="/root-ca.crt">Download root-ca.crt</a></div>
+</div>
 {% if public %}
 <p class="empty">Every device that should open the sites behind this proxy without a warning needs this certificate once.
 	Whoever runs this Caddyman gives you a <strong>check code</strong>. Ask for it in person or on the phone:
