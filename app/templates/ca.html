@@ -24,9 +24,15 @@
 	{% if internal %}This is Caddy's own internal CA, because the host has no root CA source configured.{% endif %}</p>
 
 <section>
+	{% if host.get("public_ca", "1") %}
 	<h2>For people without a login</h2>
 	<p class="empty">The page <a href="/trust">/trust</a> and the download work without logging in. Send the link, and
 		give this check code another way, in person or on the phone:</p>
+	{% else %}
+	<h2>Check code</h2>
+	<p class="empty">The page without a login is switched off in the <a href="/hosts/{{ host.id }}/edit">Caddy settings</a>,
+		so pass on the file or the command below yourself. Give this check code another way, in person or on the phone:</p>
+	{% endif %}
 	<pre>{{ check_code }}</pre>
 	<p class="empty">Somebody who can tamper with the connection can swap the certificate, but not what you say out loud.</p>
 </section>

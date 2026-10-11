@@ -62,6 +62,13 @@
 	<input id="root_ca_url" name="root_ca_url" value="{{ host.root_ca_url }}" placeholder="https://ca.home.example:9001/roots.pem">
 	<small>Where the root certificate for your clients can be downloaded.</small>
 
+	<label class="check"><input type="checkbox" name="public_ca" value="1" {{ "checked" if host.public_ca }}>
+		Offer the root CA without a login</label>
+	<small>Opens <a href="/trust">/trust</a> and the download to everyone who can reach Caddyman.</small>
+	<label class="check"><input type="checkbox" name="login_ca_hint" value="1" {{ "checked" if host.login_ca_hint }}>
+		Point to it on the login page</label>
+	<small>A card below the login form. It only shows while the root CA is offered without a login.</small>
+
 	<label for="domain_suffix">Domain suffix <span class="optional">optional</span></label>
 	<input id="domain_suffix" name="domain_suffix" value="{{ host.domain_suffix }}" placeholder="home.example">
 	<small>With a suffix the short name is enough when adding a route.</small>

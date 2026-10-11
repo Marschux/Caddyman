@@ -471,6 +471,22 @@ class TestCa(RouteTest):
         self.assertEqual(failed.status_code, 503)
         self.assertNotIn("did not answer", failed.text)  # the full message names the admin API
 
+    def test_open_page_and_login_hint_can_be_switched_off(self):
+        self.answer(json={"root_certificate": self.PEM})
+        self.client.cookies.clear()
+        self.assertIn('href="/trust"', self.client.get("/login").text)
+        main.save_hosts([{**self.host, "login_ca_hint": ""}])
+        self.assertNotIn('href="/trust"', self.client.get("/login").text)
+        self.assertEqual(self.client.get("/trust").status_code, 200)  # only the card is gone
+        main.save_hosts([{**self.host, "public_ca": ""}])
+        self.assertNotIn('href="/trust"', self.client.get("/login").text)
+        for path in main.PUBLIC_PATHS:
+            self.assertEqual(self.client.get(path).headers["location"], "/login")
+        # A host saved before the checkboxes existed keeps both.
+        main.save_hosts([{key: value for key, value in self.host.items() if key not in ("public_ca", "login_ca_hint")}])
+        self.assertIn('href="/trust"', self.client.get("/login").text)
+        self.assertEqual(self.client.get("/trust").status_code, 200)
+
 
 class TestManaged(AppTest):
     BASE = "{\n\temail a@lab.test\n}\n\n(stepca) {\n\ttls internal\n}\n\n:2020 {\n\treverse_proxy localhost:2019\n}"

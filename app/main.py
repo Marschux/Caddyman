@@ -181,6 +181,12 @@ templates = Jinja2Templates(directory=BASE_DIR / "templates")
 PUBLIC_PATHS = {"/trust", "/root-ca.crt"}
 
 
+def host_flag(key: str) -> bool:
+    """A checkbox from the Caddy settings. A host saved before the checkbox existed counts as ticked."""
+    hosts = load_hosts()
+    return bool(hosts and hosts[0].get(key, "1"))
+
+
 @app.middleware("http")
 async def require_session(request: Request, call_next):
     path = request.url.path
@@ -193,7 +199,7 @@ async def require_session(request: Request, call_next):
             return RedirectResponse("/setup", status_code=303)
     elif path == "/setup":
         return RedirectResponse("/", status_code=303)
-    elif path != "/login" and path not in PUBLIC_PATHS and not request.state.user:
+    elif path != "/login" and not request.state.user and not (path in PUBLIC_PATHS and host_flag("public_ca")):
         return RedirectResponse("/login", status_code=303)
     return await call_next(request)
 
@@ -257,11 +263,17 @@ def setup_submit(
     return start_session(RedirectResponse("/", status_code=303), request, username)
 
 
+def login_page(request: Request, **context):
+    # The card would lead straight back here if the open page is switched off.
+    ca_hint = host_flag("public_ca") and host_flag("login_ca_hint")
+    return page(request, "login.html", ca_hint=ca_hint, **context)
+
+
 @app.get("/login")
 def login_form(request: Request):
     if request.state.user:
         return RedirectResponse("/", status_code=303)
-    return page(request, "login.html")
+    return login_page(request)
 
 
 @app.post("/login")
@@ -269,13 +281,13 @@ def login_submit(request: Request, username: str = Form(""), password: str = For
     address = client_address(request)
     admin = load_admin()
     if wait := locked_seconds(address):
-        return page(request, "login.html", status_code=429, error=f"Too many attempts. Try again in {wait} seconds.")
+        return login_page(request, status_code=429, error=f"Too many attempts. Try again in {wait} seconds.")
     # The hash is always checked, so a wrong username takes as long as a wrong password.
     password_ok = check_password(password, admin["password_hash"])
     username_ok = secrets.compare_digest(username.strip().encode(), admin["username"].encode())
     if not (password_ok and username_ok):
         record_fail(address)
-        return page(request, "login.html", status_code=401, error="Wrong username or password.", username=username)
+        return login_page(request, status_code=401, error="Wrong username or password.", username=username)
     LOGIN_FAILS.pop(address, None)
     return start_session(RedirectResponse("/", status_code=303), request, admin["username"])
 
@@ -295,6 +307,9 @@ HOST_DEFAULTS = {
     "tls_snippet": "",
     "root_ca_url": "",
     "domain_suffix": "",
+    # Two checkboxes, kept as text like every other field here: "1" or "".
+    "public_ca": "1",
+    "login_ca_hint": "1",
 }
 HOSTNAME_RE = re.compile(r"^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9-]+)*$")
 SNIPPET_RE = re.compile(r"^[A-Za-z0-9_-]+$")
@@ -1312,7 +1327,8 @@ def build_backup(host: dict) -> bytes:
     buffer = io.BytesIO()
     created = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
     # Field by field, so nothing that is ever added to a host ends up in a backup by accident.
-    hosts = [{key: item.get(key, "") for key in ("id", *HOST_DEFAULTS, "storage")} for item in load_hosts()]
+    keys = ("id", *HOST_DEFAULTS, "storage")
+    hosts = [{key: item.get(key, HOST_DEFAULTS.get(key, "")) for key in keys} for item in load_hosts()]
     with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as archive:
         archive.writestr("README.txt", BACKUP_README.format(created=created, version=VERSION, host=host["name"]))
         archive.writestr("backup.json", json.dumps({"created": created, "version": VERSION, "host_id": host["id"]}))
@@ -1357,7 +1373,7 @@ def read_backup(data: bytes) -> dict:
     for item in saved if isinstance(saved, list) else []:
         if not isinstance(item, dict):
             continue
-        host = {key: str(item.get(key, "")) for key in HOST_DEFAULTS}
+        host = {key: str(item.get(key, default)) for key, default in HOST_DEFAULTS.items()}
         host["storage"] = item.get("storage") if item.get("storage") in STORAGES else "mounted"
         if host_problem(host) is None:
             host_id = str(item.get("id", ""))
