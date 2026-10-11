@@ -1,5 +1,27 @@
 # Changelog
 
+## 2026-10-11 23:52
+- chore: version 0.10.0
+- feat: disconnect and send a test mail are buttons above their settings block
+- feat: root CA download button sits one row below the title
+- feat: reload Caddy on the status page is a button
+- feat: add group and add route sit in the row of the search
+- feat: route list with search, only problems and sorting by column, delete in lists wears the product colour
+- feat: groups for routes, created next to add route and picked in the route form, the list shows its routes by group
+- feat: copy button in every box with a command or a value, the long Windows command shows only its start
+- feat: root CA page lists the systems at the left edge and shows one at a time
+- feat: users page without the note about forgotten passwords
+- fix: https admin API with a certificate from a private CA is accepted, its CA is remembered on save
+- feat: root CA switches moved into the security block
+- feat: system tab for status, logs and backup, with the same list at the left edge
+- feat: settings blocks as a list at the left edge
+- feat: settings tab with Caddy, root CA, mail, users and security, two-factor login can be required
+- feat: mail is set up in the interface instead of through variables
+- feat: users with rights per area, two-factor login, password reset by mail and a profile page
+- feat: route list stays one line for a certificate problem, explanation as tooltip
+- feat: root CA instructions for macOS, iPhone, iPad and Android
+
+
 ## 2026-10-11 18:46
 - chore: version 0.9.0
 - feat: no name for the one Caddy, clearer labels for the two layouts
