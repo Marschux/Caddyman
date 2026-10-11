@@ -31,15 +31,4 @@
 		{% endfor %}
 	</tbody>
 </table>
-
-<section>
-	<h2>Forgotten passwords</h2>
-	{% if mail_ready %}
-	<p class="empty">The login page offers "Forgot password?" and mails a link through <code>{{ mail.host }}</code>
-		to accounts that have an email address.</p>
-	{% else %}
-	<p class="empty">Mail is not set up, so the login page offers no "Forgot password?". Until then, set a new
-		password for somebody here under "Edit". Mail is the block next to this one.</p>
-	{% endif %}
-</section>
 {% endblock %}

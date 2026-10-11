@@ -755,8 +755,7 @@ def settings_security_save(require_2fa: str = Form(""), public_ca: str = Form(""
 
 @app.get("/settings/users")
 def users_list(request: Request):
-    mail = load_mail()
-    return page(request, "users.html", users=load_users(), mail=mail, mail_ready=mail_ready(mail))
+    return page(request, "users.html", users=load_users())
 
 
 @app.get("/settings/mail")
