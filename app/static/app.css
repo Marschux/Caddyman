@@ -84,6 +84,11 @@ header {
 
 header form { display: flex; gap: 16px; align-items: center; color: var(--ink-subtle); }
 .account { display: flex; align-items: center; gap: 8px; color: var(--ink-muted); }
+/* The switch between the dark and the light look, left of the account. */
+header form.theme { margin-right: 16px; }
+button.icon { display: inline-flex; align-items: center; justify-content: center; width: 32px; height: 32px; margin: 0; padding: 0; color: var(--ink-muted); background: none; border: 1px solid var(--hairline-strong); border-radius: 50%; }
+button.icon:hover { color: var(--ink); background: var(--surface-2); border-color: var(--hairline-strong); }
+button.icon svg { width: 16px; height: 16px; }
 .account:hover { color: var(--ink); text-decoration: none; }
 /* Initials instead of a picture: nothing to upload, nothing to store. */
 .avatar { display: inline-flex; align-items: center; justify-content: center; flex: none; width: 28px; height: 28px; margin-right: 4px; color: var(--ink); background: var(--surface-3); border-radius: 50%; font-size: 11px; font-weight: 700; letter-spacing: 0.4px; vertical-align: middle; }
@@ -320,7 +325,7 @@ a + .cert, code + .cert { margin-left: 8px; white-space: nowrap; }
 .hostform .show,
 .hostform:has([value="mounted"]:checked) .for-mounted,
 .hostform:has([value="managed"]:checked) .for-managed { display: block; }
-.hostform fieldset.choice, fieldset.choice.spaced { margin-top: 20px; }
+.hostform fieldset.choice { margin-top: 20px; }
 
 /* A choice reads as a segmented control: the radio is hidden, its label carries the state. */
 fieldset.choice { margin: 0; padding: 0; border: 0; display: flex; flex-wrap: wrap; gap: 8px; }

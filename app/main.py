@@ -716,15 +716,24 @@ def profile(request: Request):
 
 
 @app.post("/profile")
-def profile_save(request: Request, realname: str = Form(""), email: str = Form(""), theme: str = Form("")):
+def profile_save(request: Request, realname: str = Form(""), email: str = Form("")):
     users = load_users()
     fields = {"realname": realname.strip(), "email": email.strip()}
     others = [user for user in users if user["username"] != request.state.user]
     if error := user_problem({"username": request.state.user, **fields}, others):
         return profile_page(request, status_code=400, error=error, form=fields)
-    # Dark is the look Caddyman comes in; only the wish for the light one is stored, per account.
-    update_user(request.state.user, **fields, theme="light" if theme == "light" else None)
+    update_user(request.state.user, **fields)
     return redirect("/profile", "ok", "Your profile is saved.")
+
+
+@app.post("/profile/theme")
+def profile_theme(request: Request, back: str = Form("/")):
+    """The button in the bar: switch between the dark and the light look and stay on the page."""
+    # Dark is the look Caddyman comes in; only the wish for the light one is stored, per account.
+    update_user(request.state.user, theme=None if request.state.me.get("theme") == "light" else "light")
+    # Only ever a path of this site: the value comes back from the browser.
+    local = back.startswith("/") and not back.startswith("//") and "\\" not in back and back.isprintable()
+    return RedirectResponse(back if local else "/", status_code=303)
 
 
 @app.post("/profile/password")

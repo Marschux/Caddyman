@@ -10,12 +10,6 @@
 	<label for="email">Email <span class="optional">optional</span></label>
 	<input id="email" name="email" type="email" value="{{ form.email if form else me.email or '' }}" maxlength="254" autocomplete="email">
 	<small>Only used to mail you a link when you forgot your password.</small>
-	<fieldset class="choice spaced">
-		<legend>Appearance</legend>
-		<label><input type="radio" name="theme" value="dark" {{ "checked" if me.theme != "light" }}> Dark</label>
-		<label><input type="radio" name="theme" value="light" {{ "checked" if me.theme == "light" }}> Light</label>
-	</fieldset>
-	<small>For this account, on every device. The pages before the login stay dark.</small>
 	<button type="submit">Save</button>
 </form>
 

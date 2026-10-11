@@ -25,6 +25,17 @@
 			<a href="/status" {% if path.startswith(("/status", "/logs", "/backup")) %}aria-current="page"{% endif %}>System</a>
 			{% if "settings" in account.permissions or "users" in account.permissions %}<a href="/settings" {% if path.startswith("/settings") or path.startswith("/hosts") %}aria-current="page"{% endif %}>Settings</a>{% endif %}
 		</nav>
+		{# Sun in the dark look, moon in the light one: the button shows where a click leads. #}
+		{% set light = account.theme == "light" %}
+		<form method="post" action="/profile/theme" class="theme">
+			<input type="hidden" name="back" value="{{ request.url.path }}{{ '?' ~ request.url.query if request.url.query }}">
+			<button type="submit" class="icon" title="Switch to the {{ 'dark' if light else 'light' }} look" aria-label="Switch to the {{ 'dark' if light else 'light' }} look">
+				<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+					{% if light %}<path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/>
+					{% else %}<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/>{% endif %}
+				</svg>
+			</button>
+		</form>
 		<form method="post" action="/logout">
 			<a class="account" href="/profile"><span class="avatar">{{ account|initials }}</span>{{ account.realname or account.username }}</a>
 			<button type="submit" class="link">Log out</button>

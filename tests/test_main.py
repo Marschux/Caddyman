@@ -751,16 +751,24 @@ class TestUsers(RouteTest):
 
     def test_light_look_is_a_choice_of_the_account(self):
         self.assertNotIn("data-theme", self.client.get("/").text)
-        self.client.post("/profile", data={"realname": "", "email": "", "theme": "light"})
+        # The button in the bar switches and leads back to where it was pressed.
+        self.assertIn('title="Switch to the light look"', self.client.get("/status").text)
+        self.assertIn('name="back" value="/logs?level=error"', self.client.get("/logs?level=error").text)
+        self.assertEqual(self.client.post("/profile/theme", data={"back": "/status"}).headers["location"], "/status")
         self.assertEqual(main.load_users()[0]["theme"], "light")
-        self.assertIn('<html lang="en" data-theme="light">', self.client.get("/").text)
-        self.assertIn('value="light" checked', self.client.get("/profile").text)
+        page = self.client.get("/").text
+        self.assertIn('<html lang="en" data-theme="light">', page)
+        self.assertIn('title="Switch to the dark look"', page)
+        # Saving the profile leaves the choice alone.
+        self.client.post("/profile", data={"realname": "", "email": ""})
+        self.assertEqual(main.load_users()[0]["theme"], "light")
         # Another account and the pages before the login keep the dark one.
         self.add_user()
         self.assertNotIn("data-theme", self.log_in("viewer")[0].get("/").text)
         self.assertNotIn("data-theme", TestClient(main.app, follow_redirects=False).get("/login").text)
-        # Dark again is simply not stored; anything else that is sent counts as dark.
-        self.client.post("/profile", data={"realname": "", "email": "", "theme": "pink"})
+        # Dark again is simply not stored, and the way back never leaves this site.
+        for elsewhere in ("https://evil.example", "//evil.example", ""):  # three presses: dark, light, dark
+            self.assertEqual(self.client.post("/profile/theme", data={"back": elsewhere}).headers["location"], "/")
         self.assertNotIn("theme", main.load_users()[0])
         self.assertNotIn("data-theme", self.client.get("/").text)
 
