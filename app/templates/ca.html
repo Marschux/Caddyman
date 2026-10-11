@@ -65,12 +65,47 @@ if (((Read-Host "Check code") -replace "[^0-9A-Fa-f]") -eq $code) { $store = [Se
 </section>
 
 <section>
+	<h2>macOS</h2>
+	<p class="empty">Print the check code of the downloaded file first and compare it:</p>
+	<pre>openssl x509 -in ~/Downloads/root-ca.crt -noout -fingerprint -sha256 | cut -d= -f2 | tr -d : | cut -c1-12</pre>
+	<pre>sudo security add-trusted-cert -d -r trustRoot -k /Library/Keychains/System.keychain ~/Downloads/root-ca.crt</pre>
+	<p class="empty">Or by hand: open the file, add it to the keychain <strong>System</strong>, then double-click the
+		certificate in Keychain Access and set "When using this certificate" under Trust to "Always Trust". Without that
+		last step it is installed but not trusted.</p>
+</section>
+
+<section>
 	<h2>Debian and Ubuntu</h2>
 	<p class="empty">Print the check code of the downloaded file first and compare it:</p>
 	<pre>openssl x509 -in root-ca.crt -noout -fingerprint -sha256 | cut -d= -f2 | tr -d : | cut -c1-12</pre>
 	<pre>sudo cp root-ca.crt /usr/local/share/ca-certificates/root-ca.crt
 sudo update-ca-certificates</pre>
 	<p class="empty">The file name has to end in <code>.crt</code>.</p>
+</section>
+
+<section>
+	<h2>iPhone and iPad</h2>
+	<ol class="empty">
+		<li>Tap the download button above in <strong>Safari</strong> and allow the configuration profile.</li>
+		<li>Settings, General, VPN &amp; Device Management: open the downloaded profile. Under "More Details" the
+			certificate shows its SHA-256 fingerprint; its first 12 characters are the check code. Then tap Install.</li>
+		<li>Settings, General, About, Certificate Trust Settings: switch the certificate on. Without this step it is
+			installed but not trusted.</li>
+	</ol>
+</section>
+
+<section>
+	<h2>Android</h2>
+	<ol class="empty">
+		<li>Download the file with the button above.</li>
+		<li>Settings, Security &amp; privacy, More security settings, Encryption &amp; credentials, Install a certificate,
+			<strong>CA certificate</strong>. Confirm the warning and pick the file. The path differs between
+			manufacturers; searching the settings for "CA certificate" finds it.</li>
+		<li>Under "Trusted credentials", tab "User", the certificate shows its SHA-256 fingerprint; its first 12
+			characters are the check code. Remove it again if they differ.</li>
+	</ol>
+	<p class="empty">Chrome trusts a certificate installed this way. Many other apps ignore certificates the user
+		installed and keep showing a warning; that is a decision of the app and cannot be changed here.</p>
 </section>
 
 <section>
