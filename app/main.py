@@ -582,11 +582,15 @@ def mail_problem(mail: dict) -> str | None:
         return "Unknown encryption."
     if not is_http_url(mail["public_url"]) or urlsplit(mail["public_url"]).path:
         return "The address of Caddyman has to look like https://caddyman.home.example."
-    if mail["ca"]:
-        try:
-            ssl.create_default_context().load_verify_locations(cadata=mail["ca"])
-        except (ssl.SSLError, ValueError):
-            return "The CA certificate has to be a certificate as PEM text, from BEGIN CERTIFICATE to END CERTIFICATE."
+    return ca_problem(mail["ca"]) if mail["ca"] else None
+
+
+def ca_problem(pem: str) -> str | None:
+    """What is wrong with a CA certificate somebody pasted into a form."""
+    try:
+        ssl.create_default_context().load_verify_locations(cadata=pem)
+    except (ssl.SSLError, ValueError):
+        return "The CA certificate has to be a certificate as PEM text, from BEGIN CERTIFICATE to END CERTIFICATE."
     return None
 
 
@@ -712,13 +716,14 @@ def profile(request: Request):
 
 
 @app.post("/profile")
-def profile_save(request: Request, realname: str = Form(""), email: str = Form("")):
+def profile_save(request: Request, realname: str = Form(""), email: str = Form(""), theme: str = Form("")):
     users = load_users()
     fields = {"realname": realname.strip(), "email": email.strip()}
     others = [user for user in users if user["username"] != request.state.user]
     if error := user_problem({"username": request.state.user, **fields}, others):
         return profile_page(request, status_code=400, error=error, form=fields)
-    update_user(request.state.user, **fields)
+    # Dark is the look Caddyman comes in; only the wish for the light one is stored, per account.
+    update_user(request.state.user, **fields, theme="light" if theme == "light" else None)
     return redirect("/profile", "ok", "Your profile is saved.")
 
 
@@ -996,7 +1001,7 @@ def remember_admin_ca(host: dict, previous: str = "") -> str:
     A private CA is the normal case here, and the container does not know it. This is trust on
     first use: whoever sits on the wire at the moment of saving could hand in a CA of their
     own. The status page shows the check code of what was remembered, to compare with the
-    Root CA page. A field to paste the CA into would close that gap.
+    Root CA page. Pasting the CA into the settings closes that gap: then nothing is fetched.
     """
     if not host["admin_url"].startswith("https://"):
         return ""
@@ -1078,7 +1083,7 @@ def preflight(host: dict) -> list[dict]:
                 "Base Caddyfile imports no files",
                 not file_import,
                 file_import.group(0).strip() if file_import else "",
-                "This Caddy runs elsewhere and cannot read files from here, so the routes are sent inline. "
+                'With the layout "Network only" Caddy cannot read files from here, so the routes are sent inline. '
                 "Remove this line from the base Caddyfile of this host:",
                 file_import.group(0).strip() if file_import else "",
             )
@@ -1167,7 +1172,8 @@ def preflight(host: dict) -> list[dict]:
         )
     if host.get("admin_ca"):
         # Remembered on first use, so it is shown: the codes are the ones the Root CA page gives.
-        add("CA of the admin API is remembered", True, "check code " + check_codes(host["admin_ca"]))
+        origin = "entered in the settings" if host.get("admin_ca_pasted") else "fetched when the settings were saved"
+        add("CA of the admin API is remembered", True, f"check code {check_codes(host['admin_ca'])}, {origin}")
     if admin_ok:
         # The quick way in, 'admin :2019', works but leaves Caddy open to every container on its network.
         add(
@@ -1235,6 +1241,9 @@ async def host_from_form(request: Request) -> dict:
     host["domain_suffix"] = host["domain_suffix"].lower().strip(".")
     host["form_password"] = str(form.get("admin_password", ""))
     host["form_base"] = str(form.get("base_caddyfile", "")).replace("\r\n", "\n").strip()
+    # Only the certificates are kept; text around them is dropped. Something that holds none stays, to be refused.
+    pasted = str(form.get("admin_ca", "")).strip()
+    host["form_ca"] = "\n".join(PEM_RE.findall(pasted)) or pasted
     return host
 
 
@@ -2054,6 +2063,8 @@ def host_edit(request: Request, host_id: str):
             host["form_base"] = Path(host["caddyfile"]).read_text(encoding="utf-8")
         except (OSError, UnicodeDecodeError):
             host["form_base"] = ""
+    # The field shows a CA only when somebody put it there; one Caddyman fetched stays on the status page.
+    host["form_ca"] = host.get("admin_ca", "") if host.get("admin_ca_pasted") else ""
     return page(request, "host_form.html", host=host, route_count=len(list_routes(host)))
 
 
@@ -2068,9 +2079,9 @@ async def host_save(request: Request, host_id: str | None = None):
         return RedirectResponse("/hosts", status_code=303)
     # Routes live in different places per layout, so it is fixed once the host exists.
     host["storage"] = existing.get("storage", "mounted") if existing else host["storage"] or "mounted"
-    password, base = host.pop("form_password"), host.pop("form_base")
+    password, base, pasted_ca = host.pop("form_password"), host.pop("form_base"), host.pop("form_ca")
     error = None if host["storage"] in STORAGES else "Unknown layout."
-    error = error or host_problem(host)
+    error = error or host_problem(host) or (ca_problem(pasted_ca) if pasted_ca else None)
     if not error and host["storage"] == "managed" and not base:
         error = "This layout needs the base Caddyfile: global options, snippets and the site that exposes the admin API."
     if not error and host["admin_user"]:
@@ -2081,11 +2092,17 @@ async def host_save(request: Request, host_id: str | None = None):
         else:
             error = "The admin API login needs a password."
     if error:
-        context = {**host, "id": host_id, "form_base": base}
+        context = {**host, "id": host_id, "form_base": base, "form_ca": pasted_ca}
         return page(request, "host_form.html", status_code=400, error=error, host=context)
     host = with_paths({"id": host_id or secrets.token_hex(4), **host})
-    if admin_ca := remember_admin_ca(host, existing.get("admin_ca", "") if existing else ""):
-        host["admin_ca"] = admin_ca
+    if pasted_ca:
+        # Entered by hand: nothing is fetched, so nobody on the wire has a say in it.
+        host["admin_ca"], host["admin_ca_pasted"] = pasted_ca, "1"
+    else:
+        # A CA that was pasted before and is now removed is not what gets remembered next.
+        previous = existing.get("admin_ca", "") if existing and not existing.get("admin_ca_pasted") else ""
+        if admin_ca := remember_admin_ca(host, previous):
+            host["admin_ca"] = admin_ca
     if host["storage"] == "managed":
         # The one base Caddyfile this tool writes: its own copy, which Caddy never reads from disk.
         Path(host["sites_dir"]).mkdir(parents=True, exist_ok=True)
@@ -2304,7 +2321,7 @@ def build_backup(host: dict) -> bytes:
     created = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
     # Field by field, so nothing that is ever added to a host ends up in a backup by accident.
     # The remembered CA of the admin API is a public certificate; logins and passwords stay out.
-    keys = ("id", *HOST_DEFAULTS, "storage", "admin_ca")
+    keys = ("id", *HOST_DEFAULTS, "storage", "admin_ca", "admin_ca_pasted")
     hosts = [{key: item.get(key, HOST_DEFAULTS.get(key, "")) for key in keys} for item in load_hosts()]
     mail = load_mail()
     with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as archive:
@@ -2364,7 +2381,8 @@ def read_backup(data: bytes) -> dict:
                 fingerprints(admin_ca)
             except ValueError:
                 admin_ca = ""
-            hosts.append(with_paths({"id": host_id, **host, **({"admin_ca": admin_ca} if admin_ca else {})}))
+            kept = {"admin_ca": admin_ca, **({"admin_ca_pasted": "1"} if item.get("admin_ca_pasted") else {})} if admin_ca else {}
+            hosts.append(with_paths({"id": host_id, **host, **kept}))
     meta = extra.get("backup.json")
     # Everything below is held to what the forms of the interface would accept.
     settings = extra.get("settings.json")

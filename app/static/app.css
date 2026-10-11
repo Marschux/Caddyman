@@ -1,7 +1,9 @@
 /* Black canvas, charcoal surface lift instead of shadows, white primary buttons and one
-   product colour as identity. Dark only: there is no light mode. */
+   product colour as identity. The light look further down swaps the colours and nothing else. */
 :root {
 	color-scheme: dark;
+	--on-ink: #000000;
+	--ink-hover: #dfe2e6;
 	--canvas: #000000;
 	--surface-1: #15181e;
 	--surface-2: #1f232b;
@@ -24,6 +26,34 @@
 	--error-bg: rgba(230, 43, 30, 0.16);
 	--sans: system-ui, -apple-system, "Segoe UI", Helvetica, Arial, sans-serif;
 	--mono: ui-monospace, "Cascadia Code", Consolas, monospace;
+}
+
+/* The light look, chosen per account in the profile: white canvas, grey steps for the lift,
+   black primary buttons. The product colour is darker here so it still reads on white. */
+:root[data-theme="light"] {
+	color-scheme: light;
+	--on-ink: #ffffff;
+	--ink-hover: #2b2d34;
+	--canvas: #ffffff;
+	--surface-1: #f6f7f9;
+	--surface-2: #eceef2;
+	--surface-3: #d9dce2;
+	--hairline: rgba(12, 12, 14, 0.12);
+	--hairline-strong: #c1c5cd;
+	--hairline-soft: #e4e6eb;
+	--ink: #0c0c0e;
+	--ink-muted: #3b3d45;
+	--ink-subtle: #656a76;
+	--link: #1060ff;
+	--product: #087f83;
+	--product-deep: #076f73;
+	--product-bg: rgba(8, 127, 131, 0.12);
+	--ok: #007a55;
+	--ok-bg: rgba(0, 122, 85, 0.12);
+	--warn: #8a5a00;
+	--warn-bg: rgba(255, 191, 0, 0.18);
+	--error: #c0271b;
+	--error-bg: rgba(192, 39, 27, 0.1);
 }
 
 * { box-sizing: border-box; }
@@ -152,7 +182,7 @@ button, a.button {
 	display: inline-block;
 	padding: 10px 18px;
 	font: 600 14px/1.29 var(--sans);
-	color: #000000;
+	color: var(--on-ink);
 	background: var(--ink);
 	border: 1px solid var(--ink);
 	border-radius: 8px;
@@ -161,7 +191,7 @@ button, a.button {
 }
 
 button { width: 100%; margin-top: 28px; }
-button:hover, a.button:hover { background: #dfe2e6; border-color: #dfe2e6; text-decoration: none; }
+button:hover, a.button:hover { background: var(--ink-hover); border-color: var(--ink-hover); text-decoration: none; }
 button:focus-visible, a:focus-visible, summary:focus-visible { outline: 2px solid var(--link); outline-offset: 2px; }
 
 button.link { width: auto; margin: 0; padding: 0; font-weight: 500; color: var(--link); background: none; border: 0; border-radius: 4px; }
@@ -290,7 +320,7 @@ a + .cert, code + .cert { margin-left: 8px; white-space: nowrap; }
 .hostform .show,
 .hostform:has([value="mounted"]:checked) .for-mounted,
 .hostform:has([value="managed"]:checked) .for-managed { display: block; }
-.hostform fieldset.choice { margin-top: 20px; }
+.hostform fieldset.choice, fieldset.choice.spaced { margin-top: 20px; }
 
 /* A choice reads as a segmented control: the radio is hidden, its label carries the state. */
 fieldset.choice { margin: 0; padding: 0; border: 0; display: flex; flex-wrap: wrap; gap: 8px; }

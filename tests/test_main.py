@@ -749,6 +749,21 @@ class TestUsers(RouteTest):
         self.assertEqual(self.log_in("admin")[1].headers["location"], "/")
         self.assertNotIn("totp", main.load_users()[0])
 
+    def test_light_look_is_a_choice_of_the_account(self):
+        self.assertNotIn("data-theme", self.client.get("/").text)
+        self.client.post("/profile", data={"realname": "", "email": "", "theme": "light"})
+        self.assertEqual(main.load_users()[0]["theme"], "light")
+        self.assertIn('<html lang="en" data-theme="light">', self.client.get("/").text)
+        self.assertIn('value="light" checked', self.client.get("/profile").text)
+        # Another account and the pages before the login keep the dark one.
+        self.add_user()
+        self.assertNotIn("data-theme", self.log_in("viewer")[0].get("/").text)
+        self.assertNotIn("data-theme", TestClient(main.app, follow_redirects=False).get("/login").text)
+        # Dark again is simply not stored; anything else that is sent counts as dark.
+        self.client.post("/profile", data={"realname": "", "email": "", "theme": "pink"})
+        self.assertNotIn("theme", main.load_users()[0])
+        self.assertNotIn("data-theme", self.client.get("/").text)
+
     def test_forgotten_password_by_mail(self):
         self.client.post("/profile", data={"realname": "Ada Admin", "email": "ada@lab.test"})
         self.assertIn(">AA<", self.client.get("/profile").text)  # initials stand in for a picture
@@ -988,6 +1003,28 @@ class TestManaged(AppTest):
         self.client.post(f"/hosts/{host['id']}/edit", data=self.form(admin_password="", admin_url="http://caddy2:2020"))
         self.assertNotIn("admin_ca", main.load_hosts()[0])
         self.assertIs(main.admin_verify(main.load_hosts()[0]), True)
+
+    def test_ca_of_the_admin_api_can_be_entered_instead_of_fetched(self):
+        from cryptography.hazmat.primitives.serialization import Encoding
+
+        fetched = make_certificate("Caddy Local Authority").public_bytes(Encoding.PEM).decode()
+        own = make_certificate("Lab Root CA").public_bytes(Encoding.PEM).decode().strip()
+        self.get.return_value = mock.Mock(status_code=200, content=b"running", json=lambda: {"root_certificate": fetched})
+        self.assertEqual(self.add_host(admin_ca="not a certificate")[0].status_code, 400)
+        _, host = self.add_host(admin_ca=f"a note\n{own}\n")
+        # What was pasted is taken as it stands; whoever sits on the wire has no say in it.
+        self.assertEqual((host["admin_ca"], host["admin_ca_pasted"]), (own, "1"))
+        self.assertIn("entered in the settings", next(c["detail"] for c in main.preflight(host) if "remembered" in c["label"]))
+        form = self.client.get(f"/hosts/{host['id']}/edit").text
+        self.assertIn(own.splitlines()[1], form)
+        # Saving the form as it is keeps it; emptying the field goes back to fetching.
+        self.client.post(f"/hosts/{host['id']}/edit", data=self.form(admin_password="", admin_ca=own))
+        self.assertEqual(main.load_hosts()[0]["admin_ca"], own)
+        self.client.post(f"/hosts/{host['id']}/edit", data=self.form(admin_password=""))
+        saved = main.load_hosts()[0]
+        self.assertNotIn("admin_ca_pasted", saved)
+        self.assertEqual(saved["admin_ca"].strip(), fetched.strip())
+        self.assertNotIn(own.splitlines()[1], self.client.get(f"/hosts/{host['id']}/edit").text)  # a fetched one is not put into the field
 
     def test_unknown_ca_is_explained_on_the_status_page(self):
         _, host = self.add_host()

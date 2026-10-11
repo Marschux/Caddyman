@@ -14,7 +14,7 @@
 {% if host.storage == "managed" %}
 <section>
 	<h2>2. Serve that file next to the admin API</h2>
-	<p class="empty">This Caddy runs on another machine, so Caddyman fetches the end of the log over the address and login it
+	<p class="empty">The layout is "Network only", so Caddyman fetches the end of the log over the address and login it
 		already uses for the admin API. Extend that site in the base Caddyfile under
 		<a href="/hosts/{{ host.id }}/edit">Settings</a>, then use "Reload Caddy" on the <a href="/status">status page</a>:</p>
 	<pre>{{ remote_snippet }}</pre>
@@ -48,7 +48,7 @@
 	<button type="submit">Show</button>
 </form>
 <p class="empty live">
-	<label class="check"><input type="checkbox" id="live" checked> <span>Live: new entries appear by themselves every 5 seconds.</span></label>
+	<label class="check"><input type="checkbox" id="live" checked> <span>Live: new entries appear by themselves every {{ 20 if host.storage == "managed" else 5 }} seconds.</span></label>
 	Newest first, at most {{ shown }} entries from the end of <code>{{ chosen }}</code>. Times are UTC.
 </p>
 <table class="log">
@@ -70,4 +70,5 @@
 </table>
 {% endif %}
 {% endblock %}
-{% block scripts %}<script src="/static/logs.js" defer></script>{% endblock %}
+{# Over the network every look fetches up to half a megabyte, so it looks less often. #}
+{% block scripts %}<script src="/static/logs.js" data-seconds="{{ 20 if host.storage == 'managed' else 5 }}" defer></script>{% endblock %}

@@ -18,21 +18,23 @@
 	{% if error %}<p class="error" role="alert">{{ error }}</p>{% endif %}
 
 	{% if host.id %}
-	<p>Layout: <strong>{{ "Caddyman only reaches Caddy over the network" if host.storage == "managed" else "Caddyman can see Caddy's files" }}</strong>. It cannot be changed afterwards.</p>
+	<p>Layout: <strong>{{ "Network only" if host.storage == "managed" else "Shared files" }}</strong>. It cannot be changed afterwards.</p>
 	{% else %}
+	{# The two names are used everywhere: the logs page, the status page and the README say the same. #}
 	<fieldset class="choice">
 		<legend>How does Caddyman reach Caddy?</legend>
-		<label><input type="radio" name="storage" value="mounted" {{ "checked" if host.storage != "managed" }}> Caddyman can see Caddy's files</label>
-		<label><input type="radio" name="storage" value="managed" {{ "checked" if host.storage == "managed" }}> Caddyman only reaches Caddy over the network</label>
+		<label><input type="radio" name="storage" value="mounted" {{ "checked" if host.storage != "managed" }}> Shared files</label>
+		<label><input type="radio" name="storage" value="managed" {{ "checked" if host.storage == "managed" }}> Network only</label>
 	</fieldset>
-	<small>The first is the usual case: Caddy in a container next door, with its Caddyfile and sites directory mounted
-		into this one. The second is for a Caddy whose files cannot be mounted here, typically on another machine.</small>
+	<small><strong>Shared files</strong> is the usual case: Caddy in a container next door, with its Caddyfile and sites
+		directory mounted into this one. <strong>Network only</strong> is for a Caddy whose files cannot be mounted here,
+		typically on another machine; Caddyman then reaches it over the network alone.</small>
 	{% endif %}
 
 	<label for="admin_url">Admin API</label>
 	<input id="admin_url" name="admin_url" value="{{ host.admin_url }}" required autofocus>
 	<small>The address of the site in front of Caddy's admin API, reachable from this container:
-		<code>http://caddy:2020</code> on a shared Docker network, or <code>https://admin.home.example</code> for a Caddy elsewhere.</small>
+		<code>http://caddy:2020</code> on a shared Docker network, or <code>https://admin.home.example</code> with "Network only".</small>
 
 	<div class="for-mounted {{ 'show' if host.id and host.storage != 'managed' }}">
 		<label for="caddyfile">Base Caddyfile</label>
@@ -62,6 +64,12 @@
 			placeholder="{{ 'Leave empty to keep the current password' if host.admin_password_enc }}">
 		<small>Stored encrypted with <code>CADDYMAN_SECRET_KEY</code>. Without that key it has to be entered again.</small>
 	</div>
+
+	<label for="admin_ca">CA certificate of the admin API <span class="optional">optional</span></label>
+	<textarea id="admin_ca" name="admin_ca" rows="4" spellcheck="false" placeholder="-----BEGIN CERTIFICATE-----">{{ host.form_ca or '' }}</textarea>
+	<small>Only for an <code>https://</code> address with a certificate from your own CA. Left empty, Caddyman fetches
+		that CA itself when you save, unchecked, and shows its check code on the status page. Pasted here as PEM, it is
+		taken as it stands and nothing is fetched.</small>
 
 	<label for="tls_snippet">TLS snippet <span class="optional">optional</span></label>
 	<input id="tls_snippet" name="tls_snippet" value="{{ host.tls_snippet }}" placeholder="stepca">

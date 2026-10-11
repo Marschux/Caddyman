@@ -1,5 +1,6 @@
 <!doctype html>
-<html lang="en">
+{# The light look is a wish stored with the account; everybody else, and every page before the login, gets the dark one. #}
+<html lang="en"{% if request.state.me and request.state.me.theme == "light" %} data-theme="light"{% endif %}>
 <head>
 	<meta charset="utf-8">
 	<meta name="viewport" content="width=device-width, initial-scale=1">

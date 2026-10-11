@@ -119,9 +119,9 @@ for one day. Accounts are only ever created by somebody who manages users. A mai
 server whose certificate comes from your own CA needs that CA's root certificate in the field
 "CA certificate" there.
 
-## Caddy on another machine
+## Network only: a Caddy on another machine
 
-Choose "Caddyman only reaches Caddy over the network" in the setup dialog. That is the layout for
+Choose "Network only" in the setup dialog instead of "Shared files". That is the layout for
 every Caddy whose files cannot be mounted into the Caddyman container. Caddyman then keeps the base Caddyfile and the
 routes itself and sends both to Caddy as one Caddyfile.
 

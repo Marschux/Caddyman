@@ -1,7 +1,8 @@
 // Live view: fetches this same page every few seconds and swaps in its rows.
 // Before the log is set up there is no table; the page then checks whether one has appeared.
 (() => {
-	const INTERVAL = 5000;
+	// Set by the page: a Caddy that is only reached over the network is asked less often.
+	const INTERVAL = 1000 * Number(document.currentScript.dataset.seconds || 5);
 	const live = document.getElementById("live");
 
 	async function refresh() {
