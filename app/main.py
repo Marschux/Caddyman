@@ -739,17 +739,6 @@ def settings_caddy():
     return RedirectResponse(host_settings_url(), status_code=303)
 
 
-@app.get("/settings/root-ca")
-def settings_root_ca(request: Request):
-    return page(request, "settings_root_ca.html", settings=load_settings())
-
-
-@app.post("/settings/root-ca")
-def settings_root_ca_save(public_ca: str = Form(""), login_ca_hint: str = Form("")):
-    save_settings(public_ca=public_ca and "1", login_ca_hint=login_ca_hint and "1")
-    return redirect("/settings/root-ca", "ok", "Saved.")
-
-
 @app.get("/settings/security")
 def settings_security(request: Request):
     without = [user["username"] for user in load_users() if not user.get("totp")]
@@ -757,8 +746,9 @@ def settings_security(request: Request):
 
 
 @app.post("/settings/security")
-def settings_security_save(require_2fa: str = Form("")):
-    save_settings(require_2fa=require_2fa and "1")
+def settings_security_save(require_2fa: str = Form(""), public_ca: str = Form(""), login_ca_hint: str = Form("")):
+    # Three checkboxes in one form: one that is not sent was unticked.
+    save_settings(require_2fa=require_2fa and "1", public_ca=public_ca and "1", login_ca_hint=login_ca_hint and "1")
     return redirect("/settings/security", "ok", "Saved.")
 
 

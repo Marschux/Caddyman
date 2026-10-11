@@ -462,7 +462,7 @@ class TestUsers(RouteTest):
         for path in ("/", "/status", "/profile"):
             self.assertEqual(viewer.get(path).status_code, 200, path)
         for path in ("/settings/users", "/settings/users/new", "/backup", "/backup/download", "/logs", "/ca", "/ca/root-ca.crt", "/hosts/h1/edit", "/routes/new",
-                     "/settings", "/settings/caddy", "/settings/root-ca", "/settings/mail", "/settings/security"):
+                     "/settings", "/settings/caddy", "/settings/mail", "/settings/security"):
             self.assertEqual(viewer.get(path).status_code, 403, path)
         self.assertEqual(viewer.post("/routes/new", data=self.form()).status_code, 403)
         self.assertEqual(viewer.post("/hosts/h1/push").status_code, 403)
@@ -502,7 +502,7 @@ class TestUsers(RouteTest):
         self.assertEqual(self.client.get("/settings").headers["location"], "/settings/caddy")
         self.assertEqual(self.client.get("/settings/caddy").headers["location"], "/hosts/h1/edit")
         everything = self.client.get("/hosts/h1/edit").text
-        for block in ("/settings/caddy", "/settings/root-ca", "/settings/mail", "/settings/users", "/settings/security"):
+        for block in ("/settings/caddy", "/settings/mail", "/settings/users", "/settings/security"):
             self.assertIn(f'href="{block}"', everything)
         # Managing users does not open the connection to Caddy.
         self.add_user("eve", right_users="1")
@@ -691,14 +691,14 @@ class TestCa(RouteTest):
         self.answer(json={"root_certificate": self.PEM})
         guest = TestClient(main.app, follow_redirects=False)
         self.assertIn('href="/trust"', guest.get("/login").text)
-        self.client.post("/settings/root-ca", data={"public_ca": "1"})
+        self.client.post("/settings/security", data={"public_ca": "1"})
         self.assertNotIn('href="/trust"', guest.get("/login").text)
         self.assertEqual(guest.get("/trust").status_code, 200)  # only the card is gone
-        self.client.post("/settings/root-ca", data={"login_ca_hint": "1"})
+        self.client.post("/settings/security", data={"login_ca_hint": "1"})
         self.assertNotIn('href="/trust"', guest.get("/login").text)
         for path in main.PUBLIC_PATHS:
             self.assertEqual(guest.get(path).headers["location"], "/login")
-        self.assertEqual(self.client.get("/settings/root-ca").text.count(" checked"), 1)
+        self.assertEqual(self.client.get("/settings/security").text.count(" checked"), 1)
 
     def test_switches_from_the_old_caddy_settings_are_kept(self):
         # Up to 0.9.0 the two switches were stored with the host. Saving the Caddy form must not open the page again.

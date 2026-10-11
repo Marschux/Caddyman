@@ -6,7 +6,6 @@
 <aside class="side">
 	{% if "settings" in rights %}
 	<a href="/settings/caddy" {{ 'aria-current="page"' if here.startswith("/hosts") }}>Caddy</a>
-	<a href="/settings/root-ca" {{ 'aria-current="page"' if here.startswith("/settings/root-ca") }}>Root CA</a>
 	<a href="/settings/mail" {{ 'aria-current="page"' if here.startswith("/settings/mail") }}>Mail</a>
 	{% endif %}
 	{% if "users" in rights %}<a href="/settings/users" {{ 'aria-current="page"' if here.startswith("/settings/users") }}>Users</a>{% endif %}
