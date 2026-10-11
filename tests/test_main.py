@@ -727,6 +727,38 @@ class TestCa(RouteTest):
         self.patch(main.httpx, "get", mock.Mock(side_effect=main.httpx.ConnectError("refused")))
         self.assertIn("refused", self.client.get("/ca").text)
 
+    def test_several_certificates_each_get_their_own_round(self):
+        other = "-----BEGIN CERTIFICATE-----\nb3RoZXI=\n-----END CERTIFICATE-----"
+        main.save_hosts([{**self.host, "root_ca_url": "https://ca.lab.test:9001/roots.pem"}])
+        # One certificate: nothing carries a number.
+        self.answer(text=self.PEM)
+        page = self.client.get("/trust").text
+        self.assertIn('href="/root-ca.crt">Download root-ca.crt<', page)
+        self.assertNotIn("cert=", page)
+        main.ROOT_CA_CACHE.clear()
+        self.answer(text=f"{self.PEM}\n{other}")
+        # The admin sees a check code for each.
+        page = self.client.get("/ca").text
+        self.assertIn("9F86 D081 884C", page)
+        digest = main.hashlib.sha256(b"other").hexdigest().upper()
+        self.assertIn(f"{digest[:4]} {digest[4:8]} {digest[8:12]}", page)
+        # A device takes only the first certificate out of a file: the second has its own page, file and command.
+        first, second = self.client.get("/trust").text, self.client.get("/trust?cert=2&os=linux").text
+        self.assertIn("<strong>2 certificates</strong>", first)
+        self.assertIn('FromBase64String("dGVzdA==")', first)
+        self.assertIn('href="/root-ca.crt?cert=1">Download root-ca-1.crt<', first)
+        self.assertIn('href="?os=macos&amp;cert=1"', first)
+        self.assertIn("sudo cp root-ca-2.crt /usr/local/share/ca-certificates/root-ca-2.crt", second)
+        self.assertIn('FromBase64String("b3RoZXI=")', self.client.get("/trust?cert=2").text)
+        self.assertIn('FromBase64String("dGVzdA==")', self.client.get("/trust?cert=9").text)  # no such one: the first
+        # The plain address still hands out everything, a number just that one.
+        self.assertEqual(self.client.get("/root-ca.crt").text, f"{self.PEM}\n{other}\n")
+        one = self.client.get("/root-ca.crt?cert=2")
+        self.assertEqual(one.text, other + "\n")
+        self.assertIn('filename="root-ca-2.crt"', one.headers["content-disposition"])
+        self.assertEqual(self.client.get("/ca/root-ca.crt?cert=1").text, self.PEM + "\n")
+        self.assertEqual(self.client.get("/root-ca.crt?cert=3").status_code, 404)
+
     def test_needs_a_session(self):
         self.client.cookies.clear()
         self.assertEqual(self.client.get("/ca/root-ca.crt").headers["location"], "/login")

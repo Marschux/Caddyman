@@ -2001,42 +2001,71 @@ def public_root_ca(host: dict) -> tuple[str, str, bool]:
     return cached[1]
 
 
-def ca_context(host: dict, fetch=fetch_root_ca) -> dict:
+def ca_context(host: dict, fetch=fetch_root_ca, cert: int = 1) -> dict:
+    """What the Root CA pages show. cert picks one certificate when the source hands out several."""
     context = {"host": host}
     try:
         pem, context["source"], context["internal"] = fetch(host)
         context["fingerprints"] = fingerprints(pem)
-        # The check code and the install command cover the first certificate only.
-        # A source that hands out several is still downloaded whole.
-        der = ssl.PEM_cert_to_DER_cert(PEM_RE.search(pem).group(0))
-        digest = hashlib.sha256(der).hexdigest().upper()
-        # 48 bits: short enough to say on the phone, too long to hit with a forged certificate by trying.
-        context["check_code"] = " ".join(digest[i : i + 4] for i in (0, 4, 8))
-        context["der_base64"] = base64.b64encode(der).decode()
+        certs = []
+        for number, (one, print_) in enumerate(zip(PEM_RE.findall(pem), context["fingerprints"]), 1):
+            der = ssl.PEM_cert_to_DER_cert(one)
+            digest = hashlib.sha256(der).hexdigest().upper()
+            certs.append({
+                "number": number,
+                "subject": print_.get("subject", ""),
+                # 48 bits: short enough to say on the phone, too long to hit with a forged certificate by trying.
+                "check_code": " ".join(digest[i : i + 4] for i in (0, 4, 8)),
+                "der_base64": base64.b64encode(der).decode(),
+            })
+        # Windows, iPhone and Android take only the first certificate out of a file, so with several
+        # each one gets its own download, check code and command. With one, nothing carries a number.
+        many = len(certs) > 1
+        chosen = certs[cert - 1] if 1 <= cert <= len(certs) else certs[0]
+        context.update(
+            certs=certs,
+            cert=chosen,
+            many=many,
+            file_name=f"root-ca-{chosen['number']}.crt" if many else "root-ca.crt",
+            pick=f"cert={chosen['number']}" if many else "",
+        )
     except ValueError as error:
         context["error"] = str(error)
     return context
 
 
 @app.get("/ca")
-def ca_page(request: Request, host: str | None = None):
+def ca_page(request: Request, host: str | None = None, cert: int = 1):
     hosts, current = pick_host(host)
     if current is None:
         return RedirectResponse("/hosts/new", status_code=303)
-    return page(request, "ca.html", hosts=hosts, **ca_context(current))
+    return page(request, "ca.html", hosts=hosts, **ca_context(current, cert=cert))
 
 
 @app.get("/trust")
-def trust_page(request: Request):
+def trust_page(request: Request, cert: int = 1):
     _, current = pick_host(None)
     if current is None:
         return Response(status_code=404)
-    context = ca_context(current, public_root_ca)
+    context = ca_context(current, public_root_ca, cert)
     return page(request, "ca.html", public=True, status_code=503 if "error" in context else 200, **context)
 
 
+def certificate_download(pem: str, cert: int | None) -> Response:
+    """Everything the source handed out, or the one certificate asked for by its number."""
+    certificates = PEM_RE.findall(pem)
+    if cert is None:
+        body, name = pem, "root-ca.crt"
+    elif 1 <= cert <= len(certificates):
+        body, name = certificates[cert - 1] + "\n", f"root-ca-{cert}.crt"
+    else:
+        return Response(status_code=404)
+    headers = {"Content-Disposition": f'attachment; filename="{name}"'}
+    return Response(body, media_type="application/x-x509-ca-cert", headers=headers)
+
+
 @app.get("/root-ca.crt")
-def root_ca_public():
+def root_ca_public(cert: int | None = None):
     _, current = pick_host(None)
     if current is None:
         return Response(status_code=404)
@@ -2046,12 +2075,11 @@ def root_ca_public():
     except ValueError:
         # No details here: the message names the admin API.
         return Response("The certificate is not available right now.", status_code=503, media_type="text/plain")
-    headers = {"Content-Disposition": 'attachment; filename="root-ca.crt"'}
-    return Response(pem, media_type="application/x-x509-ca-cert", headers=headers)
+    return certificate_download(pem, cert)
 
 
 @app.get("/ca/root-ca.crt")
-def ca_download(host: str | None = None):
+def ca_download(host: str | None = None, cert: int | None = None):
     _, current = pick_host(host)
     if current is None:
         return RedirectResponse("/hosts/new", status_code=303)
@@ -2060,8 +2088,7 @@ def ca_download(host: str | None = None):
         fingerprints(pem)
     except ValueError as error:
         return Response(str(error), status_code=502, media_type="text/plain")
-    headers = {"Content-Disposition": 'attachment; filename="root-ca.crt"'}
-    return Response(pem, media_type="application/x-x509-ca-cert", headers=headers)
+    return certificate_download(pem, cert)
 
 
 # The archive travels through the confirmation page as a form field, so it has to

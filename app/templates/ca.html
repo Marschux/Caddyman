@@ -18,14 +18,15 @@
 	("ios", "iPhone and iPad"), ("android", "Android"), ("firefox", "Firefox")] %}
 {% set asked = request.query_params.get("os", "") %}
 {% set shown = asked if asked in systems|map("first")|list else ("windows" if public else "") %}
+{# With several certificates every link keeps the one that is picked. #}
 <aside class="side">
-	{% if not public %}<a href="{{ request.url.path }}" {{ 'aria-current="page"' if not shown }}>Certificate</a>{% endif %}
+	{% if not public %}<a href="{{ request.url.path }}{{ '?' ~ pick if pick }}" {{ 'aria-current="page"' if not shown }}>Certificate</a>{% endif %}
 	{% for key, name in systems %}
-	<a href="?os={{ key }}" {{ 'aria-current="page"' if shown == key }}>{{ name }}</a>
+	<a href="?os={{ key }}{{ '&' ~ pick if pick }}" {{ 'aria-current="page"' if shown == key }}>{{ name }}</a>
 	{% endfor %}
 </aside>
 <div class="toolbar">
-	<div class="buttons"><a class="button" href="/root-ca.crt">Download root-ca.crt</a></div>
+	<div class="buttons"><a class="button" href="/root-ca.crt{{ '?' ~ pick if pick }}">Download {{ file_name }}</a></div>
 </div>
 {% if public %}
 <p class="empty">Every device that should open the sites behind this proxy without a warning needs this certificate once.
@@ -34,19 +35,32 @@
 {% else %}
 <p class="empty">Every device that should trust the routes behind this Caddy needs this certificate once.
 	{% if internal %}This is Caddy's own internal CA, because the host has no root CA source configured.{% endif %}</p>
+{% endif %}
+{% if many %}
+{# A device takes only the first certificate out of a file, so each one is its own round. #}
+<p class="empty">This CA hands out <strong>{{ certs|length }} certificates</strong>, and a device needs all of them.
+	Go through the steps once for each; each has its own download and its own check code:
+	{% for item in certs %}
+	{% if item.number == cert.number %}<strong>Certificate {{ item.number }}</strong>{% else %}<a href="?os={{ shown }}&amp;cert={{ item.number }}">Certificate {{ item.number }}</a>{% endif %}{{ " · " if not loop.last }}
+	{% endfor %}</p>
+{% endif %}
+{% if not public %}
 
 {% if not shown %}
 <section>
 	{% if host.get("public_ca", "1") %}
 	<h2>For people without a login</h2>
 	<p class="empty">The page <a href="/trust">/trust</a> and the download work without logging in. Send the link, and
-		give this check code another way, in person or on the phone:</p>
+		give {{ "these check codes" if many else "this check code" }} another way, in person or on the phone:</p>
 	{% else %}
 	<h2>Check code</h2>
 	<p class="empty">The page without a login is switched off in the <a href="/settings/security">settings</a>,
-		so pass on the file or the command below yourself. Give this check code another way, in person or on the phone:</p>
+		so pass on the file or the command below yourself. Give {{ "these check codes" if many else "this check code" }} another way, in person or on the phone:</p>
 	{% endif %}
-	<pre>{{ check_code }}</pre>
+	{% for item in certs %}
+	{% if many %}<p><strong>Certificate {{ item.number }}</strong>{% if item.subject %} <span class="empty">{{ item.subject }}</span>{% endif %}</p>{% endif %}
+	<pre>{{ item.check_code }}</pre>
+	{% endfor %}
 	<p class="empty">Somebody who can tamper with the connection can swap the certificate, but not what you say out loud.</p>
 </section>
 
@@ -59,7 +73,7 @@
 SHA-1    {{ item.sha1 }}</pre>
 	{% endfor %}
 	<p class="empty">Windows shows the SHA-1 value as "Thumbprint". On the command line:</p>
-	<pre>openssl x509 -in root-ca.crt -noout -fingerprint -sha256</pre>
+	<pre>openssl x509 -in {{ file_name }} -noout -fingerprint -sha256</pre>
 </section>
 {% endif %}
 {% endif %}
@@ -70,12 +84,12 @@ SHA-1    {{ item.sha1 }}</pre>
 	<p class="empty">Paste this into PowerShell <strong>as administrator</strong>. The certificate is part of the command, so
 		there is nothing to download, which makes it long; the box shows only its start. It asks for the check code and
 		installs only if the code fits:</p>
-	<pre class="cut">$cert = [Security.Cryptography.X509Certificates.X509Certificate2]::new([Convert]::FromBase64String("{{ der_base64 }}"))
+	<pre class="cut">$cert = [Security.Cryptography.X509Certificates.X509Certificate2]::new([Convert]::FromBase64String("{{ cert.der_base64 }}"))
 $code = -join ([Security.Cryptography.SHA256]::Create().ComputeHash($cert.RawData)[0..5] | ForEach-Object { $_.ToString("X2") })
 if (((Read-Host "Check code") -replace "[^0-9A-Fa-f]") -eq $code) { $store = [Security.Cryptography.X509Certificates.X509Store]::new("Root", "LocalMachine"); $store.Open("ReadWrite"); $store.Add($cert); $store.Close(); "Installed: " + $cert.Subject } else { "Wrong check code, nothing was installed." }</pre>
 	<p class="empty">Or with the downloaded file. The path points at your download folder; change it if the file is
 		somewhere else:</p>
-	<pre>Import-Certificate -FilePath "$env:USERPROFILE\Downloads\root-ca.crt" -CertStoreLocation Cert:\LocalMachine\Root</pre>
+	<pre>Import-Certificate -FilePath "$env:USERPROFILE\Downloads\{{ file_name }}" -CertStoreLocation Cert:\LocalMachine\Root</pre>
 	<p class="empty">Do not use the import wizard with "automatically select the certificate store": it files a CA under
 		intermediate authorities of the current user, where Windows does not trust it and says nothing.</p>
 </section>
@@ -85,8 +99,8 @@ if (((Read-Host "Check code") -replace "[^0-9A-Fa-f]") -eq $code) { $store = [Se
 <section>
 	<h2>macOS</h2>
 	<p class="empty">Print the check code of the downloaded file first and compare it:</p>
-	<pre>openssl x509 -in ~/Downloads/root-ca.crt -noout -fingerprint -sha256 | cut -d= -f2 | tr -d : | cut -c1-12</pre>
-	<pre>sudo security add-trusted-cert -d -r trustRoot -k /Library/Keychains/System.keychain ~/Downloads/root-ca.crt</pre>
+	<pre>openssl x509 -in ~/Downloads/{{ file_name }} -noout -fingerprint -sha256 | cut -d= -f2 | tr -d : | cut -c1-12</pre>
+	<pre>sudo security add-trusted-cert -d -r trustRoot -k /Library/Keychains/System.keychain ~/Downloads/{{ file_name }}</pre>
 	<p class="empty">Or by hand: open the file, add it to the keychain <strong>System</strong>, then double-click the
 		certificate in Keychain Access and set "When using this certificate" under Trust to "Always Trust". Without that
 		last step it is installed but not trusted.</p>
@@ -97,8 +111,8 @@ if (((Read-Host "Check code") -replace "[^0-9A-Fa-f]") -eq $code) { $store = [Se
 <section>
 	<h2>Debian and Ubuntu</h2>
 	<p class="empty">Print the check code of the downloaded file first and compare it:</p>
-	<pre>openssl x509 -in root-ca.crt -noout -fingerprint -sha256 | cut -d= -f2 | tr -d : | cut -c1-12</pre>
-	<pre>sudo cp root-ca.crt /usr/local/share/ca-certificates/root-ca.crt
+	<pre>openssl x509 -in {{ file_name }} -noout -fingerprint -sha256 | cut -d= -f2 | tr -d : | cut -c1-12</pre>
+	<pre>sudo cp {{ file_name }} /usr/local/share/ca-certificates/{{ file_name }}
 sudo update-ca-certificates</pre>
 	<p class="empty">The file name has to end in <code>.crt</code>.</p>
 </section>
