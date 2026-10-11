@@ -161,7 +161,7 @@ status page shows its check code, the same one the Root CA page gives.
 
 | Variable | Default | |
 |---|---|---|
-| `CADDYMAN_SECRET_KEY` | generated | Signs sessions and encrypts the admin API password. `openssl rand -base64 32` |
+| `CADDYMAN_SECRET_KEY` | generated | Signs sessions and links from mails, encrypts the passwords for the admin API and the mail server and the keys of two-factor logins. `openssl rand -base64 32` |
 | `CADDYMAN_SETUP_TOKEN` | random, in the log | Your own token for the setup page, at least 12 characters |
 | `CADDYMAN_FORWARDED_ALLOW_IPS` | `127.0.0.1` | Whose `X-Forwarded-*` headers are trusted. Behind Caddy: its address or the Docker subnet |
 | `CADDYMAN_LOG_DIR` | `/var/log/caddy` | Where Caddy's log directory is mounted |
@@ -177,6 +177,10 @@ status page shows its check code, the same one the Root CA page gives.
   if that route breaks.
 - **Locked out for good?** Delete `auth.json` from the data volume and restart. The setup page
   returns with a new token in the log. That removes every account, not just yours.
+- **Changed `CADDYMAN_SECRET_KEY`?** Everybody is logged out, and links from mails stop working.
+  Enter the passwords for the admin API and the mail server again. Two-factor logins only take
+  a recovery code now; whoever manages users can switch the second factor off for an account,
+  which then sets it up again.
 - **Back up your CA separately.** The backup holds the routes, not the root CA. A lost root has
   to be imported on every device again.
 - **The backup has no accounts and no passwords.** It holds the routes and their groups, the
