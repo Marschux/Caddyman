@@ -689,7 +689,7 @@ def reset_submit(request: Request, token: str = Form(""), password: str = Form("
     if error := password_problem(password, repeat):
         return page(request, "reset.html", status_code=400, token=token, valid=True, error=error)
     # The link carries the end of the old hash, so it stops working with this very change.
-    update_user(user["username"], password_hash=hash_password(password))
+    update_user(user["username"], password_hash=hash_password(password), invited=None)
     return redirect("/login", "ok", "The password is set. Log in with it.")
 
 
@@ -875,9 +875,12 @@ async def user_save(request: Request, name: str | None = None):
             return page(request, "user_form.html", status_code=400, error=error, user=user, new=not existing, invite=mail_ready())
         if password:
             user["password_hash"] = hash_password(password)
+            user.pop("invited", None)
         elif invite:
             # Nobody knows this one. The link in the mail is the only way in until a password is set.
             user["password_hash"] = hash_password(secrets.token_urlsafe(32))
+            # Shown in the list until the account has a password of its own.
+            user["invited"] = True
         if existing and form.get("reset_totp"):
             for key in ("totp", "totp_pending", "totp_last", "recovery"):
                 user.pop(key, None)
@@ -894,6 +897,18 @@ async def user_save(request: Request, name: str | None = None):
             )
         return redirect("/settings/users", "ok", f"{user['username']} is created. The invitation is on its way to {user['email']}.")
     return redirect("/settings/users", "ok", f"{user['username']} is saved.")
+
+
+@app.post("/settings/users/{name:path}/invite")
+def user_invite_again(name: str):
+    user = find_user(load_users(), name)
+    if not user or not user.get("invited"):
+        return redirect("/settings/users", "error", "This account is not waiting for an invitation.")
+    if not mail_ready() or not user.get("email"):
+        return redirect("/settings/users", "error", "The invitation needs mail to be set up and an email address on the account.")
+    if error := send_invite_mail(user):
+        return redirect("/settings/users", "error", f"The invitation was not sent: {error}")
+    return redirect("/settings/users", "ok", f"A new invitation is on its way to {user['email']}.")
 
 
 @app.post("/settings/users/{name:path}/delete")

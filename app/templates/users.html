@@ -14,11 +14,17 @@
 		{% for user in users %}
 		<tr>
 			<td class="nowrap"><span class="avatar">{{ user|initials }}</span>
-				<strong>{{ user.username }}</strong>{% if user.realname %} <span class="empty">{{ user.realname }}</span>{% endif %}</td>
+				<strong>{{ user.username }}</strong>{% if user.realname %} <span class="empty">{{ user.realname }}</span>{% endif %}
+			{% if user.invited %}<span class="tag" title="Has not set a password yet. The link in the mail works once, for one day.">Invited</span>{% endif %}</td>
 			<td>{{ user.email or "-" }}</td>
 			<td>{% for right, label in PERMISSIONS.items() if right in user.permissions %}<span class="tag" title="{{ label }}">{{ right }}</span>{% else %}<span class="empty">Read only</span>{% endfor %}</td>
 			<td class="nowrap">{% if user.totp %}<span class="cert ok">On</span>{% else %}<span class="cert">Off</span>{% endif %}</td>
 			<td class="actions">
+				{% if user.invited %}
+				<form method="post" action="/settings/users/{{ user.username|urlencode }}/invite">
+					<button type="submit">Resend invitation</button>
+				</form>
+				{% endif %}
 				<a class="button" href="/settings/users/{{ user.username|urlencode }}/edit">Edit</a>
 				{% if user.username != request.state.user %}
 				<form method="post" action="/settings/users/{{ user.username|urlencode }}/delete"

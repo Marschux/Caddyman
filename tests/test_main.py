@@ -533,6 +533,12 @@ class TestUsers(RouteTest):
         to, _, body = mail.call_args.args
         self.assertEqual(to, "eve@lab.test")
         link = main.re.search(r"https://caddyman\.lab\.test(/reset\?token=\S+)", body).group(1)
+        # The list shows who has not answered yet and can send the mail again.
+        self.assertIn(">Invited<", self.client.get("/settings/users").text)
+        self.assertEqual(self.client.post("/settings/users/eve/invite").headers["location"], "/settings/users")
+        self.assertEqual(mail.call_count, 2)
+        self.client.post("/settings/users/admin/invite")  # not invited: nothing goes out
+        self.assertEqual(mail.call_count, 2)
         # Until the link is used nobody gets in, and there is no page to sign up on one's own.
         self.assertEqual(self.log_in("eve", "")[1].status_code, 401)
         guest = TestClient(main.app, follow_redirects=False)
@@ -544,6 +550,7 @@ class TestUsers(RouteTest):
         self.assertEqual(guest.post("/reset", data=form).headers["location"], "/login")
         self.assertEqual(guest.get(link).status_code, 400)  # once
         self.assertEqual(self.log_in("eve", "her own horse")[1].headers["location"], "/")
+        self.assertNotIn(">Invited<", self.client.get("/settings/users").text)
         # A mail that does not go out leaves the account, and says so.
         mail.return_value = "connection refused"
         failed = self.client.post("/settings/users/new", data={"username": "bob", "email": "bob@lab.test"})
