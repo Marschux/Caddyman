@@ -172,6 +172,9 @@ button.secondary:hover, a.button.secondary:hover { background: var(--surface-3);
 /* Above the route list: search at the left, the buttons at the right. */
 .toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 16px; margin-bottom: 16px; }
 .toolbar .buttons { display: flex; gap: 8px; margin-left: auto; }
+.toolbar button { width: auto; margin: 0; }
+/* As wide as the card below it. */
+.toolbar.wide { max-width: 640px; }
 
 /* Separate borders so the rounded corners can clip the rows. */
 table { width: 100%; border-collapse: separate; border-spacing: 0; background: var(--surface-1); border: 1px solid var(--hairline); border-radius: 12px; overflow: hidden; }

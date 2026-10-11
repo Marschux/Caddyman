@@ -2,6 +2,11 @@
 {% block title %}Mail - Caddyman{% endblock %}
 {% block content %}
 {% include "settings_nav.html" %}
+<div class="toolbar wide">
+	<form method="post" action="/settings/mail/test" class="buttons">
+		<button type="submit" class="secondary" title="Goes to the address in your own profile, with the settings as they are saved. An error from the mail server is shown word for word.">Send a test mail</button>
+	</form>
+</div>
 <form method="post" action="/settings/mail" class="card wide">
 	<h2>Mail</h2>
 	<p>Only used for "Forgot password?" on the login page. Leave the mail server empty to switch it off.</p>
@@ -35,10 +40,5 @@
 	<input id="sender" name="sender" type="email" value="{{ mail.sender }}" placeholder="caddyman@example.com">
 
 	<button type="submit">Save</button>
-</form>
-<form method="post" action="/settings/mail/test" class="card wide">
-	<p>Sends a mail to the address in your own profile, with the settings as they are saved. An error from the mail
-		server is shown here word for word.</p>
-	<button type="submit" class="secondary">Send a test mail</button>
 </form>
 {% endblock %}
