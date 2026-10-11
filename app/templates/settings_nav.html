@@ -5,9 +5,9 @@
 <h1>Settings</h1>
 <aside class="side">
 	{% if "settings" in rights %}
-	<a href="/settings/caddy" {{ 'aria-current="page"' if here.startswith("/hosts") }}>Caddy</a>
-	<a href="/settings/mail" {{ 'aria-current="page"' if here.startswith("/settings/mail") }}>Mail</a>
+	<a href="/settings/caddy" {% if here.startswith("/hosts") %}aria-current="page"{% endif %}>Caddy</a>
+	<a href="/settings/mail" {% if here.startswith("/settings/mail") %}aria-current="page"{% endif %}>Mail</a>
 	{% endif %}
-	{% if "users" in rights %}<a href="/settings/users" {{ 'aria-current="page"' if here.startswith("/settings/users") }}>Users</a>{% endif %}
-	{% if "settings" in rights %}<a href="/settings/security" {{ 'aria-current="page"' if here.startswith("/settings/security") }}>Security</a>{% endif %}
+	{% if "users" in rights %}<a href="/settings/users" {% if here.startswith("/settings/users") %}aria-current="page"{% endif %}>Users</a>{% endif %}
+	{% if "settings" in rights %}<a href="/settings/security" {% if here.startswith("/settings/security") %}aria-current="page"{% endif %}>Security</a>{% endif %}
 </aside>

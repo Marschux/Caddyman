@@ -20,9 +20,9 @@
 {% set shown = asked if asked in systems|map("first")|list else ("windows" if public else "") %}
 {# With several certificates every link keeps the one that is picked. #}
 <aside class="side">
-	{% if not public %}<a href="{{ request.url.path }}{{ '?' ~ pick if pick }}" {{ 'aria-current="page"' if not shown }}>Certificate</a>{% endif %}
+	{% if not public %}<a href="{{ request.url.path }}{{ '?' ~ pick if pick }}" {% if not shown %}aria-current="page"{% endif %}>Certificate</a>{% endif %}
 	{% for key, name in systems %}
-	<a href="?os={{ key }}{{ '&' ~ pick if pick }}" {{ 'aria-current="page"' if shown == key }}>{{ name }}</a>
+	<a href="?os={{ key }}{{ '&' ~ pick if pick }}" {% if shown == key %}aria-current="page"{% endif %}>{{ name }}</a>
 	{% endfor %}
 </aside>
 <div class="toolbar">

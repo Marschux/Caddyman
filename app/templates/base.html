@@ -19,10 +19,10 @@
 		{% set account = request.state.me %}
 		{# Only what this account may open. The server checks the same again for every request. #}
 		<nav>
-			<a href="/" {{ 'aria-current="page"' if path == "/" or path.startswith(("/routes", "/groups")) }}>Routes</a>
-			{% if "ca" in account.permissions %}<a href="/ca" {{ 'aria-current="page"' if path.startswith("/ca") }}>Root CA</a>{% endif %}
-			<a href="/status" {{ 'aria-current="page"' if path.startswith(("/status", "/logs", "/backup")) }}>System</a>
-			{% if "settings" in account.permissions or "users" in account.permissions %}<a href="/settings" {{ 'aria-current="page"' if path.startswith("/settings") or path.startswith("/hosts") }}>Settings</a>{% endif %}
+			<a href="/" {% if path == "/" or path.startswith(("/routes", "/groups")) %}aria-current="page"{% endif %}>Routes</a>
+			{% if "ca" in account.permissions %}<a href="/ca" {% if path.startswith("/ca") %}aria-current="page"{% endif %}>Root CA</a>{% endif %}
+			<a href="/status" {% if path.startswith(("/status", "/logs", "/backup")) %}aria-current="page"{% endif %}>System</a>
+			{% if "settings" in account.permissions or "users" in account.permissions %}<a href="/settings" {% if path.startswith("/settings") or path.startswith("/hosts") %}aria-current="page"{% endif %}>Settings</a>{% endif %}
 		</nav>
 		<form method="post" action="/logout">
 			<a class="account" href="/profile"><span class="avatar">{{ account|initials }}</span>{{ account.realname or account.username }}</a>

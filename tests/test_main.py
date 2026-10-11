@@ -336,6 +336,8 @@ class TestRoutes(RouteTest):
             self.assertEqual(call.kwargs["content"], handle.read())
         self.assertEqual(main.read_audit()[0]["result"], "ok")
         self.assertIn("pdf.lab.test", self.client.get("/").text)
+        # The mark of the open tab reaches the page as an attribute, not as escaped text.
+        self.assertIn('<a href="/" aria-current="page">Routes</a>', self.client.get("/").text)
 
     def test_groups(self):
         plain = '# caddyman {"type":"reverse_proxy","host":"pdf.lab.test","port":"","tls":"acme_ca","upstream":"10.0.0.5:9005"}'
