@@ -1,8 +1,9 @@
-{# The blocks of the Settings tab. Shown by right, like the main tabs; the server checks again. #}
+{# The blocks of the Settings tab, as a list at the left edge. Shown by right, like the main
+   tabs; the server checks again. The layout comes from app.css: whatever follows sits beside it. #}
 {% set rights = request.state.me.permissions %}
 {% set here = request.url.path %}
 <h1>Settings</h1>
-<div class="tabs">
+<aside class="side">
 	{% if "settings" in rights %}
 	<a href="/settings/caddy" {{ 'aria-current="page"' if here.startswith("/hosts") }}>Caddy</a>
 	<a href="/settings/root-ca" {{ 'aria-current="page"' if here.startswith("/settings/root-ca") }}>Root CA</a>
@@ -10,4 +11,4 @@
 	{% endif %}
 	{% if "users" in rights %}<a href="/settings/users" {{ 'aria-current="page"' if here.startswith("/settings/users") }}>Users</a>{% endif %}
 	{% if "settings" in rights %}<a href="/settings/security" {{ 'aria-current="page"' if here.startswith("/settings/security") }}>Security</a>{% endif %}
-</div>
+</aside>

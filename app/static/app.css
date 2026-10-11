@@ -75,12 +75,22 @@ nav a { display: flex; align-items: center; padding: 0 12px; color: var(--ink-mu
 nav a:hover { color: var(--ink); }
 nav a[aria-current] { color: var(--ink); border-bottom-color: var(--product); }
 
-/* The blocks inside a tab: the same underline as the bar, one size down. */
-.tabs { display: flex; flex-wrap: wrap; gap: 4px; margin: -8px 0 8px; border-bottom: 1px solid var(--hairline-soft); }
-.tabs a { padding: 10px 12px; margin-bottom: -1px; color: var(--ink-muted); text-decoration: none; border-bottom: 2px solid transparent; }
-.tabs a:hover { color: var(--ink); }
-.tabs a[aria-current] { color: var(--ink); border-bottom-color: var(--product); }
-.tabs ~ .heading { margin-top: 32px; }
+/* A page with a list of its blocks at the left edge: the list takes the first column,
+   everything after it the second. Title and flash run across both. */
+main:has(> .side) { display: grid; grid-template-columns: 180px minmax(0, 1fr); column-gap: 48px; align-content: start; }
+main:has(> .side) > * { grid-column: 2; }
+main:has(> .side) > h1, main:has(> .side) > .flash { grid-column: 1 / -1; }
+main:has(> .side) > .side { grid-column: 1; grid-row: span 12; align-self: start; }
+main:has(> .side) > .card { margin: 0 0 24px; }
+main:has(> .side) > .card + .card { margin-top: 0; }
+.side { display: flex; flex-direction: column; gap: 2px; }
+.side a { padding: 8px 12px; color: var(--ink-muted); text-decoration: none; border-radius: 8px; }
+.side a:hover { color: var(--ink); background: var(--surface-1); }
+.side a[aria-current] { color: var(--ink); background: var(--surface-2); }
+@media (max-width: 760px) {
+	main:has(> .side) { display: block; }
+	.side { flex-direction: row; flex-wrap: wrap; margin-bottom: 24px; }
+}
 
 main { flex: 1; width: 100%; max-width: 1280px; margin: 0 auto; padding: 48px 32px; }
 footer { padding: 32px; color: var(--ink-subtle); font-size: 13px; letter-spacing: 0.2px; text-align: center; }
@@ -161,7 +171,7 @@ button.secondary:hover { background: var(--surface-3); border-color: var(--surfa
 table { width: 100%; border-collapse: separate; border-spacing: 0; background: var(--surface-1); border: 1px solid var(--hairline); border-radius: 12px; overflow: hidden; }
 table.spaced { margin-top: 16px; }
 th, td { padding: 14px 16px; text-align: left; border-bottom: 1px solid var(--hairline-soft); }
-th { color: var(--ink-subtle); font-size: 12px; font-weight: 600; line-height: 1.23; letter-spacing: 0.6px; text-transform: uppercase; }
+th { white-space: nowrap; color: var(--ink-subtle); font-size: 12px; font-weight: 600; line-height: 1.23; letter-spacing: 0.6px; text-transform: uppercase; }
 tr:last-child td { border-bottom: 0; }
 tbody tr:hover td { background: var(--surface-2); }
 /* Breaks only where a value cannot fit at all, never in the middle of a short hostname. */
