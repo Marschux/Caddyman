@@ -20,7 +20,9 @@
 	<input id="host" name="host" value="{{ mail.host }}" placeholder="smtp.example.com" autocomplete="off">
 
 	<label for="security">Encryption</label>
-	<select id="security" name="security">
+	{# The port follows the encryption, unless somebody typed one of their own. #}
+	<select id="security" name="security" data-ports='{"starttls": "587", "ssl": "465", "none": "25"}'
+		onchange="const ports = JSON.parse(this.dataset.ports), port = this.form.port; if (!port.value || Object.values(ports).includes(port.value)) port.value = ports[this.value]">
 		{% for value, label in securities.items() %}
 		<option value="{{ value }}" {{ "selected" if mail.security == value }}>{{ label }}</option>
 		{% endfor %}
