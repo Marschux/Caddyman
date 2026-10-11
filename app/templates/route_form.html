@@ -6,6 +6,11 @@
 	<h1>{{ "Edit " ~ name ~ ".caddy" if name else "Add a route" }}</h1>
 	{% if error %}<p class="error" role="alert">{{ error }}</p>{% endif %}
 	{% include "conflict.html" %}
+	{% if own %}
+	<p><strong>This route leads to Caddyman itself{{ ", and you are using it right now" if own == "used" }}.</strong>
+		After a change of its hostname or target Caddyman answers at the new address. Port {{ own_port }} of its machine
+		keeps working either way.</p>
+	{% endif %}
 	{% if name %}
 	<input type="hidden" name="mode" value="form">
 	<input type="hidden" name="mtime" value="{{ mtime }}">

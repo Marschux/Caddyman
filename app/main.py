@@ -1677,6 +1677,18 @@ def route_links(route: dict | None) -> tuple[str, str]:
     return site, target if target.startswith(("http://", "https://")) else ""
 
 
+def own_route(route: dict | None, request: Request) -> str:
+    """'' for an ordinary route, 'own' for one that leads to Caddyman itself, 'used' when this
+    very request came in through it.
+
+    Told by the port alone, like the hint on the status page: another service on the same
+    port gets the mark too, which costs a wrong tag and a sterner question before deleting.
+    """
+    if not route or route["type"] != "reverse_proxy" or not route["upstream"].endswith(f":{OWN_PORT}"):
+        return ""
+    return "used" if route["host"] == request.url.hostname else "own"
+
+
 def pick_host(host_id: str | None) -> tuple[list[dict], dict | None]:
     hosts = load_hosts()
     return hosts, next((item for item in hosts if item["id"] == host_id), hosts[0] if hosts else None)
@@ -1688,6 +1700,9 @@ def route_form_page(request: Request, host: dict, route: dict, error: str | None
     proxied = [item["route"] for item in list_routes(host) if item["route"] and item["route"]["type"] == "reverse_proxy"]
     context["game_routes"] = [[item["host"], item["upstream"]] for item in proxied]
     context["groups"] = load_groups(host)
+    # Only for a route that exists: a new one cannot be the way somebody came in.
+    context["own"] = own_route(route, request) if context.get("name") and route.get("upstream") and route.get("host") else ""
+    context["own_port"] = OWN_PORT
     return page(request, "route_form.html", host=host, route=route, error=error, acme_ca=acme_ca_available(host), **context)
 
 
@@ -1716,9 +1731,10 @@ def index(request: Request, host: str | None = None):
         item["target_down"] = target_down
         item["site"], item["link"] = route_links(item["route"])
         item["group"] = route_group(item["route"])
+        item["own"] = own_route(item["route"], request)
     # Groups in order, what has none at the end.
     routes.sort(key=lambda item: (not item["group"], item["group"].lower()))
-    return page(request, "index.html", hosts=hosts, host=current, routes=routes)
+    return page(request, "index.html", hosts=hosts, host=current, routes=routes, own_port=OWN_PORT)
 
 
 @app.get("/routes/new")

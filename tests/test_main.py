@@ -325,6 +325,18 @@ class TestRoutes(RouteTest):
         self.assertNotIn('name="upstream" value="caddyman', self.client.get("/routes/new").text)
         self.create(host="caddyman", upstream=f"caddyman:{main.OWN_PORT}")
         self.assertNotIn(hint, self.client.get("/status").text)
+        # That route is marked, and deleting or changing it comes with a word of warning.
+        self.create()
+        page = self.client.get("/").text
+        self.assertEqual(page.count(">Caddyman</span>"), 1)
+        self.assertEqual(page.count("This route leads to Caddyman itself. Without it"), 1)
+        self.assertIn("leads to Caddyman itself.</strong>", self.client.get("/routes/caddyman/edit").text)
+        self.assertNotIn("leads to Caddyman itself", self.client.get("/routes/pdf/edit").text)
+        self.assertNotIn("leads to Caddyman itself", self.client.get("/routes/new?own=1").text)
+        # Coming in through it makes that plain.
+        through = {"host": "caddyman.lab.test"}
+        self.assertIn("and you are using it right now. Without it", self.client.get("/", headers=through).text)
+        self.assertIn("and you are using it right now.</strong>", self.client.get("/routes/caddyman/edit", headers=through).text)
 
     def test_reverse_proxy_file(self):
         self.assertEqual(self.create().headers["location"], "/?host=h1")
