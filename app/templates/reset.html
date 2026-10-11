@@ -6,7 +6,7 @@
 <form method="post" action="/reset" class="card">
 	<h1>New password</h1>
 	{% if not valid %}
-	<p class="error" role="alert">This link is no longer valid. It works once and for one hour.</p>
+	<p class="error" role="alert">This link is no longer valid. It works once: for one hour after "Forgot password?", for one day after an invitation.</p>
 	<p class="below">{% if mail_ready %}<a href="/forgot">Ask for a new link</a>{% else %}<a href="/login">Back to the login</a>{% endif %}</p>
 	{% else %}
 	{% if error %}<p class="error" role="alert">{{ error }}</p>{% endif %}

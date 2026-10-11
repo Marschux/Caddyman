@@ -17,7 +17,7 @@
 
 	<label for="email">Email <span class="optional">optional</span></label>
 	<input id="email" name="email" type="email" value="{{ user.email or '' }}" maxlength="254" autocomplete="off">
-	<small>Only used to mail a link for a forgotten password.</small>
+	<small>Only used to mail a link for a forgotten password{{ " or the invitation" if new and invite }}.</small>
 
 	<fieldset class="rights">
 		<legend>Rights</legend>
@@ -27,12 +27,15 @@
 		<small>Without any, the account can still see the route list, the status page and its own profile.</small>
 	</fieldset>
 
-	<label for="password">{{ "Password" if new else "New password" }}{% if not new %} <span class="optional">optional</span>{% endif %}</label>
-	<input id="password" name="password" type="password" autocomplete="new-password" minlength="8" {{ "required" if new }}
-		placeholder="{{ '' if new else 'Leave empty to keep the current password' }}">
+	{# With mail set up a new account can be invited instead: both fields stay empty then. #}
+	{% set must = new and not invite %}
+	<label for="password">{{ "Password" if new else "New password" }}{% if not must %} <span class="optional">optional</span>{% endif %}</label>
+	<input id="password" name="password" type="password" autocomplete="new-password" minlength="8" {{ "required" if must }}
+		placeholder="{{ ('Leave empty to send an invitation' if invite else '') if new else 'Leave empty to keep the current password' }}">
 	<label for="repeat">Repeat password</label>
-	<input id="repeat" name="repeat" type="password" autocomplete="new-password" minlength="8" {{ "required" if new }}>
-	{% if not new %}<small>A new password logs this account out everywhere.</small>{% endif %}
+	<input id="repeat" name="repeat" type="password" autocomplete="new-password" minlength="8" {{ "required" if must }}>
+	{% if not new %}<small>A new password logs this account out everywhere.</small>
+	{% elif invite %}<small>Without a password the account gets a mail with a link to set its own. The link works once, for one day.</small>{% endif %}
 
 	{% if user.totp %}
 	<label class="check"><input type="checkbox" name="reset_totp" value="1"> Switch off two-factor login for this account</label>

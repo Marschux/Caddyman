@@ -547,6 +547,10 @@ MAIL_DEFAULTS = {"public_url": "", "host": "", "port": "587", "user": "", "sende
 MAIL_SECURITY = {"starttls": "STARTTLS (port 587)", "ssl": "SSL/TLS (port 465)", "none": "None - unencrypted"}
 RESET_SECONDS = 3600
 RESETS = URLSafeTimedSerializer(SECRET_KEY, salt="reset")
+# An invitation is the same kind of link for an account that has no password yet. It is read
+# later than a reset somebody just asked for, so it lasts a day.
+INVITE_SECONDS = 24 * 3600
+INVITES = URLSafeTimedSerializer(SECRET_KEY, salt="invite")
 
 
 def load_mail() -> dict:
@@ -629,6 +633,23 @@ def send_reset_mail(user: dict) -> None:
         print(f"Reset mail for {user['username']} was not sent: {error}", flush=True)
 
 
+def send_invite_mail(user: dict) -> str | None:
+    """Mail a new account the link to set its first password. Returns the error, or None on success."""
+    link = f"{load_mail()['public_url']}/reset?token={INVITES.dumps(session_value(user))}"
+    body = (
+        f"An account was created for you in Caddyman. Your username is {user['username']}.\n\n"
+        f"Set your password here, within one day:\n{link}\n\n"
+        "The link works once.\n"
+    )
+    return send_mail(user["email"], "Caddyman: your account", body)
+
+
+def link_user(token: str) -> dict | None:
+    """The account a link from a mail stands for: a reset for an hour, an invitation for a day."""
+    users = load_users()
+    return signed_user(RESETS, token, users, RESET_SECONDS) or signed_user(INVITES, token, users, INVITE_SECONDS)
+
+
 @app.get("/forgot")
 def forgot_form(request: Request):
     if not mail_ready():
@@ -656,20 +677,20 @@ def forgot_submit(request: Request, account: str = Form("")):
 
 @app.get("/reset")
 def reset_form(request: Request, token: str = ""):
-    valid = signed_user(RESETS, token, load_users(), RESET_SECONDS) is not None
+    valid = link_user(token) is not None
     return page(request, "reset.html", status_code=200 if valid else 400, token=token, valid=valid, mail_ready=mail_ready())
 
 
 @app.post("/reset")
 def reset_submit(request: Request, token: str = Form(""), password: str = Form(""), repeat: str = Form("")):
-    user = signed_user(RESETS, token, load_users(), RESET_SECONDS)
+    user = link_user(token)
     if user is None:
         return page(request, "reset.html", status_code=400, token=token, valid=False, mail_ready=mail_ready())
     if error := password_problem(password, repeat):
         return page(request, "reset.html", status_code=400, token=token, valid=True, error=error)
     # The link carries the end of the old hash, so it stops working with this very change.
     update_user(user["username"], password_hash=hash_password(password))
-    return redirect("/login", "ok", "The password is changed. Log in with the new one.")
+    return redirect("/login", "ok", "The password is set. Log in with it.")
 
 
 def profile_page(request: Request, **context):
@@ -812,7 +833,7 @@ def users_test_mail(request: Request):
 
 @app.get("/settings/users/new")
 def user_new(request: Request):
-    return page(request, "user_form.html", user={"permissions": []}, new=True)
+    return page(request, "user_form.html", user={"permissions": []}, new=True, invite=mail_ready())
 
 
 @app.get("/settings/users/{name:path}/edit")
@@ -840,22 +861,38 @@ async def user_save(request: Request, name: str | None = None):
             "permissions": [right for right in PERMISSIONS if form.get(f"right_{right}")],
         }
         password, repeat = str(form.get("password", "")), str(form.get("repeat", ""))
+        # A new account without a password is invited by mail and sets its own.
+        invite = not existing and not password and not repeat and mail_ready()
         error = user_problem(user, [other for other in users if other is not existing])
-        if not error and (password or not existing):
+        if not error and invite and not user["email"]:
+            error = "Enter a password, or an email address to send the invitation to."
+        if not error and not invite and (password or not existing):
             error = password_problem(password, repeat)
         if not error and existing and existing["username"] == request.state.user and "users" not in user["permissions"]:
             # Whoever manages users keeps that right for themselves, so there is always one left.
             error = "You cannot take the right to manage users away from yourself."
         if error:
-            return page(request, "user_form.html", status_code=400, error=error, user=user, new=not existing)
+            return page(request, "user_form.html", status_code=400, error=error, user=user, new=not existing, invite=mail_ready())
         if password:
             user["password_hash"] = hash_password(password)
+        elif invite:
+            # Nobody knows this one. The link in the mail is the only way in until a password is set.
+            user["password_hash"] = hash_password(secrets.token_urlsafe(32))
         if existing and form.get("reset_totp"):
             for key in ("totp", "totp_pending", "totp_last", "recovery"):
                 user.pop(key, None)
         save_users([user if other is existing else other for other in users] if existing else [*users, user])
     if existing and existing["username"] == request.state.user and password:
         return start_session(redirect("/settings/users", "ok", f"{user['username']} is saved."), request, user)
+    if invite:
+        if error := send_invite_mail(user):
+            return redirect(
+                "/settings/users",
+                "warn",
+                f"{user['username']} is created, but the invitation was not sent: {error} "
+                'Set a password under "Edit", or let them use "Forgot password?" once mail works.',
+            )
+        return redirect("/settings/users", "ok", f"{user['username']} is created. The invitation is on its way to {user['email']}.")
     return redirect("/settings/users", "ok", f"{user['username']} is saved.")
 
 

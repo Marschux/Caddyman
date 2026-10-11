@@ -113,7 +113,9 @@ somebody who lost both. "Settings", "Security" makes it a must for every account
 
 "Forgot password?" on the login page mails a link that works once and for one hour. It appears
 once a mail server is entered under "Settings", "Mail", and reaches accounts that have an
-email address. Without mail, whoever manages users sets a new password under "Edit". A mail
+email address. Without mail, whoever manages users sets a new password under "Edit". With
+mail, a new account can be created without a password: it gets a link to set its own, good
+for one day. Accounts are only ever created by somebody who manages users. A mail
 server whose certificate comes from your own CA needs that CA's root certificate in the field
 "CA certificate" there.
 

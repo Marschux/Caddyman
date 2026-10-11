@@ -518,6 +518,38 @@ class TestUsers(RouteTest):
         response = client.post("/login", data={"username": name, "password": password})
         return client, response
 
+    def test_invitation_by_mail(self):
+        new = lambda **fields: self.client.post("/settings/users/new", data={"username": "eve", **fields})  # noqa: E731
+        # Without mail a password is a must, as before.
+        self.assertEqual(new(email="eve@lab.test").status_code, 400)
+        self.assertNotIn("invitation", self.client.get("/settings/users/new").text)
+        main.write_private(main.MAIL_FILE, '{"public_url": "https://caddyman.lab.test", "host": "smtp.lab.test", "sender": "c@lab.test"}')
+        self.assertIn("Leave empty to send an invitation", self.client.get("/settings/users/new").text)
+        mail = self.patch(main, "send_mail", mock.Mock(return_value=None))
+        self.assertEqual(new().status_code, 400)  # nowhere to send it
+        self.assertEqual(new(email="eve@lab.test", password=PASSWORD, repeat="other").status_code, 400)  # a typed password still counts
+        self.assertEqual(mail.call_count, 0)
+        self.assertEqual(new(email="eve@lab.test").headers["location"], "/settings/users")
+        to, _, body = mail.call_args.args
+        self.assertEqual(to, "eve@lab.test")
+        link = main.re.search(r"https://caddyman\.lab\.test(/reset\?token=\S+)", body).group(1)
+        # Until the link is used nobody gets in, and there is no page to sign up on one's own.
+        self.assertEqual(self.log_in("eve", "")[1].status_code, 401)
+        guest = TestClient(main.app, follow_redirects=False)
+        self.assertEqual(guest.get("/register").headers["location"], "/login")
+        with mock.patch.object(main, "INVITE_SECONDS", -1):
+            self.assertEqual(guest.get(link).status_code, 400)  # too old
+        self.assertEqual(guest.get(link).status_code, 200)
+        form = {"token": link.split("token=")[1], "password": "her own horse", "repeat": "her own horse"}
+        self.assertEqual(guest.post("/reset", data=form).headers["location"], "/login")
+        self.assertEqual(guest.get(link).status_code, 400)  # once
+        self.assertEqual(self.log_in("eve", "her own horse")[1].headers["location"], "/")
+        # A mail that does not go out leaves the account, and says so.
+        mail.return_value = "connection refused"
+        failed = self.client.post("/settings/users/new", data={"username": "bob", "email": "bob@lab.test"})
+        self.assertIn("connection refused", self.client.get(failed.headers["location"]).text)
+        self.assertIsNotNone(main.find_user(main.load_users(), "bob"))
+
     def test_account_from_before_there_were_users_keeps_every_right(self):
         main.write_private(main.AUTH_FILE, '{"username": "admin", "password_hash": "%s"}' % main.hash_password(PASSWORD))
         self.assertEqual(main.load_users()[0]["permissions"], list(main.PERMISSIONS))
