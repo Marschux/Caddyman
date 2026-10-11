@@ -243,6 +243,7 @@ section > ol li { margin: 6px 0; }
 
 form.inline { display: flex; align-items: center; gap: 8px; margin-left: auto; }
 form.inline label { margin: 0; }
+form.inline button { width: auto; }
 form.inline select { width: auto; padding: 8px 12px; font-size: 14px; }
 form.row { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; margin-top: 16px; }
 form.row button { width: auto; margin: 0; }
