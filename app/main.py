@@ -44,8 +44,6 @@ HOSTS_FILE = DATA_DIR / "hosts.json"
 AUDIT_FILE = DATA_DIR / "audit.log"
 AUDIT_SHOWN = 100
 FLASH_COOKIE = "caddyman_flash"
-ENV_ADMIN_USER = os.getenv("CADDYMAN_ADMIN_USER", "")
-ENV_ADMIN_PASSWORD_HASH = os.getenv("CADDYMAN_ADMIN_PASSWORD_HASH", "")
 # For installs where nobody gets to read the container log.
 ENV_SETUP_TOKEN = os.getenv("CADDYMAN_SETUP_TOKEN", "").strip()
 
@@ -92,8 +90,6 @@ LOGIN_FAILS: dict[str, list[float]] = {}  # address -> [fail count, locked until
 
 
 def load_admin() -> dict | None:
-    if ENV_ADMIN_USER and ENV_ADMIN_PASSWORD_HASH:
-        return {"username": ENV_ADMIN_USER, "password_hash": ENV_ADMIN_PASSWORD_HASH}
     try:
         return json.loads(AUTH_FILE.read_text(encoding="utf-8"))
     except FileNotFoundError:

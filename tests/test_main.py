@@ -12,7 +12,7 @@ from unittest import mock
 _DATA = tempfile.TemporaryDirectory()
 os.environ["CADDYMAN_DATA_DIR"] = _DATA.name
 os.environ["CADDYMAN_SECRET_KEY"] = "test-key"
-os.environ.pop("CADDYMAN_ADMIN_USER", None)
+os.environ.pop("CADDYMAN_SETUP_TOKEN", None)
 
 from cryptography import x509  # noqa: E402
 from cryptography.hazmat.primitives import hashes  # noqa: E402
