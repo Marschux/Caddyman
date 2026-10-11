@@ -3,6 +3,7 @@
 import base64
 import binascii
 import contextvars
+import gzip
 import hashlib
 import hmac
 import io
@@ -18,7 +19,8 @@ import struct
 import threading
 import time
 import zipfile
-from concurrent.futures import ThreadPoolExecutor
+import zlib
+from concurrent.futures import ThreadPoolExecutor, wait
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from email.message import EmailMessage
@@ -1567,6 +1569,8 @@ def apply_route(
                     path.write_bytes(content)
             # If the reload only timed out, Caddy may hold the new config: bring it back in line.
             caddy_load(host)
+        # What the route list knew about certificates and targets is from before this change.
+        PROBE_CACHE.clear()
         audit(host, label, action, error)
         return error
 
@@ -1691,6 +1695,42 @@ def certificate_status(host: dict, route: dict | None) -> dict | None:
     return status
 
 
+# The checks behind the route list: one TLS handshake and one connection to the target per
+# route. What they find is kept for a while, good news longer than bad, so a problem that
+# was just fixed shows soon. Every change to the routes forgets all of it.
+PROBES = ThreadPoolExecutor(max_workers=16, thread_name_prefix="probe")
+PROBE_CACHE: dict[tuple, tuple[float, object]] = {}
+PROBE_SECONDS = {True: 60, False: 15}
+# The page waits this long for all checks together. One that is still running then, a name no
+# DNS answers for instance, finishes in the background and is there on the next load.
+PROBE_BUDGET = 6
+RUNNING, QUEUED = object(), object()
+
+
+def probes(jobs: dict[tuple, tuple]) -> dict[tuple, object]:
+    """Run checks side by side. jobs maps a key to (function, arguments, what counts as good).
+
+    Returns the result per key, or RUNNING or QUEUED for a check the budget ran out on.
+    """
+    now, results, futures = time.monotonic(), {}, {}
+    for key, (function, arguments, good) in jobs.items():
+        kept = PROBE_CACHE.get(key)
+        if kept and kept[0] > now:
+            results[key] = kept[1]
+            continue
+
+        def run(key=key, function=function, arguments=arguments, good=good):
+            value = function(*arguments)
+            PROBE_CACHE[key] = (time.monotonic() + PROBE_SECONDS[bool(good(value))], value)
+            return value
+
+        futures[key] = PROBES.submit(run)
+    wait(futures.values(), timeout=PROBE_BUDGET)
+    for key, future in futures.items():
+        results[key] = future.result() if future.done() else RUNNING if future.running() else QUEUED
+    return results
+
+
 def hand_written(host: dict, name: str) -> dict | None:
     """Just enough of a route to look at its certificate, for a file that does not open in the form.
 
@@ -1760,18 +1800,24 @@ def index(request: Request, host: str | None = None):
     if current is None:
         return RedirectResponse("/hosts/new", status_code=303)
     routes = list_routes(current)
-    # One handshake and one connection to the target per route on every page load,
-    # nothing cached. Fine for the dozens of routes a homelab has; cache for a minute
-    # if the list ever feels slow.
-    proxied = lambda item: item["route"] and item["route"]["type"] == "reverse_proxy"  # noqa: E731
+    jobs = {}
     for item in routes:
         item["hand"] = None if item["route"] else hand_written(current, item["name"])
-    with ThreadPoolExecutor(max_workers=8) as pool:
-        statuses = pool.map(lambda item: certificate_status(current, item["route"] or item["hand"]), routes)
-        down = pool.map(lambda item: bool(proxied(item)) and not target_reachable(item["route"]["upstream"]), routes)
-    for item, status, target_down in zip(routes, statuses, down):
-        item["certificate"] = status
-        item["target_down"] = target_down
+        served = item["route"] or item["hand"]
+        if served and served["tls"] != "none":
+            item["cert_key"] = ("certificate", current["admin_url"], served["host"], served["port"], served["tls"])
+            jobs[item["cert_key"]] = (certificate_status, (current, served), lambda status: status and status["level"] == "ok")
+        if item["route"] and item["route"]["type"] == "reverse_proxy":
+            item["reach_key"] = ("target", item["route"]["upstream"])
+            jobs[item["reach_key"]] = (target_reachable, (item["route"]["upstream"],), bool)
+    found = probes(jobs)
+    late = {"level": "unknown", "text": "Still checking", "detail": "The check did not finish in time. Reload the page in a moment."}
+    for item in routes:
+        status = found.get(item.get("cert_key"))
+        item["certificate"] = late if status in (RUNNING, QUEUED) else status
+        # A check that is still running after all that time is a target that does not answer.
+        # One that never got its turn says nothing about the target.
+        item["target_down"] = found.get(item.get("reach_key"), True) in (False, RUNNING)
         item["site"], item["link"] = route_links(item["route"])
         item["group"] = route_group(item["route"])
         item["own"] = own_route(item["route"], request)
@@ -2069,6 +2115,7 @@ def host_push(host_id: str):
         return RedirectResponse("/hosts", status_code=303)
     with WRITE_LOCK:
         error = caddy_load(host)
+        PROBE_CACHE.clear()
         audit(host, "-", "reload", error)
     if error:
         return redirect(f"/status#host-{host_id}", "error", f"Caddy rejected the configuration: {error}")
@@ -2450,14 +2497,15 @@ LOG_DIR = Path(os.getenv("CADDYMAN_LOG_DIR", "/var/log/caddy"))
 LOG_REMOTE_PATH = "/caddyman-logs/caddy.log"
 # The end of a file is where the answer is; a log of any size costs the same to show.
 LOG_TAIL_BYTES = 512 * 1024
+LOG_UNPACK_MAX = 64 * 1024 * 1024
 LOG_SHOWN = 300
 LOG_LEVELS = ("debug", "info", "warn", "error")
 
 
 def local_log_files() -> list[Path]:
-    """The .log files directly in the mounted log directory, newest first."""
+    """The log files directly in the mounted log directory, newest first. Caddy packs the ones it rotated away."""
     try:
-        files = [path for path in LOG_DIR.iterdir() if path.suffix == ".log" and path.is_file()]
+        files = [path for path in LOG_DIR.iterdir() if path.name.endswith((".log", ".log.gz")) and path.is_file()]
         return sorted(files, key=file_mtime, reverse=True)
     except OSError:
         return []
@@ -2465,12 +2513,23 @@ def local_log_files() -> list[Path]:
 
 def read_log_tail(path: Path) -> list[str]:
     try:
-        with open(path, "rb") as handle:
-            start = max(0, handle.seek(0, os.SEEK_END) - LOG_TAIL_BYTES)
-            handle.seek(start)
-            lines = handle.read().decode("utf-8", errors="replace").splitlines()
-    except OSError:
+        if path.name.endswith(".gz"):
+            # A packed file cannot be read from its end: unpack it in passing and keep the last part.
+            # Caddy rolls at 10 MiB by default; the limit is for a file that is something else.
+            tail, read = b"", 0
+            with gzip.open(path, "rb") as handle:
+                while read < LOG_UNPACK_MAX and (chunk := handle.read(1024 * 1024)):
+                    read += len(chunk)
+                    tail = (tail + chunk)[-LOG_TAIL_BYTES:]
+            start = read - len(tail)
+        else:
+            with open(path, "rb") as handle:
+                start = max(0, handle.seek(0, os.SEEK_END) - LOG_TAIL_BYTES)
+                handle.seek(start)
+                tail = handle.read()
+    except (OSError, EOFError, zlib.error):
         return []
+    lines = tail.decode("utf-8", errors="replace").splitlines()
     # Starting in the middle of the file means the first line is only the end of one.
     return lines[1:] if start else lines
 

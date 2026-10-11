@@ -143,6 +143,9 @@ textarea { font: 13px/1.6 var(--mono); tab-size: 4; resize: vertical; }
 input:focus, select:focus, textarea:focus { outline: 1px solid var(--link); border-color: var(--link); }
 input[type="radio"], input[type="checkbox"] { width: auto; padding: 0; accent-color: var(--product); }
 input[type="file"] { padding: 7px; font-size: 14px; }
+/* The browser's own button, dressed like the grey ones. */
+input[type="file"]::file-selector-button { margin-right: 12px; padding: 6px 14px; font: 600 13px/1.29 var(--sans); color: var(--ink); background: var(--surface-2); border: 1px solid var(--surface-2); border-radius: 8px; cursor: pointer; }
+input[type="file"]::file-selector-button:hover { background: var(--surface-3); border-color: var(--surface-3); }
 
 /* Primary: white on black, 8px corners. Never a pill, never a product colour. */
 button, a.button {

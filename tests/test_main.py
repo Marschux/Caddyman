@@ -281,6 +281,7 @@ class RouteTest(AppTest):
         self.setup_admin()
         main.AUDIT_FILE.unlink(missing_ok=True)
         main.ROOT_CA_CACHE.clear()
+        main.PROBE_CACHE.clear()
         self.dir = tempfile.TemporaryDirectory()
         self.addCleanup(self.dir.cleanup)
         self.sites = os.path.join(self.dir.name, "sites")
@@ -521,11 +522,51 @@ class TestRoutes(RouteTest):
         self.create(type="static", host="docs", root="/srv/www", tls="none")
         self.assertNotIn("Not reachable", self.client.get("/").text)
         main.target_reachable.return_value = False
+        main.PROBE_CACHE.clear()
         page = self.client.get("/").text
         self.assertEqual(page.count("Not reachable"), 1)  # reverse proxies only
         # What "Only problems" in routes.js goes by.
         self.assertEqual(page.count(" data-problem>"), 1)
         self.assertIn('src="/static/routes.js"', page)
+
+    def test_list_keeps_what_it_found_for_a_while(self):
+        self.create()
+        asked = lambda: (main.target_reachable.call_count, self.served.call_count)  # noqa: E731
+        main.target_reachable.reset_mock()  # saving a route looks at its target once as well
+        self.client.get("/")
+        first = asked()
+        self.assertEqual(first, (1, 1))
+        self.client.get("/")
+        self.assertEqual(asked(), first)  # the second look costs nothing
+        # Good news is kept longer than bad news, so something just fixed shows soon.
+        kept = {key[0]: until - main.time.monotonic() for key, (until, _) in main.PROBE_CACHE.items()}
+        self.assertGreater(kept["target"], 50)
+        self.assertLess(kept["certificate"], 20)  # the handshake failed in this test
+        # Every change to the routes forgets all of it.
+        self.create(host="wiki", upstream="10.0.0.7:3000")
+        main.target_reachable.reset_mock()
+        self.client.get("/")
+        self.assertEqual(asked(), (2, first[1] + 2))
+
+    def test_list_does_not_wait_for_a_check_that_hangs(self):
+        self.create()
+        self.patch(main, "PROBE_BUDGET", 0.2)
+        release = main.threading.Event()
+        self.addCleanup(release.set)
+        main.target_reachable.side_effect = lambda upstream: release.wait(5) and True
+        self.served.side_effect = lambda *args: release.wait(5) and (_ for _ in ()).throw(OSError("late"))
+        started = main.time.monotonic()
+        page = self.client.get("/").text
+        self.assertLess(main.time.monotonic() - started, 2)
+        # A target that still does not answer counts as not reachable, the certificate as not looked at yet.
+        self.assertIn("Not reachable", page)
+        self.assertIn("Still checking", page)
+        # What finishes later is there on the next load.
+        release.set()
+        main.time.sleep(0.3)
+        page = self.client.get("/").text
+        self.assertNotIn("Not reachable", page)
+        self.assertNotIn("Still checking", page)
 
 
 class TestUsers(RouteTest):
@@ -1204,6 +1245,29 @@ class TestLogs(RouteTest):
         self.assertEqual(main.parse_log_line(lines[-1])["msg"], "the last one")
         self.assertLess(len(lines), 5)
         self.assertTrue(all(line.startswith("{") for line in lines))  # no half line at the start
+
+    def test_a_packed_log_from_a_rotation_is_listed_and_read(self):
+        import gzip
+
+        packed = os.path.join(self.logs, "caddy-2026-10-01T00-00-00.000.log.gz")
+        filler = ['{"level":"info","ts":2,"logger":"x","msg":"filler line number %04d"}' % i for i in range(50)]
+        with gzip.open(packed, "wt", encoding="utf-8") as handle:
+            handle.write("\n".join(["FIRST LINE OF THE FILE", *filler, '{"level":"warn","ts":3,"logger":"x","msg":"from the packed file"}']) + "\n")
+        os.utime(packed, (500, 500))
+        self.assertIn("caddy-2026-10-01T00-00-00.000.log.gz", self.client.get("/logs").text)  # offered, the newest still opens
+        page = self.client.get("/logs", params={"file": "caddy-2026-10-01T00-00-00.000.log.gz"}).text
+        self.assertIn("from the packed file", page)
+        self.assertIn("FIRST LINE OF THE FILE", page)
+        # Only its end, like any other log, and never a half line.
+        self.patch(main, "LOG_TAIL_BYTES", 200)
+        lines = main.read_log_tail(main.Path(packed))
+        self.assertEqual(main.parse_log_line(lines[-1])["msg"], "from the packed file")
+        self.assertLess(len(lines), 5)
+        self.assertTrue(all(line.startswith("{") for line in lines))
+        # Something that only carries the name is shown as empty, not as an error.
+        with open(os.path.join(self.logs, "broken.log.gz"), "wb") as handle:
+            handle.write(b"not gzip at all")
+        self.assertEqual(self.client.get("/logs", params={"file": "broken.log.gz"}).status_code, 200)
 
     def test_without_log_files_the_page_explains_the_setup(self):
         self.patch(main, "LOG_DIR", main.Path(self.dir.name) / "missing")
