@@ -68,8 +68,9 @@ SHA-1    {{ item.sha1 }}</pre>
 <section>
 	<h2>Windows</h2>
 	<p class="empty">Paste this into PowerShell <strong>as administrator</strong>. The certificate is part of the command, so
-		there is nothing to download. It asks for the check code and installs only if the code fits:</p>
-	<pre>$cert = [Security.Cryptography.X509Certificates.X509Certificate2]::new([Convert]::FromBase64String("{{ der_base64 }}"))
+		there is nothing to download, which makes it long; the box shows only its start. It asks for the check code and
+		installs only if the code fits:</p>
+	<pre class="cut">$cert = [Security.Cryptography.X509Certificates.X509Certificate2]::new([Convert]::FromBase64String("{{ der_base64 }}"))
 $code = -join ([Security.Cryptography.SHA256]::Create().ComputeHash($cert.RawData)[0..5] | ForEach-Object { $_.ToString("X2") })
 if (((Read-Host "Check code") -replace "[^0-9A-Fa-f]") -eq $code) { $store = [Security.Cryptography.X509Certificates.X509Store]::new("Root", "LocalMachine"); $store.Open("ReadWrite"); $store.Add($cert); $store.Close(); "Installed: " + $cert.Subject } else { "Wrong check code, nothing was installed." }</pre>
 	<p class="empty">Or with the downloaded file. The path points at your download folder; change it if the file is

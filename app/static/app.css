@@ -198,6 +198,15 @@ section { margin-top: 48px; }
 section > h2 { margin-bottom: 8px; }
 pre { margin: 0; padding: 14px 16px; overflow-x: auto; color: var(--ink); background: var(--surface-1); border: 1px solid var(--hairline); border-radius: 8px; font: 13px/1.6 var(--mono); tab-size: 4; }
 section > pre { margin: 8px 0; }
+/* copy.js wraps every box and puts its button in the corner. */
+.copyable { position: relative; }
+section > .copyable { margin: 8px 0; }
+.copyable > pre { margin: 0; }
+.copyable > button { position: absolute; top: 8px; right: 8px; width: auto; margin: 0; padding: 4px 10px; font-size: 12px;
+	/* covers the strip between button and edge, where a long line would peek out */
+	box-shadow: 7px 0 0 var(--surface-1); }
+/* A command too long to read: only its start shows, the button takes all of it. */
+pre.cut { overflow: hidden; }
 section > ol { margin: 8px 0; padding-left: 22px; }
 section > ol li { margin: 6px 0; }
 
