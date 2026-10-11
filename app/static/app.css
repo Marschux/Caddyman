@@ -79,7 +79,7 @@ nav a[aria-current] { color: var(--ink); border-bottom-color: var(--product); }
    everything after it the second. Title and flash run across both. */
 main:has(> .side) { display: grid; grid-template-columns: 180px minmax(0, 1fr); column-gap: 48px; align-content: start; }
 main:has(> .side) > * { grid-column: 2; }
-main:has(> .side) > h1, main:has(> .side) > .flash:first-child { grid-column: 1 / -1; }
+main:has(> .side) > h1, main:has(> .side) > .heading, main:has(> .side) > .flash:first-child { grid-column: 1 / -1; }
 main:has(> .side) > section { margin: 0 0 48px; }
 main:has(> .side) > .notice { margin-bottom: 32px; }
 main:has(> .side) > .side { grid-column: 1; grid-row: span 12; align-self: start; }

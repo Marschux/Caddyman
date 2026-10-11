@@ -15,6 +15,18 @@
 <p class="empty">The source is part of the <a href="/hosts/{{ host.id }}/edit">Caddy settings</a>.
 	Without a root CA source, Caddy's own internal CA is used.</p>
 {% else %}
+{# One system at a time, picked from the list at the left edge. /ca starts with the certificate
+   itself, /trust with Windows. #}
+{% set systems = [("windows", "Windows"), ("macos", "macOS"), ("linux", "Debian and Ubuntu"),
+	("ios", "iPhone and iPad"), ("android", "Android"), ("firefox", "Firefox")] %}
+{% set asked = request.query_params.get("os", "") %}
+{% set shown = asked if asked in systems|map("first")|list else ("windows" if public else "") %}
+<aside class="side">
+	{% if not public %}<a href="{{ request.url.path }}" {{ 'aria-current="page"' if not shown }}>Certificate</a>{% endif %}
+	{% for key, name in systems %}
+	<a href="?os={{ key }}" {{ 'aria-current="page"' if shown == key }}>{{ name }}</a>
+	{% endfor %}
+</aside>
 {% if public %}
 <p class="empty">Every device that should open the sites behind this proxy without a warning needs this certificate once.
 	Whoever runs this Caddyman gives you a <strong>check code</strong>. Ask for it in person or on the phone:
@@ -23,6 +35,7 @@
 <p class="empty">Every device that should trust the routes behind this Caddy needs this certificate once.
 	{% if internal %}This is Caddy's own internal CA, because the host has no root CA source configured.{% endif %}</p>
 
+{% if not shown %}
 <section>
 	{% if host.get("public_ca", "1") %}
 	<h2>For people without a login</h2>
@@ -49,7 +62,9 @@ SHA-1    {{ item.sha1 }}</pre>
 	<pre>openssl x509 -in root-ca.crt -noout -fingerprint -sha256</pre>
 </section>
 {% endif %}
+{% endif %}
 
+{% if shown == "windows" %}
 <section>
 	<h2>Windows</h2>
 	<p class="empty">Paste this into PowerShell <strong>as administrator</strong>. The certificate is part of the command, so
@@ -63,7 +78,9 @@ if (((Read-Host "Check code") -replace "[^0-9A-Fa-f]") -eq $code) { $store = [Se
 	<p class="empty">Do not use the import wizard with "automatically select the certificate store": it files a CA under
 		intermediate authorities of the current user, where Windows does not trust it and says nothing.</p>
 </section>
+{% endif %}
 
+{% if shown == "macos" %}
 <section>
 	<h2>macOS</h2>
 	<p class="empty">Print the check code of the downloaded file first and compare it:</p>
@@ -73,7 +90,9 @@ if (((Read-Host "Check code") -replace "[^0-9A-Fa-f]") -eq $code) { $store = [Se
 		certificate in Keychain Access and set "When using this certificate" under Trust to "Always Trust". Without that
 		last step it is installed but not trusted.</p>
 </section>
+{% endif %}
 
+{% if shown == "linux" %}
 <section>
 	<h2>Debian and Ubuntu</h2>
 	<p class="empty">Print the check code of the downloaded file first and compare it:</p>
@@ -82,7 +101,9 @@ if (((Read-Host "Check code") -replace "[^0-9A-Fa-f]") -eq $code) { $store = [Se
 sudo update-ca-certificates</pre>
 	<p class="empty">The file name has to end in <code>.crt</code>.</p>
 </section>
+{% endif %}
 
+{% if shown == "ios" %}
 <section>
 	<h2>iPhone and iPad</h2>
 	<ol class="empty">
@@ -93,7 +114,9 @@ sudo update-ca-certificates</pre>
 			installed but not trusted.</li>
 	</ol>
 </section>
+{% endif %}
 
+{% if shown == "android" %}
 <section>
 	<h2>Android</h2>
 	<ol class="empty">
@@ -107,7 +130,9 @@ sudo update-ca-certificates</pre>
 	<p class="empty">Chrome trusts a certificate installed this way. Many other apps ignore certificates the user
 		installed and keep showing a warning; that is a decision of the app and cannot be changed here.</p>
 </section>
+{% endif %}
 
+{% if shown == "firefox" %}
 <section>
 	<h2>Firefox</h2>
 	<p class="empty">Firefox keeps its own list and ignores the system store by default. Either import it there:
@@ -115,8 +140,9 @@ sudo update-ca-certificates</pre>
 		Or let Firefox use the system store by setting this to <code>true</code> in <code>about:config</code>:</p>
 	<pre>security.enterprise_roots.enabled</pre>
 </section>
+{% endif %}
 
-{% if not public %}
+{% if not public and not shown %}
 <section>
 	<h2>Back up the CA itself</h2>
 	<p class="empty">This matters more than a backup of the routes. Routes are retyped in an hour; if the root key is lost,

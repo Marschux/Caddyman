@@ -675,8 +675,13 @@ class TestCa(RouteTest):
         for hidden in ("9F86 D081 884C", self.SHA256, "/pki/ca/local", "Back up the CA"):
             self.assertNotIn(hidden, page.text)
         self.assertIn('FromBase64String("dGVzdA==")', page.text)
-        for system in ("Windows", "macOS", "Debian and Ubuntu", "iPhone and iPad", "Android", "Firefox"):
-            self.assertIn(f"<h2>{system}</h2>", page.text)
+        # One system at a time: Windows first, the others from the list at the left edge.
+        self.assertIn("<h2>Windows</h2>", page.text)
+        self.assertNotIn("<h2>macOS</h2>", page.text)
+        for key, system in (("macos", "macOS"), ("linux", "Debian and Ubuntu"), ("ios", "iPhone and iPad"),
+                            ("android", "Android"), ("firefox", "Firefox"), ("nonsense", "Windows")):
+            self.assertIn(f'href="?os={key}"' if key != "nonsense" else "<aside", page.text)
+            self.assertIn(f"<h2>{system}</h2>", self.client.get(f"/trust?os={key}").text)
         self.assertEqual(self.client.get("/root-ca.crt").text, self.PEM + "\n")
         # Anyone can call these, so the source is not asked again for every request.
         self.assertEqual(self.get.call_count, 2)  # once for /ca, once for the open pages
