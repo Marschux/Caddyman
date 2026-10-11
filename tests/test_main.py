@@ -333,7 +333,24 @@ class TestRoutes(RouteTest):
         self.assertIn(f'name="upstream" value="caddyman:{main.OWN_PORT}"', form)
         self.assertNotIn('name="upstream" value="caddyman', self.client.get("/routes/new").text)
         self.create(host="caddyman", upstream=f"caddyman:{main.OWN_PORT}")
-        self.assertNotIn(hint, self.client.get("/status").text)
+        status = self.client.get("/status").text
+        self.assertNotIn(hint, status)
+        # The box stays while this page still comes in unencrypted: now it points at the route.
+        self.assertIn("Caddyman is reached without HTTPS", status)
+        self.assertIn('href="https://caddyman.lab.test">Open https://caddyman.lab.test<', status)
+        self.assertNotIn("HTTPS in front of Caddyman", status)  # nothing to say about HTTPS that is not there
+        # Through Caddy over HTTPS, but Caddyman was not told to believe Caddy: the cookie is not Secure.
+        unseen = self.client.get("/status", headers={"x-forwarded-proto": "https"}).text
+        self.assertNotIn("Caddyman is reached without HTTPS", unseen)
+        self.assertIn("HTTPS in front of Caddyman is recognised", unseen)
+        self.assertIn("CADDYMAN_FORWARDED_ALLOW_IPS=testclient", unseen)
+        # Once Caddy is trusted the request reads as https and the line turns good.
+        secure = TestClient(main.app, base_url="https://caddyman.lab.test", follow_redirects=False)
+        secure.cookies.set(main.SESSION_COOKIE, self.client.cookies[main.SESSION_COOKIE])
+        trusted = secure.get("/status").text
+        self.assertNotIn("Caddyman is reached without HTTPS", trusted)
+        self.assertNotIn("CADDYMAN_FORWARDED_ALLOW_IPS=", trusted)
+        self.assertIn("HTTPS in front of Caddyman is recognised", trusted)
         # Deleting that route comes with a word of warning, the others are asked as before.
         self.create()
         page = self.client.get("/").text

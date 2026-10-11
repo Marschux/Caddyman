@@ -3,7 +3,17 @@
 {% block content %}
 {% include "system_nav.html" %}
 {% set rights = request.state.me.permissions %}
-{% if no_https and "routes" in rights %}
+{# Shown for as long as this very page comes in unencrypted, also after the route exists:
+   then the way out is to use that route, not to add one. #}
+{% if no_https and has_own_route %}
+<div class="notice">
+	<div>
+		<strong>Caddyman is reached without HTTPS</strong>
+		<p>Under this address your login crosses the network in the clear. Caddyman has a route of its own: open it there.</p>
+	</div>
+	{% if own_address %}<a class="button" href="{{ own_address }}">Open {{ own_address }}</a>{% endif %}
+</div>
+{% elif no_https and "routes" in rights %}
 <div class="notice">
 	<div>
 		<strong>Caddyman is reached without HTTPS</strong>

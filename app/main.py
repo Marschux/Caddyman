@@ -1868,19 +1868,33 @@ def route_new(request: Request, own: bool = False):
     return route_form_page(request, current, route)
 
 
-def reached_without_https(request: Request, host: dict) -> bool:
-    """True while this page came in over plain HTTP and no route points at Caddyman itself.
+def arrived(request: Request) -> str:
+    """How this request came in: 'https', 'plain', or 'unseen' for HTTPS that Caddyman does not know of.
 
-    The scheme alone is not enough: behind Caddy it still reads http unless
-    CADDYMAN_FORWARDED_ALLOW_IPS trusts Caddy. Any route file naming this port counts,
-    hand-written ones too; another service on the same port hides the hint, which is harmless.
+    Behind Caddy the scheme still reads http unless CADDYMAN_FORWARDED_ALLOW_IPS trusts Caddy.
+    Caddy says so in a header all the same; that header is what tells the two cases apart.
+    Somebody could send it by hand over plain HTTP, and would only fool the hint on their own screen.
     """
     if request.url.scheme == "https":
-        return False
+        return "https"
+    return "unseen" if request.headers.get("x-forwarded-proto", "").lower() == "https" else "plain"
+
+
+def own_route_address(host: dict) -> tuple[bool, str]:
+    """Whether a route leads to Caddyman itself, and its HTTPS address where that is known.
+
+    Any route file naming this port counts, hand-written ones too; the address is only known
+    for a route from the form. Another service on the same port counts as well, which is harmless.
+    """
     try:
-        return not any(f":{OWN_PORT}".encode() in path.read_bytes() for path in Path(host["sites_dir"]).glob("*.caddy"))
+        exists = any(f":{OWN_PORT}".encode() in path.read_bytes() for path in Path(host["sites_dir"]).glob("*.caddy"))
     except OSError:
-        return True
+        exists = False
+    for item in list_routes(host):
+        route = item["route"]
+        if route and route["type"] == "reverse_proxy" and route["upstream"].endswith(f":{OWN_PORT}") and route["tls"] != "none":
+            return True, f"https://{route['host']}" + (f":{route['port']}" if route["port"] else "")
+    return exists, ""
 
 
 @app.post("/routes/new")
@@ -2731,5 +2745,19 @@ def logs_page(request: Request, file: str = "", level: str = "", q: str = "", qu
 @app.get("/status")
 def status(request: Request):
     hosts = [{**host, "checks": preflight(host)} for host in load_hosts()]
-    no_https = bool(hosts) and reached_without_https(request, hosts[0])
-    return page(request, "status.html", hosts=hosts, audit=read_audit(), no_https=no_https)
+    way = arrived(request)
+    has_route, address = own_route_address(hosts[0]) if hosts else (False, "")
+    if hosts and way != "plain":
+        # Only said when the page did come in over HTTPS: then it is either fine or one variable away from it.
+        caddy = client_address(request)
+        hosts[0]["checks"].append({
+            "label": "HTTPS in front of Caddyman is recognised",
+            "ok": way == "https",
+            "detail": "" if way == "https" else f"Caddy at {caddy} says HTTPS, Caddyman does not take its word",
+            "hint": "This page came in through Caddy over HTTPS, but Caddyman only believes that from addresses it was told "
+            "to trust. Until then the session cookie is not marked Secure. Put Caddy's address, or the subnet of the "
+            "Docker network, into the .env file next to the compose file and start the container again:",
+            "block": f"CADDYMAN_FORWARDED_ALLOW_IPS={caddy}",
+        })
+    context = {"no_https": bool(hosts) and way == "plain", "has_own_route": has_route, "own_address": address}
+    return page(request, "status.html", hosts=hosts, audit=read_audit(), **context)
