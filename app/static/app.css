@@ -169,7 +169,9 @@ button.secondary:hover, a.button.secondary:hover { background: var(--surface-3);
 
 .heading { display: flex; justify-content: space-between; align-items: center; gap: 16px; margin-bottom: 24px; }
 .heading h1 { margin: 0; }
-.heading .buttons { display: flex; gap: 8px; }
+/* Above the route list: search at the left, the buttons at the right. */
+.toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 16px; margin-bottom: 16px; }
+.toolbar .buttons { display: flex; gap: 8px; margin-left: auto; }
 
 /* Separate borders so the rounded corners can clip the rows. */
 table { width: 100%; border-collapse: separate; border-spacing: 0; background: var(--surface-1); border: 1px solid var(--hairline); border-radius: 12px; overflow: hidden; }
@@ -245,7 +247,7 @@ form.inline select { width: auto; padding: 8px 12px; font-size: 14px; }
 form.row { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; margin-top: 16px; }
 form.row button { width: auto; margin: 0; }
 form.row[hidden] { display: none; }
-#route-filter { margin: 0 0 16px; }
+#route-filter { flex: 1; margin: 0; }
 #route-filter input[name="q"] { max-width: 420px; }
 /* A column title that sorts: looks like the title, the arrow tells the direction. */
 button.sort { all: unset; cursor: pointer; }

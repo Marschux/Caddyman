@@ -2,8 +2,15 @@
 {% block content %}
 {# Without the right to change routes the list is read only; the server refuses the rest anyway. #}
 {% set may_change = "routes" in request.state.me.permissions %}
-<div class="heading">
-	<h1>Routes</h1>
+<h1>Routes</h1>
+<div class="toolbar">
+	{# Shown by routes.js, which also makes the column titles sort. #}
+	{% if routes %}
+	<form class="row filters" id="route-filter" hidden onsubmit="return false">
+		<input type="search" name="q" placeholder="Search host, target, group ..." aria-label="Search the routes">
+		<label class="check"><input type="checkbox" name="problems"> Only problems</label>
+	</form>
+	{% endif %}
 	{% if may_change %}
 	<div class="buttons">
 		<a class="button secondary" href="/groups">Add group</a>
@@ -11,13 +18,6 @@
 	</div>
 	{% endif %}
 </div>
-{# Shown by routes.js, which also makes the column titles sort. #}
-{% if routes %}
-<form class="row filters" id="route-filter" hidden onsubmit="return false">
-	<input type="search" name="q" placeholder="Search host, target, group ..." aria-label="Search the routes">
-	<label class="check"><input type="checkbox" name="problems"> Only problems</label>
-</form>
-{% endif %}
 <table>
 	<thead>
 		<tr><th>Host</th><th>Type</th><th>Target</th><th>TLS</th><th>Certificate</th><th></th></tr>
