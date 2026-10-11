@@ -2269,7 +2269,8 @@ def ca_page(request: Request, cert: int = 1):
     hosts, current = pick_host()
     if current is None:
         return RedirectResponse("/hosts/new", status_code=303)
-    return page(request, "ca.html", hosts=hosts, **ca_context(current, cert=cert))
+    # Whether /trust is open decides what the page tells the admin to pass on.
+    return page(request, "ca.html", hosts=hosts, open_page=flag("public_ca"), **ca_context(current, cert=cert))
 
 
 @app.get("/trust")

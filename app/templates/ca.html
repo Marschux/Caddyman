@@ -48,7 +48,7 @@
 
 {% if not shown %}
 <section>
-	{% if host.get("public_ca", "1") %}
+	{% if open_page %}
 	<h2>For people without a login</h2>
 	<p class="empty">The page <a href="/trust">/trust</a> and the download work without logging in. Send the link, and
 		give {{ "these check codes" if many else "this check code" }} another way, in person or on the phone:</p>

@@ -952,7 +952,12 @@ class TestCa(RouteTest):
         self.client.post("/settings/security", data={"public_ca": "1"})
         self.assertNotIn('href="/trust"', guest.get("/login").text)
         self.assertEqual(guest.get("/trust").status_code, 200)  # only the card is gone
+        self.assertIn("For people without a login", self.client.get("/ca").text)
         self.client.post("/settings/security", data={"login_ca_hint": "1"})
+        # With the open page switched off the admin page says so instead of sending people to it.
+        closed = self.client.get("/ca").text
+        self.assertIn("<h2>Check code</h2>", closed)
+        self.assertNotIn("For people without a login", closed)
         self.assertNotIn('href="/trust"', guest.get("/login").text)
         for path in main.PUBLIC_PATHS:
             self.assertEqual(guest.get(path).headers["location"], "/login")

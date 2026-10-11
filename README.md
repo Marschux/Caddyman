@@ -12,7 +12,8 @@ A web interface for Caddy routes that works with your own ACME CA, such as
 - **Routes:** reverse proxy, redirect or static files, with optional basic auth
 - **TLS per route:** your own ACME CA, Caddy's default, Caddy's internal CA, or none
 - **Certificate check:** shows who issued what each route really serves, and when it expires
-- **Root CA page:** download, fingerprints and import steps for Windows, Debian and Firefox
+- **Root CA page:** download, fingerprints, a check code to pass on by voice, and import steps
+  for Windows, macOS, Debian, iPhone, Android and Firefox; open without a login at `/trust`
 - **Logs:** Caddy's log, live and filterable, to see why a certificate did not arrive; rotated
   files too, and an access log per route for the routes that ask for one
 - **Backup:** all routes as a ZIP, with a preview before a restore writes anything
@@ -112,6 +113,11 @@ the route list and the status page. The change log on the status page names who 
 Every account can switch on two-factor login in its profile: scan the QR code with an
 authenticator app, keep the recovery codes. Whoever manages users can switch it off again for
 somebody who lost both. "Settings", "Security" makes it a must for every account.
+
+The same block has two switches for the root certificate. "Offer the root CA without a login"
+opens `/trust` and the download to everybody who can reach Caddyman; the people who need the
+certificate are the ones without an account. "Point to the root CA on the login page" shows a
+card below the login form that leads there. Both are on by default.
 
 "Forgot password?" on the login page mails a link that works once and for one hour. It appears
 once a mail server is entered under "Settings", "Mail", and reaches accounts that have an
