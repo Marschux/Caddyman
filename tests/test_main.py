@@ -1351,7 +1351,8 @@ class TestBackup(RouteTest):
         self.assertEqual((main.flag("public_ca"), main.flag("login_ca_hint")), (True, False))
 
     def test_only_who_may_change_settings_restores_them(self):
-        # Mail settings decide where reset links go: the right to restore routes must not be enough to set them.
+        # The connection to Caddy and the mail settings decide who gets in and where reset links go:
+        # the right to restore routes must not be enough to set them.
         evil = {**self.MAIL, "public_url": "https://evil.example", "host": "evil.example"}
         evil.pop("password")
         archive = self.make_zip({"hosts.json": main.json.dumps([self.host]), "mail.json": main.json.dumps(evil),
@@ -1362,9 +1363,12 @@ class TestBackup(RouteTest):
         keeper.post("/login", data={"username": "keeper", "password": PASSWORD})
         main.save_hosts([])
         payload = {"payload": base64.b64encode(archive).decode()}
-        self.assertNotIn("mail settings", keeper.post("/backup/restore", files={"archive": ("b.zip", archive, "application/zip")}).text)
-        keeper.post("/backup/restore", data=payload)
-        self.assertEqual((main.load_mail()["host"], main.flag("public_ca")), ("", True))
+        self.assertEqual(keeper.post("/backup/restore", files={"archive": ("b.zip", archive, "application/zip")}).status_code, 403)
+        self.assertEqual(keeper.post("/backup/restore", data=payload).status_code, 403)
+        self.assertEqual((main.load_hosts(), main.load_mail()["host"], main.flag("public_ca"), main.stored_groups()), ([], "", True, []))
+        # Somebody who may change the settings restores all of it.
+        self.client.post("/backup/restore", data=payload)
+        self.assertEqual((len(main.load_hosts()), main.load_mail()["host"], main.flag("public_ca")), (1, "evil.example", False))
         self.assertEqual(main.stored_groups(), ["ok"])  # names only, and only usable ones
 
     def test_hosts_in_the_archive_never_replace_existing_ones(self):

@@ -2320,6 +2320,11 @@ async def backup_restore(request: Request, host: str | None = None):
     # Into an empty install the hosts come back too; otherwise the routes go to the chosen host.
     fresh = not hosts
     target = current
+    if fresh and "settings" not in request.state.me["permissions"]:
+        # The connection to Caddy, the switches and the mail settings decide who gets in and where
+        # reset links go. The right to restore routes alone must not be enough to set them.
+        error = "No Caddy is set up yet. Restoring its connection from an archive needs the right to change the settings."
+        return page(request, "backup.html", status_code=403, hosts=hosts, host=current, error=error)
     if fresh:
         target = next((item for item in backup["hosts"] if item["id"] == backup["meta"].get("host_id")), None)
         target = target or (backup["hosts"][0] if backup["hosts"] else None)
@@ -2327,9 +2332,8 @@ async def backup_restore(request: Request, host: str | None = None):
         error = "Add a Caddy host first: this archive has no usable host settings to restore the routes into."
         return page(request, "backup.html", status_code=400, hosts=hosts, host=current, error=error)
     plan = backup_plan(backup, target)
-    # The switches and the mail settings decide who gets in and where reset links go. They come
-    # back only into an empty install, and only for an account that could set them by hand.
-    with_settings = fresh and "settings" in request.state.me["permissions"]
+    # The switches and the mail settings come back only into an empty install.
+    with_settings = fresh
     new_groups = [name for name in backup["groups"] if not taken(name, stored_groups())]
     also = [
         *([f"{len(new_groups)} route groups"] if new_groups else []),
