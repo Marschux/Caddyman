@@ -149,6 +149,10 @@ admin.home.example {
 
 The `handle_path` block serves the log to the Logs page and can be left out.
 
+The certificate of that site usually comes from your own CA, which the Caddyman container does
+not know. Saving the Caddy settings fetches that CA and remembers it for this address; the
+status page shows its check code, the same one the Root CA page gives.
+
 ## Configuration
 
 | Variable | Default | |

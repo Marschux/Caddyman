@@ -750,6 +750,35 @@ class TestManaged(AppTest):
         data = {"type": "reverse_proxy", "host": "pdf", "upstream": "10.0.0.5:9005", "tls": "acme_ca"}
         return self.client.post("/routes/new", data=data)
 
+    def test_ca_of_an_https_admin_api_is_remembered(self):
+        from cryptography.hazmat.primitives.serialization import Encoding
+
+        pem = make_certificate("Caddy Local Authority").public_bytes(Encoding.PEM).decode()
+        self.get.return_value = mock.Mock(status_code=200, content=b"running", json=lambda: {"root_certificate": pem})
+        _, host = self.add_host()
+        # A private CA is the normal case for this address, and the container does not know it.
+        self.assertIn("BEGIN CERTIFICATE", host["admin_ca"])
+        self.assertIsInstance(main.admin_verify(host), main.ssl.SSLContext)
+        self.add_route()
+        self.assertIs(self.post.call_args.kwargs["verify"], main.admin_verify(host))
+        self.assertIn("CA of the admin API is remembered", [check["label"] for check in main.preflight(host)])
+        # Saving again while the CA cannot be fetched keeps what is there.
+        self.get.return_value = mock.Mock(status_code=500, content=b"")
+        self.client.post(f"/hosts/{host['id']}/edit", data=self.form(admin_password=""))
+        self.assertEqual(main.load_hosts()[0]["admin_ca"], host["admin_ca"])
+        # Plain http has no certificate to check.
+        self.client.post(f"/hosts/{host['id']}/edit", data=self.form(admin_password="", admin_url="http://caddy2:2020"))
+        self.assertNotIn("admin_ca", main.load_hosts()[0])
+        self.assertIs(main.admin_verify(main.load_hosts()[0]), True)
+
+    def test_unknown_ca_is_explained_on_the_status_page(self):
+        _, host = self.add_host()
+        refused = main.httpx.ConnectError("[SSL: CERTIFICATE_VERIFY_FAILED] certificate verify failed")
+        with mock.patch.object(main.httpx, "get", mock.Mock(side_effect=refused)):
+            check = next(check for check in main.preflight(host) if check["label"] == "Admin API is reachable")
+        self.assertFalse(check["ok"])
+        self.assertIn("Save and check", check["hint"])
+
     def test_host_keeps_its_files_in_the_data_directory(self):
         response, host = self.add_host()
         self.assertEqual(response.headers["location"], "/status")

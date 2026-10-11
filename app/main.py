@@ -21,6 +21,7 @@ from concurrent.futures import ThreadPoolExecutor
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from email.message import EmailMessage
+from functools import lru_cache
 from pathlib import Path
 from urllib.parse import quote, urlsplit
 
@@ -905,6 +906,40 @@ def admin_auth(host: dict) -> tuple[str, str] | None:
         return None
 
 
+@lru_cache(maxsize=4)
+def trust_context(pem: str) -> ssl.SSLContext:
+    context = httpx.create_ssl_context()  # the public CAs
+    context.load_verify_locations(cadata=pem)
+    return context
+
+
+def admin_verify(host: dict) -> ssl.SSLContext | bool:
+    """How the certificate of an https admin API is checked: the public CAs, plus the CA remembered for this host."""
+    return trust_context(host["admin_ca"]) if host.get("admin_ca") else True
+
+
+def remember_admin_ca(host: dict, previous: str = "") -> str:
+    """The CA certificates to trust for an https admin API, fetched when the settings are saved.
+
+    A private CA is the normal case here, and the container does not know it. This is trust on
+    first use: whoever sits on the wire at the moment of saving could hand in a CA of their
+    own. The status page shows the check code of what was remembered, to compare with the
+    Root CA page. A field to paste the CA into would close that gap.
+    """
+    if not host["admin_url"].startswith("https://"):
+        return ""
+    found = []
+    # The own CA if one is named, and Caddy's internal one: the admin site may use either.
+    for source in dict.fromkeys((host["root_ca_url"], "")):
+        try:
+            pem = fetch_root_ca({**host, "root_ca_url": source})[0]
+            fingerprints(pem)
+            found.append(pem)
+        except ValueError:
+            pass
+    return "".join(found) or previous
+
+
 def save_hosts(hosts: list[dict]) -> None:
     write_private(HOSTS_FILE, json.dumps(hosts, indent=2))
 
@@ -1003,12 +1038,21 @@ def preflight(host: dict) -> list[dict]:
         )
     running = None
     try:
-        response = httpx.get(f"{host['admin_url']}/config/", timeout=ADMIN_TIMEOUT, auth=admin_auth(host))
+        response = httpx.get(f"{host['admin_url']}/config/", timeout=ADMIN_TIMEOUT, auth=admin_auth(host), verify=admin_verify(host))
         admin_ok, detail = response.status_code == 200, f"HTTP {response.status_code}"
         running = response.content if admin_ok else None
     except httpx.HTTPError as error:
         admin_ok, detail = False, str(error) or type(error).__name__
-    if managed:
+    if "CERTIFICATE_VERIFY_FAILED" in detail:
+        add(
+            "Admin API is reachable",
+            False,
+            f"{host['admin_url']} - {detail}",
+            "Caddyman does not know the CA behind this certificate. Open the Caddy settings and press "
+            '"Save and check": it then fetches the CA and remembers it for this address.',
+            "",
+        )
+    elif managed:
         add(
             "Admin API is reachable",
             admin_ok,
@@ -1031,6 +1075,10 @@ def preflight(host: dict) -> list[dict]:
             "settings. Create the hash with: docker exec -it caddy caddy hash-password",
             ADMIN_SITE_SNIPPET,
         )
+    if host.get("admin_ca"):
+        # Remembered on first use, so it is shown: the codes are the ones the Root CA page gives.
+        codes = [item["sha256"].replace(":", "")[:12] for item in fingerprints(host["admin_ca"])]
+        add("CA of the admin API is remembered", True, "check code " + ", ".join(" ".join(code[i : i + 4] for i in (0, 4, 8)) for code in codes))
     if admin_ok:
         # The quick way in, 'admin :2019', works but leaves Caddy open to every container on its network.
         add(
@@ -1263,6 +1311,7 @@ def caddy_load(host: dict) -> str | None:
             headers={"Content-Type": "text/caddyfile"},
             timeout=LOAD_TIMEOUT,
             auth=auth,
+            verify=admin_verify(host),
         )
     except (OSError, httpx.HTTPError) as error:
         return str(error) or type(error).__name__
@@ -1270,7 +1319,7 @@ def caddy_load(host: dict) -> str | None:
         if host.get("storage") == "managed":
             # Remembered so the status page can tell when Caddy has fallen back to another config.
             try:
-                running = httpx.get(f"{host['admin_url']}/config/", timeout=ADMIN_TIMEOUT, auth=auth)
+                running = httpx.get(f"{host['admin_url']}/config/", timeout=ADMIN_TIMEOUT, auth=auth, verify=admin_verify(host))
                 pushed_file(host).write_text(hashlib.sha256(running.content).hexdigest(), encoding="utf-8")
             except (OSError, httpx.HTTPError):
                 pass
@@ -1718,6 +1767,8 @@ async def host_save(request: Request, host_id: str | None = None):
         context = {**host, "id": host_id, "form_base": base}
         return page(request, "host_form.html", status_code=400, error=error, host=context)
     host = with_paths({"id": host_id or secrets.token_hex(4), **host})
+    if admin_ca := remember_admin_ca(host, existing.get("admin_ca", "") if existing else ""):
+        host["admin_ca"] = admin_ca
     if host["storage"] == "managed":
         # The one base Caddyfile this tool writes: its own copy, which Caddy never reads from disk.
         Path(host["sites_dir"]).mkdir(parents=True, exist_ok=True)
@@ -1764,7 +1815,7 @@ def fetch_root_ca(host: dict) -> tuple[str, str, bool]:
         text = response.json().get("root_certificate", "") if internal else response.text
     except (httpx.HTTPError, ValueError, AttributeError) as error:
         raise ValueError(f"{source} did not answer with a certificate: {error or type(error).__name__}") from None
-    certificates = PEM_RE.findall(text)
+    certificates = PEM_RE.findall(text) if isinstance(text, str) else []
     if response.status_code != 200 or not certificates:
         raise ValueError(f"{source} did not answer with a certificate (HTTP {response.status_code}).")
     return "\n".join(certificates) + "\n", source, internal
@@ -2089,6 +2140,7 @@ def load_log(host: dict, wanted: str) -> tuple[list[str], str, list[str]]:
             headers={"Range": f"bytes=-{LOG_TAIL_BYTES}"},
             timeout=ADMIN_TIMEOUT,
             auth=admin_auth(host),
+            verify=admin_verify(host),
         )
     except httpx.HTTPError:
         return [], "", []
