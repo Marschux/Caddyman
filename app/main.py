@@ -1284,6 +1284,9 @@ ROUTE_NAME_RE = re.compile(r"^[A-Za-z0-9]([A-Za-z0-9._-]*[A-Za-z0-9])?$")
 # file only keeps the names, so a group can exist before a route uses it.
 GROUPS_FILE = DATA_DIR / "groups.json"
 GROUP_RE = re.compile(r"\w[\w .-]{0,39}")
+# Where a route with an access log has Caddy write it: the directory of Caddy's own log, as
+# Caddy sees it, so the Logs page shows both. The file is named after the route file.
+ACCESS_LOG_DIR, ACCESS_LOG_PREFIX = "/var/log/caddy", "access-"
 LOAD_TIMEOUT = 30
 REACH_TIMEOUT = 2
 # One writer at a time: write, reload and a possible undo must not interleave.
@@ -1328,6 +1331,8 @@ def route_from_form(form, host: dict, previous: dict | None = None) -> tuple[dic
         route["group"] = group
         if not GROUP_RE.fullmatch(group):
             return route, "A group name is up to 40 letters, digits, spaces, '.', '_' and '-'."
+    if get("log"):
+        route["log"] = True
     if not HOSTNAME_RE.match(name) or ".." in name or len(name) > 253:
         return route, "The hostname may only contain lowercase letters, digits, '-' and '.'."
     if route["port"] and not valid_port(route["port"]):
@@ -1396,6 +1401,10 @@ def render_route(route: dict, host: dict) -> str:
         lines.append(f"redir {route['target']}{{uri}} {route['code']}")
     else:
         lines += [f"root * {route['root']}", "file_server"]
+    if route.get("log"):
+        # Every request to this route, in a file of its own next to Caddy's log, where the Logs page finds it.
+        file = f"{ACCESS_LOG_DIR}/{ACCESS_LOG_PREFIX}{route_file_name(route, host)}.log"
+        lines += ["log {", f"\toutput file {file} {{", "\t\troll_size 10MiB", "\t\troll_keep 3", "\t}", "}"]
     body = "".join(f"\t{line}\n" for line in lines)
     return f"{META_PREFIX}{json.dumps(route, separators=(',', ':'))}\n{address} {{\n{body}}}\n"
 
@@ -2512,17 +2521,20 @@ async def backup_restore(request: Request):
 
 LOG_SNIPPET = (
     "{\n\tlog caddyman {\n\t\toutput file /var/log/caddy/caddy.log {\n\t\t\troll_size 10MiB\n"
-    "\t\t\troll_keep 3\n\t\t}\n\t\tformat json\n\t}\n}"
+    "\t\t\troll_keep 3\n\t\t}\n\t\tformat json\n\t\texclude http.log.access\n\t}\n}"
 )
+# The exclude keeps the requests of routes with an access log out of this file: they have their own.
 # For a Caddy elsewhere: its log is served by the same site that guards the admin API.
 LOG_REMOTE_SNIPPET = (
     "admin.home.example {\n\tbasic_auth {\n\t\tcaddyman <bcrypt hash>\n\t}\n"
-    "\thandle_path /caddyman-logs/* {\n\t\troot * /var/log/caddy\n\t\tfile_server\n\t}\n"
+    "\thandle_path /caddyman-logs/* {\n\t\troot * /var/log/caddy\n\t\tfile_server browse\n\t}\n"
     "\thandle {\n\t\treverse_proxy localhost:2019 {\n\t\t\theader_up Host {upstream_hostport}\n\t\t}\n\t}\n}"
 )
 # Where Caddy's log directory is mounted in this container. Found there, the Logs page just works.
 LOG_DIR = Path(os.getenv("CADDYMAN_LOG_DIR", "/var/log/caddy"))
-LOG_REMOTE_PATH = "/caddyman-logs/caddy.log"
+LOG_REMOTE_DIR, LOG_REMOTE_FILE = "/caddyman-logs", "caddy.log"
+# A packed log of a Caddy elsewhere is fetched whole; rotated at 10 MiB, it is far below this.
+LOG_REMOTE_PACKED_MAX = 16 * 1024 * 1024
 # The end of a file is where the answer is; a log of any size costs the same to show.
 LOG_TAIL_BYTES = 512 * 1024
 LOG_UNPACK_MAX = 64 * 1024 * 1024
@@ -2530,68 +2542,138 @@ LOG_SHOWN = 300
 LOG_LEVELS = ("debug", "info", "warn", "error")
 
 
+def log_name(name: str) -> bool:
+    """A log Caddy wrote, or one it packed when rotating."""
+    return name.endswith((".log", ".log.gz"))
+
+
 def local_log_files() -> list[Path]:
     """The log files directly in the mounted log directory, newest first. Caddy packs the ones it rotated away."""
     try:
-        files = [path for path in LOG_DIR.iterdir() if path.name.endswith((".log", ".log.gz")) and path.is_file()]
+        files = [path for path in LOG_DIR.iterdir() if log_name(path.name) and path.is_file()]
         return sorted(files, key=file_mtime, reverse=True)
     except OSError:
         return []
 
 
-def read_log_tail(path: Path) -> list[str]:
+def window_lines(data: bytes, start: int) -> tuple[list[str], int]:
+    """The whole lines in a piece of a log that begins at byte start, and where the piece before it ends.
+
+    A piece from the middle of a file opens with the rest of a line. That line is left to the
+    older piece, which therefore ends right behind it. 0 says there is nothing older.
+    """
+    older = 0
+    if start:
+        cut = data.find(b"\n") + 1
+        older, data = start + cut, data[cut:] if cut else b""
+    return data.decode("utf-8", errors="replace").splitlines(), older
+
+
+def unpacked_window(packed, end: int) -> tuple[bytes, int]:
+    """The last LOG_TAIL_BYTES before byte end of a packed log (0: before its end), and where they begin.
+
+    A packed file cannot be read from its end: it is unpacked in passing and only the wanted
+    part is kept. Caddy rolls at 10 MiB by default; the limit is for a file that is something else.
+    """
+    tail, read, stop = b"", 0, min(end or LOG_UNPACK_MAX, LOG_UNPACK_MAX)
+    with gzip.open(packed, "rb") as handle:
+        while read < stop and (chunk := handle.read(min(1024 * 1024, stop - read))):
+            read += len(chunk)
+            tail = (tail + chunk)[-LOG_TAIL_BYTES:]
+    return tail, read - len(tail)
+
+
+def read_log_tail(path: Path, end: int = 0) -> tuple[list[str], int]:
+    """Lines from the end of a log file, or from before byte end, and where the piece before them ends."""
     try:
         if path.name.endswith(".gz"):
-            # A packed file cannot be read from its end: unpack it in passing and keep the last part.
-            # Caddy rolls at 10 MiB by default; the limit is for a file that is something else.
-            tail, read = b"", 0
-            with gzip.open(path, "rb") as handle:
-                while read < LOG_UNPACK_MAX and (chunk := handle.read(1024 * 1024)):
-                    read += len(chunk)
-                    tail = (tail + chunk)[-LOG_TAIL_BYTES:]
-            start = read - len(tail)
+            data, start = unpacked_window(path, end)
         else:
             with open(path, "rb") as handle:
-                start = max(0, handle.seek(0, os.SEEK_END) - LOG_TAIL_BYTES)
+                size = handle.seek(0, os.SEEK_END)
+                stop = min(end, size) if end else size
+                start = max(0, stop - LOG_TAIL_BYTES)
                 handle.seek(start)
-                tail = handle.read()
+                data = handle.read(stop - start)
     except (OSError, EOFError, zlib.error):
-        return []
-    lines = tail.decode("utf-8", errors="replace").splitlines()
-    # Starting in the middle of the file means the first line is only the end of one.
-    return lines[1:] if start else lines
+        return [], 0
+    return window_lines(data, start)
 
 
-def load_log(host: dict, wanted: str) -> tuple[list[str], str, list[str]]:
-    """The available log names, the one that was read, and the lines at its end.
-
-    A Caddy on this machine is read from the mounted directory. A Caddy elsewhere is asked
-    for the end of its log over the address and login that already reach its admin API.
-    """
-    if host.get("storage") != "managed":
-        files = local_log_files()
-        # Only a name from the listing is ever opened, so the parameter cannot point anywhere else.
-        chosen = next((path for path in files if path.name == wanted), files[0] if files else None)
-        return [path.name for path in files], chosen.name if chosen else "", read_log_tail(chosen) if chosen else []
+def remote_log_names(host: dict) -> list[str]:
+    """The logs a Caddy elsewhere offers, newest first. Without a listing there is only the current one."""
     try:
         response = httpx.get(
-            f"{host['admin_url']}{LOG_REMOTE_PATH}",
-            headers={"Range": f"bytes=-{LOG_TAIL_BYTES}"},
+            f"{host['admin_url']}{LOG_REMOTE_DIR}/",
+            headers={"Accept": "application/json"},
+            timeout=ADMIN_TIMEOUT,
+            auth=admin_auth(host),
+            verify=admin_verify(host),
+        )
+        listed = response.json() if response.status_code == 200 else []
+        files = [item for item in listed if not item.get("is_dir") and log_name(str(item.get("name", "")))]
+        names = [str(item["name"]) for item in sorted(files, key=lambda item: str(item.get("mod_time", "")), reverse=True)]
+    except (httpx.HTTPError, ValueError, AttributeError, TypeError):
+        names = []
+    # A site set up before the listing existed serves the file but not the directory.
+    return [name for name in names if "/" not in name] or [LOG_REMOTE_FILE]
+
+
+def read_remote_log(host: dict, name: str, end: int) -> tuple[list[str], int] | None:
+    """Like read_log_tail, over the network. None when the file could not be had at all."""
+    packed = name.endswith(".gz")
+    if packed:
+        # Cannot be cut on the way: fetched whole, up to a limit, and unpacked here.
+        wanted = f"bytes=0-{LOG_REMOTE_PACKED_MAX - 1}"
+    elif end:
+        wanted = f"bytes={max(0, end - LOG_TAIL_BYTES)}-{end - 1}"
+    else:
+        wanted = f"bytes=-{LOG_TAIL_BYTES}"
+    try:
+        response = httpx.get(
+            f"{host['admin_url']}{LOG_REMOTE_DIR}/{quote(name)}",
+            headers={"Range": wanted},
             timeout=ADMIN_TIMEOUT,
             auth=admin_auth(host),
             verify=admin_verify(host),
         )
     except httpx.HTTPError:
-        return [], "", []
+        return None
     if response.status_code not in (200, 206):
-        return [], "", []
+        return None
     content = response.content
-    # A partial answer starts in the middle of a line, unless the file was shorter than what was asked for.
-    partial = response.status_code == 206 and not str(response.headers.get("content-range", "")).startswith("bytes 0-")
+    if packed:
+        try:
+            return window_lines(*unpacked_window(io.BytesIO(content), end))
+        except (OSError, EOFError, zlib.error):
+            return [], 0
+    # Where the piece begins is in the answer: "bytes 1000-1999/5000". A server that ignores
+    # the range sends everything, which begins at 0.
+    begins = re.match(r"bytes (\d+)-", str(response.headers.get("content-range", ""))) if response.status_code == 206 else None
+    start = int(begins.group(1)) if begins else 0
     if len(content) > LOG_TAIL_BYTES:
-        content, partial = content[-LOG_TAIL_BYTES:], True
-    lines = content.decode("utf-8", errors="replace").splitlines()
-    return ["caddy.log"], "caddy.log", lines[1:] if partial else lines
+        start, content = start + len(content) - LOG_TAIL_BYTES, content[-LOG_TAIL_BYTES:]
+    return window_lines(content, start)
+
+
+def load_log(host: dict, wanted: str, end: int = 0) -> tuple[list[str], str, list[str], int]:
+    """The available log names, the one that was read, its lines, and where the piece before them ends.
+
+    A Caddy on this machine is read from the mounted directory. A Caddy elsewhere is asked
+    over the address and login that already reach its admin API. Either way only a name
+    from the listing is ever opened, so the parameter cannot point anywhere else.
+    """
+    if host.get("storage") != "managed":
+        files = local_log_files()
+        chosen = next((path for path in files if path.name == wanted), files[0] if files else None)
+        lines, older = read_log_tail(chosen, end) if chosen else ([], 0)
+        return [path.name for path in files], chosen.name if chosen else "", lines, older
+    names = remote_log_names(host)
+    chosen = wanted if wanted in names else names[0]
+    found = read_remote_log(host, chosen, end)
+    if found is None and names == [LOG_REMOTE_FILE]:
+        return [], "", [], 0  # the site does not serve the log yet: the page explains the setup
+    return names, chosen, *(found or ([], 0))
 
 
 def parse_log_line(line: str) -> dict:
@@ -2603,6 +2685,14 @@ def parse_log_line(line: str) -> dict:
             stamp = datetime.fromtimestamp(stamp, timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
         level = str(entry.pop("level", "")).lower()
         logger, message = str(entry.pop("logger", "")), str(entry.pop("msg", ""))
+        asked = entry.get("request")
+        if logger.startswith("http.log.access") and isinstance(asked, dict):
+            # A request, told in one line instead of a screen of JSON.
+            message = f"{asked.get('method', '')} {asked.get('uri', '')} - {entry.get('status', '')}"
+            took = entry.get("duration")
+            parts = [str(asked.get("host", "")), f"from {asked.get('remote_ip', '')}", f"{entry.get('size', 0)} bytes"]
+            return {"time": str(stamp), "level": level, "logger": logger, "msg": message,
+                    "extra": ", ".join(parts) + (f", {took:.3f} s" if isinstance(took, (int, float)) else "")}
         extra = json.dumps(entry, ensure_ascii=False) if entry else ""
         return {"time": str(stamp), "level": level, "logger": logger, "msg": message, "extra": extra}
     except (ValueError, AttributeError, TypeError, OverflowError, OSError):
@@ -2610,11 +2700,11 @@ def parse_log_line(line: str) -> dict:
 
 
 @app.get("/logs")
-def logs_page(request: Request, file: str = "", level: str = "", q: str = "", quiet: str = ""):
+def logs_page(request: Request, file: str = "", level: str = "", q: str = "", quiet: str = "", end: int = 0):
     _, current = pick_host()
     if current is None:
         return RedirectResponse("/hosts/new", status_code=303)
-    names, chosen, lines = load_log(current, file)
+    names, chosen, lines, older = load_log(current, file, max(0, end))
     entries = []
     needle = q.strip().lower()
     threshold = LOG_LEVELS.index(level) if level in LOG_LEVELS else 0
@@ -2625,12 +2715,15 @@ def logs_page(request: Request, file: str = "", level: str = "", q: str = "", qu
         if threshold and (entry["level"] not in LOG_LEVELS or LOG_LEVELS.index(entry["level"]) < threshold):
             continue
         # Caddyman's own polling of the admin API would otherwise bury everything else.
-        if quiet and entry["logger"] in ("admin.api", "http.log.access"):
+        # In the log of a route the requests are the point, so they stay.
+        if quiet and (entry["logger"] == "admin.api" or (entry["logger"].startswith("http.log.access") and not chosen.startswith(ACCESS_LOG_PREFIX))):
             continue
         entries.append(entry)
         if len(entries) == LOG_SHOWN:
             break
     context = {"files": names, "chosen": chosen, "entries": entries, "level": level, "q": q, "quiet": quiet}
+    # The way to the piece before this one, and whether this is already an older piece.
+    context.update(older=older, end=max(0, end))
     snippets = {"snippet": LOG_SNIPPET, "remote_snippet": LOG_REMOTE_SNIPPET, "log_dir": str(LOG_DIR)}
     return page(request, "logs.html", host=current, shown=LOG_SHOWN, **snippets, **context)
 

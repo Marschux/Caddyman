@@ -13,7 +13,8 @@ A web interface for Caddy routes that works with your own ACME CA, such as
 - **TLS per route:** your own ACME CA, Caddy's default, Caddy's internal CA, or none
 - **Certificate check:** shows who issued what each route really serves, and when it expires
 - **Root CA page:** download, fingerprints and import steps for Windows, Debian and Firefox
-- **Logs:** Caddy's log, live and filterable, to see why a certificate did not arrive
+- **Logs:** Caddy's log, live and filterable, to see why a certificate did not arrive; rotated
+  files too, and an access log per route for the routes that ask for one
 - **Backup:** all routes as a ZIP, with a preview before a restore writes anything
 
 Caddyman writes one file per route into the directory Caddy already reads, then reloads Caddy.
@@ -29,6 +30,7 @@ and a change Caddy rejects is undone on the spot.
 	log caddyman {
 		output file /var/log/caddy/caddy.log
 		format json
+		exclude http.log.access
 	}
 }
 
@@ -141,7 +143,7 @@ admin.home.example {
 	}
 	handle_path /caddyman-logs/* {
 		root * /var/log/caddy
-		file_server
+		file_server browse
 	}
 	handle {
 		reverse_proxy localhost:2019 {

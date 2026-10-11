@@ -1286,10 +1286,80 @@ class TestLogs(RouteTest):
         self.patch(main, "LOG_TAIL_BYTES", 200)
         filler = ['{"level":"info","ts":2,"logger":"x","msg":"filler line number %04d"}' % i for i in range(50)]
         self.write("caddy.log", ["FIRST LINE OF THE FILE", *filler, '{"level":"info","ts":3,"logger":"x","msg":"the last one"}'])
-        lines = main.read_log_tail(main.Path(self.logs) / "caddy.log")
+        lines, older = main.read_log_tail(main.Path(self.logs) / "caddy.log")
         self.assertEqual(main.parse_log_line(lines[-1])["msg"], "the last one")
         self.assertLess(len(lines), 5)
         self.assertTrue(all(line.startswith("{") for line in lines))  # no half line at the start
+        # Piece by piece backwards through the file: every line comes up exactly once, none cut in two.
+        seen, steps = list(lines), 0
+        while older:
+            lines, older = main.read_log_tail(main.Path(self.logs) / "caddy.log", older)
+            seen, steps = lines + seen, steps + 1
+        self.assertEqual(seen, ["FIRST LINE OF THE FILE", *filler, '{"level":"info","ts":3,"logger":"x","msg":"the last one"}'])
+        self.assertGreater(steps, 10)
+        # The page offers the way back and the way on.
+        page = self.client.get("/logs").text
+        self.assertIn("Older entries", page)
+        self.assertNotIn("Back to the newest", page)
+        end = main.re.search(r"end=(\d+)", page).group(1)
+        older_page = self.client.get(f"/logs?end={end}").text
+        self.assertIn("Back to the newest", older_page)
+        self.assertNotIn("the last one", older_page)
+
+    def test_a_route_can_write_its_own_access_log(self):
+        self.create(log="1")
+        self.assertIn(
+            "\tlog {\n\t\toutput file /var/log/caddy/access-pdf.log {\n\t\t\troll_size 10MiB\n\t\t\troll_keep 3\n\t\t}\n\t}\n}\n",
+            self.read("pdf.caddy"),
+        )
+        self.assertIn('"tls":"acme_ca","log":true,"upstream"', self.read("pdf.caddy"))
+        # It still opens in the form, with the box ticked, and the list leads to its log.
+        self.assertIn('name="log" value="1" checked', self.client.get("/routes/pdf/edit").text)
+        self.assertIn('href="/logs?file=access-pdf.log">Access log</a>', self.client.get("/").text)
+        # A request reads as one line, and "Hide admin API requests" does not hide it in a route's own log.
+        line = ('{"level":"info","ts":5,"logger":"http.log.access.log0","msg":"handled request","status":200,"size":12,"duration":0.0042,'
+                '"request":{"method":"GET","uri":"/print?x=1","host":"pdf.lab.test","remote_ip":"10.0.0.9"}}')
+        self.write("access-pdf.log", [line], mtime=3000)
+        for query in ("file=access-pdf.log", "file=access-pdf.log&quiet=1"):
+            page = self.client.get(f"/logs?{query}").text
+            self.assertIn("GET /print?x=1 - 200", page)
+            self.assertIn("pdf.lab.test, from 10.0.0.9, 12 bytes, 0.004 s", page)
+        # In Caddy's own log the same line is noise and goes with the box.
+        self.write("caddy.log", [*self.LINES, line], mtime=4000)
+        self.assertNotIn("GET /print", self.client.get("/logs?file=caddy.log&quiet=1").text)
+        # A file written before the option existed stays as it is and stays in the form.
+        self.create(host="wiki", upstream="10.0.0.7:3000")
+        self.assertNotIn("log", self.read("wiki.caddy").split("\n", 1)[0])
+        self.assertIsNotNone(main.read_route(main.Path(self.sites) / "wiki.caddy", self.host))
+
+    def test_caddy_elsewhere_lists_its_rotated_logs(self):
+        import gzip
+
+        packed = gzip.compress(b"FIRST\n" + self.LINES[2].encode() + b"\n")
+        listing = [
+            {"name": "sub/", "is_dir": True, "mod_time": "2026-10-03T00:00:00Z"},
+            {"name": "notes.txt", "is_dir": False, "mod_time": "2026-10-04T00:00:00Z"},
+            {"name": "caddy-2026-10-01.log.gz", "is_dir": False, "mod_time": "2026-10-01T00:00:00Z"},
+            {"name": "caddy.log", "is_dir": False, "mod_time": "2026-10-02T00:00:00Z"},
+        ]
+
+        def answer(url, **kwargs):
+            if url.endswith("/caddyman-logs/"):
+                return mock.Mock(status_code=200, json=lambda: listing)
+            if url.endswith(".gz"):
+                return mock.Mock(status_code=206, content=packed, headers={})
+            return mock.Mock(status_code=206, content=self.LINES[1].encode(), headers={"content-range": "bytes 0-9/10"})
+
+        self.remote()
+        get = self.patch(main.httpx, "get", mock.Mock(side_effect=answer))
+        names, chosen, lines, _ = main.load_log(main.load_hosts()[0], "")
+        self.assertEqual((names, chosen, lines), (["caddy.log", "caddy-2026-10-01.log.gz"], "caddy.log", [self.LINES[1]]))
+        page = self.client.get("/logs", params={"file": "caddy-2026-10-01.log.gz"}).text
+        self.assertIn("will retry", page)
+        self.assertEqual(get.call_args.args[0], "https://admin.lab.test/caddyman-logs/caddy-2026-10-01.log.gz")
+        # A name that is not in the listing is never asked for.
+        self.client.get("/logs", params={"file": "../Caddyfile"})
+        self.assertEqual(get.call_args.args[0], "https://admin.lab.test/caddyman-logs/caddy.log")
 
     def test_a_packed_log_from_a_rotation_is_listed_and_read(self):
         import gzip
@@ -1305,7 +1375,7 @@ class TestLogs(RouteTest):
         self.assertIn("FIRST LINE OF THE FILE", page)
         # Only its end, like any other log, and never a half line.
         self.patch(main, "LOG_TAIL_BYTES", 200)
-        lines = main.read_log_tail(main.Path(packed))
+        lines, _ = main.read_log_tail(main.Path(packed))
         self.assertEqual(main.parse_log_line(lines[-1])["msg"], "from the packed file")
         self.assertLess(len(lines), 5)
         self.assertTrue(all(line.startswith("{") for line in lines))
@@ -1348,8 +1418,9 @@ class TestLogs(RouteTest):
 
     def test_partial_answer_loses_its_first_half_line(self):
         self.remote(content=b'half a line"}\n' + self.LINES[1].encode(), headers={"content-range": "bytes 500-999/1000"})
-        names, chosen, lines = main.load_log(main.load_hosts()[0], "")
+        names, chosen, lines, older = main.load_log(main.load_hosts()[0], "")
         self.assertEqual((names, chosen, lines), (["caddy.log"], "caddy.log", [self.LINES[1]]))
+        self.assertEqual(older, 500 + len(b'half a line"}\n'))  # the piece before ends behind that line, so it gets it whole
 
     def test_caddy_elsewhere_without_the_log_site_shows_how_to_add_it(self):
         self.remote(status_code=404)

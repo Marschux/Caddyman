@@ -42,7 +42,8 @@
 				{% else %}<code>{{ route.upstream or route.target or route.root }}</code>{% endif %}
 				{% if item.target_down %}<span class="cert warn" title="No TCP connection from Caddyman to this target. Caddy may see it differently.">Not reachable</span>{% endif %}
 				{% if route.auth_user %}<span class="tag">Basic auth</span>{% endif %}
-				{% if route.host_header %}<span class="tag">Host header</span>{% endif %}</td>
+				{% if route.host_header %}<span class="tag">Host header</span>{% endif %}
+				{% if route.log %}{% if "logs" in request.state.me.permissions %}<a class="tag" href="/logs?file=access-{{ item.name|urlencode }}.log">Access log</a>{% else %}<span class="tag">Access log</span>{% endif %}{% endif %}</td>
 			<td class="nowrap"><span class="tag">{{ {"acme_ca": "Own ACME CA", "default": "Caddy default", "internal": "Caddy internal", "none": "None"}[route.tls] }}</span></td>
 			{% else %}
 			<td><code>{{ item.name }}.caddy</code></td>

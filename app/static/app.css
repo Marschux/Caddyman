@@ -238,6 +238,7 @@ td.nowrap { white-space: nowrap; }
 /* The name of a group above its routes. */
 tr.group th { padding: 10px 16px; color: var(--ink-muted); background: var(--surface-2); }
 td > .tag:first-child { margin-left: 0; }
+a.tag:hover { color: var(--ink); text-decoration: none; }
 /* Opens somewhere else: reads as the value it wraps, the arrow shows on hover. */
 a.out { color: var(--ink); }
 a.out::after { content: "\2197"; margin-left: 6px; color: var(--product); font-size: 12px; opacity: 0; }
