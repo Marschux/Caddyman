@@ -155,7 +155,6 @@ class TestHosts(AppTest):
 
     def test_host_is_validated(self):
         bad = [
-            {"name": ""},
             {"admin_url": "ftp://caddy:2019"},
             {"admin_url": "http://user:pw@caddy:2019"},
             {"admin_url": "http://caddy:2019/config"},
@@ -175,15 +174,18 @@ class TestHosts(AppTest):
         self.client.post("/hosts/new", data=self.host())
         host_id = main.load_hosts()[0]["id"]
         # There is one Caddy: a second one cannot be added, the old list leads to its settings.
-        self.assertEqual(self.client.post("/hosts/new", data=self.host(name="second")).headers["location"], "/hosts")
+        self.assertEqual(self.client.post("/hosts/new", data=self.host(domain_suffix="second.test")).headers["location"], "/hosts")
         self.assertEqual(self.client.get("/hosts").headers["location"], f"/hosts/{host_id}/edit")
         self.assertEqual(self.client.get("/hosts/new").headers["location"], f"/hosts/{host_id}/edit")
         self.assertEqual(len(main.load_hosts()), 1)
-        self.client.post(f"/hosts/{host_id}/edit", data=self.host(name="renamed", admin_url="http://caddy:2019/"))
+        self.client.post(f"/hosts/{host_id}/edit", data=self.host(domain_suffix="new.test", admin_url="http://caddy:2019/"))
         self.assertEqual(
-            [(h["id"], h["name"], h["admin_url"]) for h in main.load_hosts()],
-            [(host_id, "renamed", "http://caddy:2019")],
+            [(h["id"], h["domain_suffix"], h["admin_url"]) for h in main.load_hosts()],
+            [(host_id, "new.test", "http://caddy:2019")],
         )
+        # The name from the days of several Caddys is gone: not asked for, not stored.
+        self.assertNotIn("name", main.load_hosts()[0])
+        self.assertNotIn('name="name"', self.client.get(f"/hosts/{host_id}/edit").text)
         self.assertEqual(self.client.post(f"/hosts/{host_id}/delete").headers["location"], "/hosts/new")
         self.assertEqual(main.load_hosts(), [])
         self.assertEqual(self.client.get("/hosts/new").status_code, 200)
@@ -576,7 +578,7 @@ class TestManaged(AppTest):
 
     def test_empty_password_keeps_the_old_one(self):
         _, host = self.add_host()
-        self.client.post(f"/hosts/{host['id']}/edit", data=self.form(admin_password="", name="renamed"))
+        self.client.post(f"/hosts/{host['id']}/edit", data=self.form(admin_password=""))
         self.assertEqual(main.admin_auth(main.load_hosts()[0]), ("caddyman", "admin-secret"))
         self.assertEqual(self.client.post(f"/hosts/{host['id']}/edit", data=self.form(admin_user="eve", admin_password="")).status_code, 400)
         # The layout of an existing host cannot be switched through the form.
@@ -916,7 +918,7 @@ class TestBackup(RouteTest):
         self.assertIn("host settings from the archive are restored", self.upload(self.archive).text)
         self.assertEqual(main.load_hosts(), [])  # the preview restores nothing
         self.confirm(self.archive)
-        self.assertEqual([(h["name"], h["sites_dir"]) for h in main.load_hosts()], [("lab", self.sites)])
+        self.assertEqual([(h["domain_suffix"], h["sites_dir"]) for h in main.load_hosts()], [("lab.test", self.sites)])
         self.assertEqual(sorted(os.listdir(self.sites)), ["pdf.caddy", "wiki.caddy"])
 
     def test_hosts_in_the_archive_never_replace_existing_ones(self):

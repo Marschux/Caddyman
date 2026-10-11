@@ -324,7 +324,6 @@ def logout():
 
 
 HOST_DEFAULTS = {
-    "name": "",
     "admin_url": "http://caddy:2020",
     "caddyfile": "/etc/caddy/Caddyfile",
     "sites_dir": "/etc/caddy/sites",
@@ -398,8 +397,6 @@ def is_clean_path(value: str) -> bool:
 
 
 def host_problem(host: dict) -> str | None:
-    if not host["name"] or len(host["name"]) > 64:
-        return "The name needs 1 to 64 characters."
     if not is_http_url(host["admin_url"]) or urlsplit(host["admin_url"]).path:
         return "The admin API has to look like http://caddy:2020."
     if host.get("storage") != "managed" and not (is_clean_path(host["caddyfile"]) and is_clean_path(host["sites_dir"])):
@@ -764,7 +761,6 @@ def caddy_load(host: dict) -> str | None:
 def audit(host: dict, route: str, action: str, error: str | None) -> None:
     entry = {
         "time": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S"),
-        "host": host["name"],
         "route": route,
         "action": action,
         "result": error or "ok",
@@ -1220,7 +1216,7 @@ def host_push(host_id: str):
         audit(host, "-", "reload", error)
     if error:
         return redirect(f"/status#host-{host_id}", "error", f"Caddy rejected the configuration: {error}")
-    return redirect(f"/status#host-{host_id}", "ok", f"{host['name']} now runs the configuration from Caddyman.")
+    return redirect(f"/status#host-{host_id}", "ok", "Caddy now runs the configuration from Caddyman.")
 
 
 PEM_RE = re.compile(r"-----BEGIN CERTIFICATE-----.+?-----END CERTIFICATE-----", re.DOTALL)
@@ -1353,7 +1349,6 @@ BACKUP_MAX_FILES = 2000
 BACKUP_README = """Caddyman backup
 Created: {created} UTC
 Caddyman version: {version}
-Host: {host}
 
 sites/       one file per route. This is what a restore writes back.
 Caddyfile    the base Caddyfile, as a copy for reference. Caddyman never writes it.
@@ -1374,7 +1369,7 @@ def build_backup(host: dict) -> bytes:
     keys = ("id", *HOST_DEFAULTS, "storage")
     hosts = [{key: item.get(key, HOST_DEFAULTS.get(key, "")) for key in keys} for item in load_hosts()]
     with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as archive:
-        archive.writestr("README.txt", BACKUP_README.format(created=created, version=VERSION, host=host["name"]))
+        archive.writestr("README.txt", BACKUP_README.format(created=created, version=VERSION))
         archive.writestr("backup.json", json.dumps({"created": created, "version": VERSION, "host_id": host["id"]}))
         archive.writestr("hosts.json", json.dumps(hosts, indent=2))
         try:
@@ -1459,8 +1454,7 @@ def backup_download(host: str | None = None):
     if current is None:
         return RedirectResponse("/hosts/new", status_code=303)
     stamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M")
-    name = re.sub(r"[^A-Za-z0-9_-]", "_", current["name"])
-    headers = {"Content-Disposition": f'attachment; filename="caddyman-{name}-{stamp}.zip"'}
+    headers = {"Content-Disposition": f'attachment; filename="caddyman-{stamp}.zip"'}
     return Response(build_backup(current), media_type="application/zip", headers=headers)
 
 

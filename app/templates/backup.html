@@ -36,7 +36,7 @@
 {% if host %}
 <section>
 	<h2>Export</h2>
-	<p class="empty">One ZIP with all routes of {{ host.name }}, a copy of its base Caddyfile and the host settings.
+	<p class="empty">One ZIP with all routes, a copy of the base Caddyfile and the host settings.
 		It does <strong>not</strong> contain the root CA: that lives in the volume of your CA and needs its own backup,
 		see <a href="/ca?host={{ host.id }}">Root CA</a>.</p>
 	<a class="button" href="/backup/download?host={{ host.id }}">Download backup</a>

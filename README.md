@@ -102,7 +102,8 @@ Caddy, including every service behind the proxy. The status page marks it.
 
 ## Caddy on another machine
 
-Choose "On another machine" in the setup dialog. Caddyman then keeps the base Caddyfile and the
+Choose "Caddyman only reaches Caddy over the network" in the setup dialog. That is the layout for
+every Caddy whose files cannot be mounted into the Caddyman container. Caddyman then keeps the base Caddyfile and the
 routes itself and sends both to Caddy as one Caddyfile.
 
 - **Every push replaces Caddy's whole configuration.** The base Caddyfile you paste into Caddyman

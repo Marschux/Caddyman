@@ -14,9 +14,9 @@
 {% for host in hosts %}
 <section id="host-{{ host.id }}">
 	<div class="heading">
-		<h2>{{ host.name }}</h2>
+		<h2>Caddy</h2>
 		<form method="post" action="/hosts/{{ host.id }}/push" class="inline"
-			data-confirm="Send the configuration to {{ host.name }} now? It replaces what Caddy currently runs." onsubmit="return confirm(this.dataset.confirm)">
+			data-confirm="Send the configuration to Caddy now? It replaces what Caddy currently runs." onsubmit="return confirm(this.dataset.confirm)">
 			<button type="submit" class="link">Reload Caddy</button>
 		</form>
 		<a href="/hosts/{{ host.id }}/edit">Settings</a>

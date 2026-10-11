@@ -7,21 +7,20 @@
 		Moving from another install? <a href="/backup">Restore a backup</a> instead.</p>{% endif %}
 	{% if error %}<p class="error" role="alert">{{ error }}</p>{% endif %}
 
-	<label for="name">Name</label>
-	<input id="name" name="name" value="{{ host.name }}" maxlength="64" required autofocus>
-
 	{% if host.id %}
-	<p>Layout: <strong>{{ "Caddy on another machine" if host.storage == "managed" else "Caddy on this machine" }}</strong>. It cannot be changed afterwards.</p>
+	<p>Layout: <strong>{{ "Caddyman only reaches Caddy over the network" if host.storage == "managed" else "Caddyman can see Caddy's files" }}</strong>. It cannot be changed afterwards.</p>
 	{% else %}
 	<fieldset class="choice">
-		<legend>Where does Caddy run?</legend>
-		<label><input type="radio" name="storage" value="mounted" {{ "checked" if host.storage != "managed" }}> On this machine, sharing its files</label>
-		<label><input type="radio" name="storage" value="managed" {{ "checked" if host.storage == "managed" }}> On another machine</label>
+		<legend>How does Caddyman reach Caddy?</legend>
+		<label><input type="radio" name="storage" value="mounted" {{ "checked" if host.storage != "managed" }}> Caddyman can see Caddy's files</label>
+		<label><input type="radio" name="storage" value="managed" {{ "checked" if host.storage == "managed" }}> Caddyman only reaches Caddy over the network</label>
 	</fieldset>
+	<small>The first is the usual case: Caddy in a container next door, with its Caddyfile and sites directory mounted
+		into this one. The second is for a Caddy whose files cannot be mounted here, typically on another machine.</small>
 	{% endif %}
 
 	<label for="admin_url">Admin API</label>
-	<input id="admin_url" name="admin_url" value="{{ host.admin_url }}" required>
+	<input id="admin_url" name="admin_url" value="{{ host.admin_url }}" required autofocus>
 	<small>The address of the site in front of Caddy's admin API, reachable from this container:
 		<code>http://caddy:2020</code> on a shared Docker network, or <code>https://admin.home.example</code> for a Caddy elsewhere.</small>
 
@@ -78,7 +77,7 @@
 {% if host.id %}
 <form method="post" action="/hosts/{{ host.id }}/delete" class="card wide"
 	data-confirm="Disconnect Caddyman from this Caddy? The route files and Caddy itself stay untouched, and the setup dialog comes back." onsubmit="return confirm(this.dataset.confirm)">
-	<p>Disconnecting brings the setup dialog back, for instance to switch between a Caddy on this machine and one elsewhere. Route files and Caddy itself stay untouched.</p>
+	<p>Disconnecting brings the setup dialog back, for instance to switch between the two layouts. Route files and Caddy itself stay untouched.</p>
 	<button type="submit" class="secondary">Disconnect this Caddy</button>
 </form>
 {% endif %}

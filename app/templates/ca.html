@@ -20,7 +20,7 @@
 	Whoever runs this Caddyman gives you a <strong>check code</strong>. Ask for it in person or on the phone:
 	it is what proves that the certificate you got is the real one.</p>
 {% else %}
-<p class="empty">Every device that should trust the routes of {{ host.name }} needs this certificate once.
+<p class="empty">Every device that should trust the routes behind this Caddy needs this certificate once.
 	{% if internal %}This is Caddy's own internal CA, because the host has no root CA source configured.{% endif %}</p>
 
 <section>
