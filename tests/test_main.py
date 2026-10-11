@@ -29,6 +29,7 @@ class AppTest(unittest.TestCase):
     def setUp(self):
         main.AUTH_FILE.unlink(missing_ok=True)
         main.HOSTS_FILE.unlink(missing_ok=True)
+        main.MAIL_FILE.unlink(missing_ok=True)
         main.LOGIN_FAILS.clear()
         # Entering the client runs the startup that creates the setup token.
         self.client = TestClient(main.app, follow_redirects=False)
@@ -547,9 +548,19 @@ class TestUsers(RouteTest):
         guest = TestClient(main.app, follow_redirects=False)
         self.assertEqual(guest.get("/forgot").status_code, 404)  # no mail server, no offer
         self.assertNotIn("/forgot", guest.get("/login").text)
-        self.patch(main, "MAIL_READY", True)
-        self.patch(main, "PUBLIC_URL", "https://caddyman.lab.test")
-        mail = self.patch(main, "send_mail", mock.Mock(return_value=None))
+        settings = {"public_url": "https://caddyman.lab.test/", "host": "smtp.lab.test", "port": "587", "security": "starttls",
+                    "user": "caddyman", "password": "mail-secret", "sender": "caddyman@lab.test"}
+        for wrong in ({"sender": "nobody"}, {"port": "0"}, {"public_url": "caddyman.lab.test"}, {"security": "magic"}):
+            self.assertEqual(self.client.post("/users/mail", data={**settings, **wrong}).status_code, 400)
+        self.assertEqual(self.client.post("/users/mail", data=settings).headers["location"], "/users/mail")
+        self.assertNotIn("mail-secret", main.MAIL_FILE.read_text())  # encrypted at rest
+        self.assertNotIn("mail-secret", self.client.get("/users/mail").text)
+        # An empty password field keeps the stored one.
+        self.client.post("/users/mail", data={**settings, "password": ""})
+        self.assertEqual(main.VAULT.decrypt(main.load_mail()["password_enc"].encode()), b"mail-secret")
+        mail = self.patch(main, "send_mail", mock.Mock(return_value="connection refused"))
+        self.assertIn("connection refused", self.client.get(self.client.post("/users/test-mail").headers["location"]).text)
+        mail.return_value = None
         thread = self.patch(main.threading, "Thread", mock.Mock())
         self.assertIn("/forgot", guest.get("/login").text)
         # The answer is the same for an account that does not exist, and no mail goes out.

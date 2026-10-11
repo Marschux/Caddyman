@@ -34,15 +34,11 @@
 <section>
 	<h2>Forgotten passwords</h2>
 	{% if mail_ready %}
-	<p class="empty">The login page offers "Forgot password?" and mails a link through <code>{{ smtp_host }}</code>
-		to accounts that have an email address.</p>
-	<form method="post" action="/users/test-mail" class="inline">
-		<button type="submit" class="link">Send a test mail to my own address</button>
-	</form>
+	<p class="empty">The login page offers "Forgot password?" and mails a link through <code>{{ mail.host }}</code>
+		to accounts that have an email address. <a href="/users/mail">Mail settings</a></p>
 	{% else %}
 	<p class="empty">Mail is not set up, so the login page offers no "Forgot password?". Until then, set a new
-		password for somebody here under "Edit". To switch it on, start the container with
-		<code>CADDYMAN_SMTP_HOST</code>, <code>CADDYMAN_SMTP_FROM</code> and <code>CADDYMAN_PUBLIC_URL</code>.</p>
+		password for somebody here under "Edit". <a href="/users/mail">Set up mail</a></p>
 	{% endif %}
 </section>
 {% endblock %}

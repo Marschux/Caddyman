@@ -1,0 +1,44 @@
+{% extends "base.html" %}
+{% block title %}Mail - Caddyman{% endblock %}
+{% block content %}
+<form method="post" action="/users/mail" class="card wide">
+	<h1>Mail</h1>
+	<p>Only used for "Forgot password?" on the login page. Leave the mail server empty to switch it off.</p>
+	{% if error %}<p class="error" role="alert">{{ error }}</p>{% endif %}
+
+	<label for="public_url">Address of Caddyman</label>
+	<input id="public_url" name="public_url" value="{{ mail.public_url }}" placeholder="https://caddyman.home.example">
+	<small>Where people open Caddyman. The link in the mail points there.</small>
+
+	<label for="host">Mail server</label>
+	<input id="host" name="host" value="{{ mail.host }}" placeholder="smtp.example.com" autocomplete="off">
+
+	<label for="security">Encryption</label>
+	<select id="security" name="security">
+		{% for value, label in securities.items() %}
+		<option value="{{ value }}" {{ "selected" if mail.security == value }}>{{ label }}</option>
+		{% endfor %}
+	</select>
+
+	<label for="port">Port</label>
+	<input id="port" name="port" value="{{ mail.port }}" inputmode="numeric">
+
+	<label for="user">Username <span class="optional">optional</span></label>
+	<input id="user" name="user" value="{{ mail.user }}" autocomplete="off">
+	<label for="password">Password</label>
+	<input id="password" name="password" type="password" autocomplete="new-password"
+		placeholder="{{ 'Leave empty to keep the current password' if mail.password_enc }}">
+	<small>Stored encrypted with <code>CADDYMAN_SECRET_KEY</code>.</small>
+
+	<label for="sender">Sender</label>
+	<input id="sender" name="sender" type="email" value="{{ mail.sender }}" placeholder="caddyman@example.com">
+
+	<button type="submit">Save</button>
+	<p class="below"><a href="/users">Back to the users</a></p>
+</form>
+<form method="post" action="/users/test-mail" class="card wide">
+	<p>Sends a mail to the address in your own profile, with the settings as they are saved. An error from the mail
+		server is shown here word for word.</p>
+	<button type="submit" class="secondary">Send a test mail</button>
+</form>
+{% endblock %}

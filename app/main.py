@@ -391,7 +391,7 @@ def setup_submit(
 def login_page(request: Request, **context):
     # The card would lead straight back here if the open page is switched off.
     ca_hint = host_flag("public_ca") and host_flag("login_ca_hint")
-    return page(request, "login.html", ca_hint=ca_hint, mail_ready=MAIL_READY, **context)
+    return page(request, "login.html", ca_hint=ca_hint, mail_ready=mail_ready(), **context)
 
 
 @app.get("/login")
@@ -507,44 +507,71 @@ def logout():
 
 # Mail is only for a forgotten password. It needs the public address as well: taking it from
 # the request would let anyone have a reset link mailed that points at a server of theirs.
-SMTP_HOST = os.getenv("CADDYMAN_SMTP_HOST", "").strip()
-SMTP_PORT = int(os.getenv("CADDYMAN_SMTP_PORT", "587"))
-SMTP_USER = os.getenv("CADDYMAN_SMTP_USER", "")
-SMTP_PASSWORD = os.getenv("CADDYMAN_SMTP_PASSWORD", "")
-SMTP_FROM = os.getenv("CADDYMAN_SMTP_FROM", "") or SMTP_USER
-SMTP_SECURITY = os.getenv("CADDYMAN_SMTP_SECURITY", "starttls").lower()  # starttls, ssl or none
-PUBLIC_URL = os.getenv("CADDYMAN_PUBLIC_URL", "").strip().rstrip("/")
-MAIL_READY = bool(SMTP_HOST and SMTP_FROM and PUBLIC_URL)
+MAIL_FILE = DATA_DIR / "mail.json"
+MAIL_DEFAULTS = {"public_url": "", "host": "", "port": "587", "user": "", "sender": "", "security": "starttls"}
+MAIL_SECURITY = {"starttls": "STARTTLS (port 587)", "ssl": "SSL/TLS (port 465)", "none": "None - unencrypted"}
 RESET_SECONDS = 3600
 RESETS = URLSafeTimedSerializer(SECRET_KEY, salt="reset")
 
 
+def load_mail() -> dict:
+    try:
+        return {**MAIL_DEFAULTS, **json.loads(MAIL_FILE.read_text(encoding="utf-8"))}
+    except FileNotFoundError:
+        return dict(MAIL_DEFAULTS)
+
+
+def mail_ready(mail: dict | None = None) -> bool:
+    mail = mail or load_mail()
+    return bool(mail["host"] and mail["sender"] and mail["public_url"])
+
+
+def mail_problem(mail: dict) -> str | None:
+    if not mail["host"]:
+        return None  # an empty server switches mail off, the rest does not matter then
+    if not mail["host"].isprintable() or " " in mail["host"] or len(mail["host"]) > 253:
+        return "The mail server has to be a hostname or an address."
+    if not mail["port"].isdigit() or not 0 < int(mail["port"]) < 65536:
+        return "The port has to be a number between 1 and 65535."
+    if not EMAIL_RE.match(mail["sender"]):
+        return "The sender has to be an email address."
+    if mail["security"] not in MAIL_SECURITY:
+        return "Unknown encryption."
+    if not is_http_url(mail["public_url"]) or urlsplit(mail["public_url"]).path:
+        return "The address of Caddyman has to look like https://caddyman.home.example."
+    return None
+
+
 def send_mail(to: str, subject: str, body: str) -> str | None:
     """Send one plain-text mail. Returns the error, or None on success."""
+    mail = load_mail()
     message = EmailMessage()
-    message["From"], message["To"], message["Subject"] = SMTP_FROM, to, subject
+    message["From"], message["To"], message["Subject"] = mail["sender"], to, subject
     message.set_content(body)
     # The server's certificate is verified against the public CAs. A mail server with a
     # certificate from a private CA needs that CA in the container's trust store.
     context = ssl.create_default_context()
     try:
-        if SMTP_SECURITY == "ssl":
-            server = smtplib.SMTP_SSL(SMTP_HOST, SMTP_PORT, timeout=10, context=context)
+        password = VAULT.decrypt(mail["password_enc"].encode()).decode() if mail.get("password_enc") else ""
+        if mail["security"] == "ssl":
+            server = smtplib.SMTP_SSL(mail["host"], int(mail["port"]), timeout=10, context=context)
         else:
-            server = smtplib.SMTP(SMTP_HOST, SMTP_PORT, timeout=10)
+            server = smtplib.SMTP(mail["host"], int(mail["port"]), timeout=10)
         with server:
-            if SMTP_SECURITY == "starttls":
+            if mail["security"] == "starttls":
                 server.starttls(context=context)
-            if SMTP_USER:
-                server.login(SMTP_USER, SMTP_PASSWORD)
+            if mail["user"]:
+                server.login(mail["user"], password)
             server.send_message(message)
+    except InvalidToken:
+        return "The stored mail password was encrypted with a different CADDYMAN_SECRET_KEY. Enter it again."
     except (OSError, smtplib.SMTPException) as error:
         return str(error) or type(error).__name__
     return None
 
 
 def send_reset_mail(user: dict) -> None:
-    link = f"{PUBLIC_URL}/reset?token={RESETS.dumps(session_value(user))}"
+    link = f"{load_mail()['public_url']}/reset?token={RESETS.dumps(session_value(user))}"
     body = (
         f"Somebody asked for a new password for the Caddyman account {user['username']}.\n\n"
         f"Set one here, within the next hour:\n{link}\n\n"
@@ -556,14 +583,14 @@ def send_reset_mail(user: dict) -> None:
 
 @app.get("/forgot")
 def forgot_form(request: Request):
-    if not MAIL_READY:
+    if not mail_ready():
         return Response(status_code=404)
     return page(request, "forgot.html")
 
 
 @app.post("/forgot")
 def forgot_submit(request: Request, account: str = Form("")):
-    if not MAIL_READY:
+    if not mail_ready():
         return Response(status_code=404)
     address = client_address(request)
     if wait := locked_seconds(address):
@@ -582,14 +609,14 @@ def forgot_submit(request: Request, account: str = Form("")):
 @app.get("/reset")
 def reset_form(request: Request, token: str = ""):
     valid = signed_user(RESETS, token, load_users(), RESET_SECONDS) is not None
-    return page(request, "reset.html", status_code=200 if valid else 400, token=token, valid=valid, mail_ready=MAIL_READY)
+    return page(request, "reset.html", status_code=200 if valid else 400, token=token, valid=valid, mail_ready=mail_ready())
 
 
 @app.post("/reset")
 def reset_submit(request: Request, token: str = Form(""), password: str = Form(""), repeat: str = Form("")):
     user = signed_user(RESETS, token, load_users(), RESET_SECONDS)
     if user is None:
-        return page(request, "reset.html", status_code=400, token=token, valid=False, mail_ready=MAIL_READY)
+        return page(request, "reset.html", status_code=400, token=token, valid=False, mail_ready=mail_ready())
     if error := password_problem(password, repeat):
         return page(request, "reset.html", status_code=400, token=token, valid=True, error=error)
     # The link carries the end of the old hash, so it stops working with this very change.
@@ -664,23 +691,45 @@ def profile_2fa_disable(request: Request, current: str = Form("")):
     return redirect("/profile", "ok", "Two-factor login is switched off.")
 
 
-def users_page(request: Request, **context):
-    return page(request, "users.html", users=load_users(), mail_ready=MAIL_READY, smtp_host=SMTP_HOST, **context)
-
-
 @app.get("/users")
 def users_list(request: Request):
-    return users_page(request)
+    mail = load_mail()
+    return page(request, "users.html", users=load_users(), mail=mail, mail_ready=mail_ready(mail))
+
+
+@app.get("/users/mail")
+def mail_form(request: Request):
+    return page(request, "mail_form.html", mail=load_mail(), securities=MAIL_SECURITY)
+
+
+@app.post("/users/mail")
+async def mail_save(request: Request):
+    form = await request.form()
+    stored = load_mail()
+    mail = {key: str(form.get(key, "")).strip() for key in MAIL_DEFAULTS}
+    mail["public_url"] = mail["public_url"].rstrip("/")
+    if error := mail_problem(mail):
+        return page(request, "mail_form.html", status_code=400, error=error, mail=mail, securities=MAIL_SECURITY)
+    if password := str(form.get("password", "")):
+        mail["password_enc"] = VAULT.encrypt(password.encode()).decode()
+    elif mail["user"] and mail["user"] == stored["user"] and stored.get("password_enc"):
+        mail["password_enc"] = stored["password_enc"]  # an empty field keeps the password of the same login
+    write_private(MAIL_FILE, json.dumps(mail, indent=2))
+    if not mail["host"]:
+        return redirect("/users", "ok", 'Mail is switched off. The login page no longer offers "Forgot password?".')
+    return redirect("/users/mail", "ok", "The mail settings are saved. Send a test mail to check them.")
 
 
 @app.post("/users/test-mail")
 def users_test_mail(request: Request):
-    me = request.state.me
-    if not MAIL_READY or not me.get("email"):
-        return redirect("/users", "error", "Mail is not set up, or your own profile has no email address.")
-    if error := send_mail(me["email"], "Caddyman: test mail", f"Mail from Caddyman works. Links will point at {PUBLIC_URL}\n"):
-        return redirect("/users", "error", f"The mail was not sent: {error}")
-    return redirect("/users", "ok", f"A test mail is on its way to {me['email']}.")
+    me, mail = request.state.me, load_mail()
+    if not mail_ready(mail):
+        return redirect("/users/mail", "error", "Mail is not set up yet.")
+    if not me.get("email"):
+        return redirect("/users/mail", "error", "Your own profile has no email address to send the test to.")
+    if error := send_mail(me["email"], "Caddyman: test mail", f"Mail from Caddyman works. Links will point at {mail['public_url']}\n"):
+        return redirect("/users/mail", "error", f"The mail was not sent: {error}")
+    return redirect("/users/mail", "ok", f"A test mail is on its way to {me['email']}.")
 
 
 @app.get("/users/new")
