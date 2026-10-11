@@ -223,8 +223,16 @@ class TestHosts(AppTest):
                 "TLS snippet 'stepca' exists": False,
                 "Admin API is reachable": False,
                 "Sites directory is writable": True,
+                "Secret key comes from the environment": True,
             },
         )
+        # A key Caddyman made itself is flagged, and the page never prints it.
+        with mock.patch.object(main, "SECRET_KEY_FROM_ENV", False):
+            self.assertFalse(self.checks("")["Secret key comes from the environment"])
+            self.client.post("/hosts/new", data=self.host())
+            status = self.client.get("/status").text
+        self.assertIn("docker exec caddyman cat /data/secret.key", status)
+        self.assertNotIn(main.SECRET_KEY, status)
 
     def test_preflight_asks_the_acme_ca_and_the_root_ca(self):
         text = f"(stepca) {{\n\ttls {{\n\t\tca https://ca.lab.test:9001/acme/acme/directory\n\t}}\n}}\n\nimport {self.sites}/*.caddy\n"

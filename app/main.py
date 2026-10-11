@@ -1208,6 +1208,18 @@ def preflight(host: dict) -> list[dict]:
             "file, dropping every route. Start Caddy with the command below, then use 'Reload Caddy' on this page.",
             "command: caddy run --resume --config /etc/caddy/Caddyfile --adapter caddyfile",
         )
+    # About Caddyman, not about Caddy, but this is the list people look at. The key itself is
+    # never shown: every account can open this page.
+    add(
+        "Secret key comes from the environment",
+        SECRET_KEY_FROM_ENV,
+        "CADDYMAN_SECRET_KEY" if SECRET_KEY_FROM_ENV else str(SECRET_FILE),
+        "Without CADDYMAN_SECRET_KEY, Caddyman made a key of its own and keeps it in the data volume, next to what "
+        "it protects: a copy of that volume is then enough to read the passwords for the admin API and the mail "
+        "server and the keys of two-factor logins. Print the key that is in use and put it into the .env file next "
+        "to the compose file. With the same key nothing has to be entered again.",
+        "docker exec caddyman cat /data/secret.key\n\n# .env\nCADDYMAN_SECRET_KEY=<what the command printed>",
+    )
     return checks
 
 
