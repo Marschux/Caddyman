@@ -123,7 +123,7 @@ The `handle_path` block serves the log to the Logs page and can be left out.
 | Variable | Default | |
 |---|---|---|
 | `CADDYMAN_SECRET_KEY` | generated | Signs sessions and encrypts the admin API password. `openssl rand -base64 32` |
-| `CADDYMAN_SETUP_TOKEN` | random, in the log | Your own token for the setup page |
+| `CADDYMAN_SETUP_TOKEN` | random, in the log | Your own token for the setup page, at least 12 characters |
 | `CADDYMAN_FORWARDED_ALLOW_IPS` | `127.0.0.1` | Whose `X-Forwarded-*` headers are trusted. Behind Caddy: its address or the Docker subnet |
 | `CADDYMAN_LOG_DIR` | `/var/log/caddy` | Where Caddy's log directory is mounted |
 | `CADDYMAN_DATA_DIR` | `/data` | Account, settings, change log |

@@ -6,12 +6,14 @@
 <p class="brand above">{% include "logo.svg" %} Caddyman</p>
 <form method="post" action="/setup" class="card">
 	<h1>Create the admin account</h1>
-	{% if own_token %}
+	{% if blocked %}
+	<p class="error" role="alert">{{ blocked }}</p>
+	{% elif own_token %}
 	<p>The setup token is the value of <code>CADDYMAN_SETUP_TOKEN</code> this container was started with.</p>
 	{% else %}
 	<p>The setup token was printed to the container log at startup: <code>docker logs caddyman</code></p>
 	{% endif %}
-	{% if error %}<p class="error" role="alert">{{ error }}</p>{% endif %}
+	{% if error and error != blocked %}<p class="error" role="alert">{{ error }}</p>{% endif %}
 	<label for="token">Setup token</label>
 	<input id="token" name="token" autocomplete="off" required autofocus>
 	<label for="username">Username</label>

@@ -68,6 +68,14 @@ class TestAuth(AppTest):
                 self.assertEqual(client.post("/setup", data={**form, "token": "wrong"}).status_code, 400)
                 self.assertEqual(client.post("/setup", data={**form, "token": "my own token"}).headers["location"], "/")
 
+    def test_short_setup_token_blocks_the_setup(self):
+        with mock.patch.object(main, "ENV_SETUP_TOKEN", "short"), mock.patch("builtins.print"):
+            with TestClient(main.app, follow_redirects=False) as client:
+                self.assertIn("too short", client.get("/setup").text)
+                form = {"token": "short", "username": "admin", "password": PASSWORD, "repeat": PASSWORD}
+                self.assertEqual(client.post("/setup", data=form).status_code, 400)
+                self.assertFalse(main.AUTH_FILE.exists())
+
     def test_setup_rejects_bad_passwords(self):
         self.assertEqual(self.setup_admin(repeat="different").status_code, 400)
         self.assertEqual(self.setup_admin(password="short", repeat="short").status_code, 400)

@@ -46,6 +46,8 @@ AUDIT_SHOWN = 100
 FLASH_COOKIE = "caddyman_flash"
 # For installs where nobody gets to read the container log.
 ENV_SETUP_TOKEN = os.getenv("CADDYMAN_SETUP_TOKEN", "").strip()
+# Whoever knows the token becomes admin, so a chosen one must not be guessable.
+MIN_SETUP_TOKEN_CHARS = 12
 
 SESSION_COOKIE = "caddyman_session"
 SESSION_SECONDS = 7 * 24 * 3600
@@ -161,11 +163,16 @@ def start_session(response: RedirectResponse, request: Request, username: str) -
 async def lifespan(app: FastAPI):
     global SETUP_TOKEN
     if load_admin() is None:
-        SETUP_TOKEN = ENV_SETUP_TOKEN or secrets.token_hex(8)
         port = os.getenv("CADDYMAN_PORT", "5052")
-        # A token somebody chose is not repeated in the log.
-        shown = "the value of CADDYMAN_SETUP_TOKEN" if ENV_SETUP_TOKEN else SETUP_TOKEN
-        print(f"Setup required. Open http://<host>:{port}/setup\nToken: {shown}", flush=True)
+        if setup_token_problem():
+            # No fallback to a random token: whoever set one cannot read this log.
+            SETUP_TOKEN = None
+            print(f"Setup is blocked: {setup_token_problem()}", flush=True)
+        else:
+            SETUP_TOKEN = ENV_SETUP_TOKEN or secrets.token_hex(8)
+            # A token somebody chose is not repeated in the log.
+            shown = "the value of CADDYMAN_SETUP_TOKEN" if ENV_SETUP_TOKEN else SETUP_TOKEN
+            print(f"Setup required. Open http://<host>:{port}/setup\nToken: {shown}", flush=True)
     if not SECRET_KEY_FROM_ENV:
         print("CADDYMAN_SECRET_KEY is not set, using a generated key from the data directory.", flush=True)
     yield
@@ -231,9 +238,23 @@ def healthz():
     return {"status": "ok"}
 
 
+def setup_token_problem() -> str | None:
+    if ENV_SETUP_TOKEN and len(ENV_SETUP_TOKEN) < MIN_SETUP_TOKEN_CHARS:
+        return (
+            f"CADDYMAN_SETUP_TOKEN is too short. Set one with at least {MIN_SETUP_TOKEN_CHARS} characters "
+            "and restart the container."
+        )
+    return None
+
+
+def setup_page(request: Request, **context):
+    context = {"own_token": bool(ENV_SETUP_TOKEN), "blocked": setup_token_problem(), **context}
+    return page(request, "setup.html", **context)
+
+
 @app.get("/setup")
 def setup_form(request: Request):
-    return page(request, "setup.html", own_token=bool(ENV_SETUP_TOKEN))
+    return setup_page(request)
 
 
 @app.post("/setup")
@@ -247,7 +268,9 @@ def setup_submit(
     global SETUP_TOKEN
     address = client_address(request)
     username = username.strip()
-    if wait := locked_seconds(address):
+    if error := setup_token_problem():
+        pass
+    elif wait := locked_seconds(address):
         error = f"Too many attempts. Try again in {wait} seconds."
     elif not SETUP_TOKEN or not secrets.compare_digest(token.strip().encode(), SETUP_TOKEN.encode()):
         record_fail(address)
@@ -257,8 +280,7 @@ def setup_submit(
     else:
         error = password_problem(password, repeat)
     if error:
-        context = {"error": error, "username": username, "own_token": bool(ENV_SETUP_TOKEN)}
-        return page(request, "setup.html", status_code=400, **context)
+        return setup_page(request, status_code=400, error=error, username=username)
     write_private(AUTH_FILE, json.dumps({"username": username, "password_hash": hash_password(password)}))
     SETUP_TOKEN = None
     return start_session(RedirectResponse("/", status_code=303), request, username)
