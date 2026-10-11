@@ -543,7 +543,7 @@ def logout():
 # Mail is only for a forgotten password. It needs the public address as well: taking it from
 # the request would let anyone have a reset link mailed that points at a server of theirs.
 MAIL_FILE = DATA_DIR / "mail.json"
-MAIL_DEFAULTS = {"public_url": "", "host": "", "port": "587", "user": "", "sender": "", "security": "starttls"}
+MAIL_DEFAULTS = {"public_url": "", "host": "", "port": "587", "user": "", "sender": "", "security": "starttls", "ca": ""}
 MAIL_SECURITY = {"starttls": "STARTTLS (port 587)", "ssl": "SSL/TLS (port 465)", "none": "None - unencrypted"}
 RESET_SECONDS = 3600
 RESETS = URLSafeTimedSerializer(SECRET_KEY, salt="reset")
@@ -574,7 +574,18 @@ def mail_problem(mail: dict) -> str | None:
         return "Unknown encryption."
     if not is_http_url(mail["public_url"]) or urlsplit(mail["public_url"]).path:
         return "The address of Caddyman has to look like https://caddyman.home.example."
+    if mail["ca"]:
+        try:
+            ssl.create_default_context().load_verify_locations(cadata=mail["ca"])
+        except (ssl.SSLError, ValueError):
+            return "The CA certificate has to be a certificate as PEM text, from BEGIN CERTIFICATE to END CERTIFICATE."
     return None
+
+
+def check_codes(pem: str) -> str:
+    """The check codes of every certificate in a PEM text, as the Root CA page gives them."""
+    codes = [item["sha256"].replace(":", "")[:12] for item in fingerprints(pem)]
+    return ", ".join(" ".join(code[i : i + 4] for i in (0, 4, 8)) for code in codes)
 
 
 def send_mail(to: str, subject: str, body: str) -> str | None:
@@ -583,10 +594,12 @@ def send_mail(to: str, subject: str, body: str) -> str | None:
     message = EmailMessage()
     message["From"], message["To"], message["Subject"] = mail["sender"], to, subject
     message.set_content(body)
-    # The server's certificate is verified against the public CAs. A mail server with a
-    # certificate from a private CA needs that CA in the container's trust store.
+    # The server's certificate is verified against the public CAs, and against the CA from the
+    # mail settings for a server whose certificate comes from a private one.
     context = ssl.create_default_context()
     try:
+        if mail["ca"]:
+            context.load_verify_locations(cadata=mail["ca"])
         password = VAULT.decrypt(mail["password_enc"].encode()).decode() if mail.get("password_enc") else ""
         if mail["security"] == "ssl":
             server = smtplib.SMTP_SSL(mail["host"], int(mail["port"]), timeout=10, context=context)
@@ -761,7 +774,8 @@ def users_list(request: Request):
 
 @app.get("/settings/mail")
 def mail_form(request: Request):
-    return page(request, "mail_form.html", mail=load_mail(), securities=MAIL_SECURITY)
+    mail = load_mail()
+    return page(request, "mail_form.html", mail=mail, securities=MAIL_SECURITY, ca_codes=check_codes(mail["ca"]))
 
 
 @app.post("/settings/mail")
@@ -770,6 +784,8 @@ async def mail_save(request: Request):
     stored = load_mail()
     mail = {key: str(form.get(key, "")).strip() for key in MAIL_DEFAULTS}
     mail["public_url"] = mail["public_url"].rstrip("/")
+    # Only the certificates are kept; text around them is dropped. Something that holds none stays, to be refused.
+    mail["ca"] = "\n".join(PEM_RE.findall(mail["ca"])) or mail["ca"]
     if error := mail_problem(mail):
         return page(request, "mail_form.html", status_code=400, error=error, mail=mail, securities=MAIL_SECURITY)
     if password := str(form.get("password", "")):
@@ -1095,8 +1111,7 @@ def preflight(host: dict) -> list[dict]:
         )
     if host.get("admin_ca"):
         # Remembered on first use, so it is shown: the codes are the ones the Root CA page gives.
-        codes = [item["sha256"].replace(":", "")[:12] for item in fingerprints(host["admin_ca"])]
-        add("CA of the admin API is remembered", True, "check code " + ", ".join(" ".join(code[i : i + 4] for i in (0, 4, 8)) for code in codes))
+        add("CA of the admin API is remembered", True, "check code " + check_codes(host["admin_ca"]))
     if admin_ok:
         # The quick way in, 'admin :2019', works but leaves Caddy open to every container on its network.
         add(

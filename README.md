@@ -113,7 +113,9 @@ somebody who lost both. "Settings", "Security" makes it a must for every account
 
 "Forgot password?" on the login page mails a link that works once and for one hour. It appears
 once a mail server is entered under "Settings", "Mail", and reaches accounts that have an
-email address. Without mail, whoever manages users sets a new password under "Edit".
+email address. Without mail, whoever manages users sets a new password under "Edit". A mail
+server whose certificate comes from your own CA needs that CA's root certificate in the field
+"CA certificate" there.
 
 ## Caddy on another machine
 
