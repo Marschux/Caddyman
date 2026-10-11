@@ -1,6 +1,9 @@
 {% extends "base.html" %}
 {% block title %}Setup - Caddyman{% endblock %}
+{# No bar on this page, like the login: the name sits above the form, twice as large. #}
+{% block header %}{% endblock %}
 {% block content %}
+<p class="brand above big">{% include "logo.svg" %} Caddyman</p>
 <form method="post" action="/setup" class="card">
 	<h1>Create the admin account</h1>
 	{% if own_token %}

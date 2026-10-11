@@ -57,6 +57,9 @@ header form { display: flex; gap: 16px; align-items: center; color: var(--ink-su
 /* Above a card on a page without the bar. */
 .brand.above { justify-content: center; margin: 48px 0 -16px; font-size: 22px; letter-spacing: -0.4px; }
 .brand.above svg { width: 32px; height: 32px; }
+/* The first page anyone sees: twice the size. */
+.brand.above.big { gap: 18px; font-size: 44px; letter-spacing: -1px; }
+.brand.above.big svg { width: 64px; height: 64px; }
 
 nav { display: flex; gap: 4px; margin: 0 auto 0 40px; height: 100%; }
 nav a { display: flex; align-items: center; padding: 0 12px; color: var(--ink-muted); font-weight: 500; text-decoration: none; border-bottom: 2px solid transparent; border-top: 2px solid transparent; }
