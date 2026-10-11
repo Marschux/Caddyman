@@ -1791,9 +1791,10 @@ def own_route(route: dict | None, request: Request) -> str:
     return "used" if route["host"] == request.url.hostname else "own"
 
 
-def pick_host(host_id: str | None) -> tuple[list[dict], dict | None]:
+def pick_host() -> tuple[list[dict], dict | None]:
+    """Every stored host and the one in use. Caddyman manages one Caddy; the list is how the file has always looked."""
     hosts = load_hosts()
-    return hosts, next((item for item in hosts if item["id"] == host_id), hosts[0] if hosts else None)
+    return hosts, hosts[0] if hosts else None
 
 
 def route_form_page(request: Request, host: dict, route: dict, error: str | None = None, **context):
@@ -1805,16 +1806,16 @@ def route_form_page(request: Request, host: dict, route: dict, error: str | None
     return page(request, "route_form.html", host=host, route=route, error=error, acme_ca=acme_ca_available(host), **context)
 
 
-def existing_route(host_id: str | None, name: str) -> tuple[dict | None, Path | None]:
+def existing_route(name: str) -> tuple[dict | None, Path | None]:
     """The host and the file of a route that is on disk, or a None for what is missing."""
-    _, current = pick_host(host_id)
+    _, current = pick_host()
     path = route_path(current, name) if current else None
     return current, path if path and path.is_file() else None
 
 
 @app.get("/")
-def index(request: Request, host: str | None = None):
-    hosts, current = pick_host(host)
+def index(request: Request):
+    hosts, current = pick_host()
     if current is None:
         return RedirectResponse("/hosts/new", status_code=303)
     routes = list_routes(current)
@@ -1845,8 +1846,8 @@ def index(request: Request, host: str | None = None):
 
 
 @app.get("/routes/new")
-def route_new(request: Request, host: str | None = None, own: bool = False):
-    _, current = pick_host(host)
+def route_new(request: Request, own: bool = False):
+    _, current = pick_host()
     if current is None:
         return RedirectResponse("/hosts/new", status_code=303)
     tls = "acme_ca" if acme_ca_available(current) else "default"
@@ -1874,8 +1875,8 @@ def reached_without_https(request: Request, host: dict) -> bool:
 
 
 @app.post("/routes/new")
-async def route_create(request: Request, host: str | None = None):
-    _, current = pick_host(host)
+async def route_create(request: Request):
+    _, current = pick_host()
     if current is None:
         return RedirectResponse("/hosts/new", status_code=303)
     route, error = route_from_form(await request.form(), current)
@@ -1888,19 +1889,19 @@ async def route_create(request: Request, host: str | None = None):
         return route_form_page(request, current, route, f"A route file {path.name} already exists.")
     if error := apply_route(current, {path: render_route(route, current)}, "create", path.stem):
         return route_form_page(request, current, route, f"Caddy rejected the route, nothing was changed: {error}")
-    url = f"/?host={current['id']}"
+    url = "/"
     if route["type"] == "reverse_proxy" and not target_reachable(route["upstream"]):
         return redirect(url, "warn", f"{route['host']} is saved, but {route['upstream']} does not answer yet.")
     return redirect(url, "ok", f"{route['host']} is live.")
 
 
 @app.post("/routes/{name}/delete")
-def route_delete(name: str, host: str | None = None):
-    _, current = pick_host(host)
+def route_delete(name: str):
+    _, current = pick_host()
     path = route_path(current, name) if current else None
     if path is None or not path.exists():
         return redirect("/", "error", "This route does not exist.")
-    url = f"/?host={current['id']}"
+    url = "/"
     if error := apply_route(current, {path: None}, "delete", path.stem):
         return redirect(url, "error", f"Caddy rejected the reload, {path.name} was kept: {error}")
     return redirect(url, "ok", f"{path.name} was removed.")
@@ -1912,8 +1913,8 @@ def raw_page(request: Request, host: dict, name: str, content: str, mtime: int, 
 
 
 @app.get("/routes/{name}/edit")
-def route_edit(request: Request, name: str, host: str | None = None, raw: bool = False):
-    current, path = existing_route(host, name)
+def route_edit(request: Request, name: str, raw: bool = False):
+    current, path = existing_route(name)
     if path is None:
         return redirect("/", "error", "This route does not exist.")
     # Read the time first: a change between the two reads then shows up as a conflict on save.
@@ -1924,13 +1925,13 @@ def route_edit(request: Request, name: str, host: str | None = None, raw: bool =
     try:
         content = path.read_text(encoding="utf-8")
     except UnicodeDecodeError:
-        return redirect(f"/?host={current['id']}", "error", f"{path.name} is not UTF-8 text and cannot be edited here.")
+        return redirect("/", "error", f"{path.name} is not UTF-8 text and cannot be edited here.")
     return raw_page(request, current, name, content, mtime)
 
 
 @app.post("/routes/{name}/edit")
-async def route_update(request: Request, name: str, host: str | None = None):
-    current, path = existing_route(host, name)
+async def route_update(request: Request, name: str):
+    current, path = existing_route(name)
     if path is None:
         return redirect("/", "error", "This route does not exist.")
     form = await request.form()
@@ -1970,18 +1971,18 @@ async def route_update(request: Request, name: str, host: str | None = None):
         return again(conflict={"disk": disk, "yours": content}, mtime=file_mtime(path), status_code=409)
     if error:
         return again(error=f"Caddy rejected the change, nothing was changed: {error}", status_code=400)
-    url = f"/?host={current['id']}"
+    url = "/"
     if route and route["type"] == "reverse_proxy" and not target_reachable(route["upstream"]):
         return redirect(url, "warn", f"{new_path.name} is saved, but {route['upstream']} does not answer yet.")
     return redirect(url, "ok", f"{new_path.name} is saved and live.")
 
 
 @app.post("/routes/{name}/adopt")
-def route_adopt(name: str, host: str | None = None):
-    current, path = existing_route(host, name)
+def route_adopt(name: str):
+    current, path = existing_route(name)
     if path is None:
         return redirect("/", "error", "This route does not exist.")
-    url = f"/?host={current['id']}"
+    url = "/"
     route, reason = adopt_route(path.read_text(encoding="utf-8", errors="replace"), current)
     if route is None:
         return redirect(url, "warn", f"{path.name} was left as it is: {reason}.")
@@ -1992,7 +1993,7 @@ def route_adopt(name: str, host: str | None = None):
 
 @app.get("/groups")
 def groups_page(request: Request):
-    _, current = pick_host(None)
+    _, current = pick_host()
     if current is None:
         return RedirectResponse("/hosts/new", status_code=303)
     members = [route_group(item["route"]) for item in list_routes(current)]
@@ -2005,7 +2006,7 @@ def taken(name: str, groups: list[str]) -> bool:
 
 @app.post("/groups")
 def group_add(name: str = Form("")):
-    _, current = pick_host(None)
+    _, current = pick_host()
     name = name.strip()
     if current is None or not GROUP_RE.fullmatch(name):
         return redirect("/groups", "error", "A group name is up to 40 letters, digits, spaces, '.', '_' and '-'.")
@@ -2017,7 +2018,7 @@ def group_add(name: str = Form("")):
 
 @app.post("/groups/rename")
 def group_rename(old: str = Form(""), new: str = Form("")):
-    _, current = pick_host(None)
+    _, current = pick_host()
     new = new.strip()
     groups = load_groups(current) if current else []
     if old not in groups:
@@ -2034,7 +2035,7 @@ def group_rename(old: str = Form(""), new: str = Form("")):
 
 @app.post("/groups/delete")
 def group_delete(name: str = Form("")):
-    _, current = pick_host(None)
+    _, current = pick_host()
     if current is None or name not in load_groups(current):
         return redirect("/groups", "error", "This group does not exist.")
     if error := regroup(current, name, ""):
@@ -2241,8 +2242,8 @@ def ca_context(host: dict, fetch=fetch_root_ca, cert: int = 1) -> dict:
 
 
 @app.get("/ca")
-def ca_page(request: Request, host: str | None = None, cert: int = 1):
-    hosts, current = pick_host(host)
+def ca_page(request: Request, cert: int = 1):
+    hosts, current = pick_host()
     if current is None:
         return RedirectResponse("/hosts/new", status_code=303)
     return page(request, "ca.html", hosts=hosts, **ca_context(current, cert=cert))
@@ -2250,7 +2251,7 @@ def ca_page(request: Request, host: str | None = None, cert: int = 1):
 
 @app.get("/trust")
 def trust_page(request: Request, cert: int = 1):
-    _, current = pick_host(None)
+    _, current = pick_host()
     if current is None:
         return Response(status_code=404)
     context = ca_context(current, public_root_ca, cert)
@@ -2272,7 +2273,7 @@ def certificate_download(pem: str, cert: int | None) -> Response:
 
 @app.get("/root-ca.crt")
 def root_ca_public(cert: int | None = None):
-    _, current = pick_host(None)
+    _, current = pick_host()
     if current is None:
         return Response(status_code=404)
     try:
@@ -2285,8 +2286,8 @@ def root_ca_public(cert: int | None = None):
 
 
 @app.get("/ca/root-ca.crt")
-def ca_download(host: str | None = None, cert: int | None = None):
-    _, current = pick_host(host)
+def ca_download(cert: int | None = None):
+    _, current = pick_host()
     if current is None:
         return RedirectResponse("/hosts/new", status_code=303)
     try:
@@ -2427,14 +2428,14 @@ def backup_plan(backup: dict, host: dict | None) -> list[dict]:
 
 
 @app.get("/backup")
-def backup_page(request: Request, host: str | None = None):
-    hosts, current = pick_host(host)
+def backup_page(request: Request):
+    hosts, current = pick_host()
     return page(request, "backup.html", hosts=hosts, host=current)
 
 
 @app.get("/backup/download")
-def backup_download(host: str | None = None):
-    _, current = pick_host(host)
+def backup_download():
+    _, current = pick_host()
     if current is None:
         return RedirectResponse("/hosts/new", status_code=303)
     stamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M")
@@ -2443,8 +2444,8 @@ def backup_download(host: str | None = None):
 
 
 @app.post("/backup/restore")
-async def backup_restore(request: Request, host: str | None = None):
-    hosts, current = pick_host(host)
+async def backup_restore(request: Request):
+    hosts, current = pick_host()
     # The context manager closes the uploaded temp file again.
     async with request.form() as form:
         confirmed = "payload" in form
@@ -2493,7 +2494,7 @@ async def backup_restore(request: Request, host: str | None = None):
     changes = {item["path"]: item["content"] for item in plan if item["state"] != "unchanged"}
     # One reload for all files: either the whole backup is live afterwards or none of it.
     if changes and (error := apply_route(target, changes, "restore", f"{len(changes)} routes")):
-        back = "/backup" if fresh else f"/?host={target['id']}"
+        back = "/backup" if fresh else "/"
         return redirect(back, "error", f"Caddy rejected the restored routes, nothing was changed: {error}")
     # Everything else only now, so a rejected restore leaves the install as it was.
     if fresh:
@@ -2505,8 +2506,8 @@ async def backup_restore(request: Request, host: str | None = None):
     if new_groups:
         save_groups([*stored_groups(), *new_groups])
     if not changes:
-        return redirect(f"/?host={target['id']}", "ok", "Everything in the archive is already in place.")
-    return redirect(f"/?host={target['id']}", "ok", f"{len(changes)} routes restored and live.")
+        return redirect("/", "ok", "Everything in the archive is already in place.")
+    return redirect("/", "ok", f"{len(changes)} routes restored and live.")
 
 
 LOG_SNIPPET = (
@@ -2610,7 +2611,7 @@ def parse_log_line(line: str) -> dict:
 
 @app.get("/logs")
 def logs_page(request: Request, file: str = "", level: str = "", q: str = "", quiet: str = ""):
-    _, current = pick_host(None)
+    _, current = pick_host()
     if current is None:
         return RedirectResponse("/hosts/new", status_code=303)
     names, chosen, lines = load_log(current, file)

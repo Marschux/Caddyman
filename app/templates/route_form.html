@@ -2,7 +2,7 @@
 {% block title %}{{ "Edit route" if name else "Add route" }} - Caddyman{% endblock %}
 {% block content %}
 <form method="post" class="card wide route" data-game='{{ game_routes|tojson }}'
-	action="{{ '/routes/' ~ name|urlencode ~ '/edit' if name else '/routes/new' }}?host={{ host.id }}">
+	action="{{ '/routes/' ~ name|urlencode ~ '/edit' if name else '/routes/new' }}">
 	<h1>{{ "Edit " ~ name ~ ".caddy" if name else "Add a route" }}</h1>
 	{% if error %}<p class="error" role="alert">{{ error }}</p>{% endif %}
 	{% include "conflict.html" %}
@@ -93,7 +93,7 @@
 	<button type="submit">{{ "Overwrite and reload Caddy" if conflict else "Save and reload Caddy" }}</button>
 	{% if name %}
 	<p class="below">Changing the hostname renames the file.
-		<a href="/routes/{{ name|urlencode }}/edit?host={{ host.id }}&amp;raw=1">Edit as text instead</a></p>
+		<a href="/routes/{{ name|urlencode }}/edit?raw=1">Edit as text instead</a></p>
 	{% endif %}
 </form>
 {% endblock %}

@@ -14,7 +14,7 @@
 	{% if may_change %}
 	<div class="buttons">
 		<a class="button secondary" href="/groups">Add group</a>
-		<a class="button" href="/routes/new?host={{ host.id }}">Add route</a>
+		<a class="button" href="/routes/new">Add route</a>
 	</div>
 	{% endif %}
 </div>
@@ -60,12 +60,12 @@
 			<td class="actions">
 				{% if may_change %}
 				{% if not route %}
-				<form method="post" action="/routes/{{ item.name|urlencode }}/adopt?host={{ host.id }}">
+				<form method="post" action="/routes/{{ item.name|urlencode }}/adopt">
 					<button type="submit">Adopt</button>
 				</form>
 				{% endif %}
-				<a class="button" href="/routes/{{ item.name|urlencode }}/edit?host={{ host.id }}">Edit</a>
-				<form method="post" action="/routes/{{ item.name|urlencode }}/delete?host={{ host.id }}"
+				<a class="button" href="/routes/{{ item.name|urlencode }}/edit">Edit</a>
+				<form method="post" action="/routes/{{ item.name|urlencode }}/delete"
 					data-confirm="{% if item.own %}This route leads to Caddyman itself{{ ', and you are using it right now' if item.own == 'used' }}. Without it Caddyman only answers on port {{ own_port }} of its machine. {% endif %}Delete {{ item.name }}.caddy and reload Caddy?" onsubmit="return confirm(this.dataset.confirm)">
 					<button type="submit" class="danger">Delete</button>
 				</form>

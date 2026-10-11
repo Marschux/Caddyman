@@ -342,7 +342,7 @@ class TestRoutes(RouteTest):
         self.assertIn("and you are using it right now. Without it", self.client.get("/", headers={"host": "caddyman.lab.test"}).text)
 
     def test_reverse_proxy_file(self):
-        self.assertEqual(self.create().headers["location"], "/?host=h1")
+        self.assertEqual(self.create().headers["location"], "/")
         self.assertEqual(
             self.read("pdf.caddy"),
             '# caddyman {"type":"reverse_proxy","host":"pdf.lab.test","port":"","tls":"acme_ca",'
@@ -489,16 +489,16 @@ class TestRoutes(RouteTest):
         self.assertIn('<script src="/static/game.js" defer>', page)
         self.assertEqual(self.client.get("/static/game.js").status_code, 200)
         # The name itself stays an ordinary hostname for the server: the game lives in the browser.
-        self.assertEqual(self.create(host="candyman").headers["location"], "/?host=h1")
+        self.assertEqual(self.create(host="candyman").headers["location"], "/")
 
     def test_unreachable_target_only_warns(self):
         main.target_reachable.return_value = False
-        self.assertEqual(self.create().headers["location"], "/?host=h1")
+        self.assertEqual(self.create().headers["location"], "/")
         self.assertIn("does not answer yet", self.client.get("/").text)
         self.assertTrue(os.path.exists(os.path.join(self.sites, "pdf.caddy")))
 
     def test_target_without_port(self):
-        self.assertEqual(self.create(upstream="http://10.0.0.5").headers["location"], "/?host=h1")
+        self.assertEqual(self.create(upstream="http://10.0.0.5").headers["location"], "/")
         self.assertIn("reverse_proxy http://10.0.0.5\n", self.read("pdf.caddy"))
         # The reachability test falls back to the port Caddy would take.
         connect = self.patch(main.socket, "create_connection", mock.MagicMock())
@@ -644,7 +644,7 @@ class TestUsers(RouteTest):
         self.assertNotIn('href="/settings"', viewer.get("/").text)
         # One right more, and exactly that area opens.
         self.client.post("/settings/users/viewer/edit", data={"right_routes": "1"})
-        self.assertEqual(viewer.post("/routes/new", data=self.form()).headers["location"], "/?host=h1")
+        self.assertEqual(viewer.post("/routes/new", data=self.form()).headers["location"], "/")
         self.assertEqual(main.read_audit()[0]["user"], "viewer")
         self.assertEqual(viewer.post("/hosts/h1/push").status_code, 303)
         self.assertEqual(viewer.get("/hosts/h1/edit").status_code, 403)
@@ -1080,7 +1080,7 @@ class TestManaged(AppTest):
 
     def test_push_carries_base_and_routes_inline(self):
         _, host = self.add_host()
-        self.assertEqual(self.add_route().headers["location"], f"/?host={host['id']}")
+        self.assertEqual(self.add_route().headers["location"], "/")
         route_file = main.Path(host["sites_dir"]) / "pdf.caddy"
         body = self.post.call_args.kwargs["content"].decode()
         self.assertEqual(body, self.BASE + "\n\n" + route_file.read_text())
@@ -1411,7 +1411,7 @@ class TestBackup(RouteTest):
         self.assertIn("Created", preview.text)
         self.assertFalse(os.path.exists(os.path.join(self.sites, "wiki.caddy")))
         self.load.assert_not_called()
-        self.assertEqual(self.confirm(self.archive).headers["location"], "/?host=h1")
+        self.assertEqual(self.confirm(self.archive).headers["location"], "/")
         self.assertEqual((self.read("pdf.caddy"), self.read("wiki.caddy")), (self.pdf, self.wiki))
         self.assertTrue(os.path.exists(os.path.join(self.sites, "extra.caddy")))  # not in the archive, kept
         self.assertEqual(self.load.call_count, 1)  # one reload for the whole restore
@@ -1550,7 +1550,7 @@ class TestEdit(RouteTest):
         page = self.client.get("/routes/pdf/edit").text
         self.assertIn('name="mode" value="form"', page)
         self.assertIn("10.0.0.5:9005", page)
-        self.assertEqual(self.edit(upstream="10.0.0.6:80").headers["location"], "/?host=h1")
+        self.assertEqual(self.edit(upstream="10.0.0.6:80").headers["location"], "/")
         self.assertIn("reverse_proxy 10.0.0.6:80\n", self.read("pdf.caddy"))
         self.assertEqual(main.read_audit()[0]["action"], "update")
 
@@ -1582,7 +1582,7 @@ class TestEdit(RouteTest):
         self.assertIn("respond 418", self.read("pdf.caddy"))
         # The page now carries the new time, so saving again is a deliberate overwrite.
         self.assertIn('name="mtime" value="1"', response.text)
-        self.assertEqual(self.edit(mtime="1", upstream="10.0.0.6:80").headers["location"], "/?host=h1")
+        self.assertEqual(self.edit(mtime="1", upstream="10.0.0.6:80").headers["location"], "/")
         self.assertIn("10.0.0.6:80", self.read("pdf.caddy"))
 
     def test_foreign_file_opens_as_text_and_saves(self):
@@ -1591,7 +1591,7 @@ class TestEdit(RouteTest):
         self.assertIn("<textarea", page)
         self.assertNotIn("Adopt this route", page)
         data = {"mode": "raw", "mtime": self.mtime("legacy.caddy"), "content": "legacy.lab.test {\r\n\trespond 204\r\n}"}
-        self.assertEqual(self.client.post("/routes/legacy/edit", data=data).headers["location"], "/?host=h1")
+        self.assertEqual(self.client.post("/routes/legacy/edit", data=data).headers["location"], "/")
         self.assertEqual(self.read("legacy.caddy"), "legacy.lab.test {\n\trespond 204\n}\n")
 
     def test_rejected_text_is_put_back(self):
