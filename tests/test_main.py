@@ -1334,6 +1334,13 @@ class TestBackup(RouteTest):
         self.assertEqual((main.load_mail()["host"], main.flag("login_ca_hint")), ("", True))
         # Into an empty install everything comes back, the mail password excepted.
         main.save_hosts([])
+        for name in os.listdir(self.sites):
+            os.remove(os.path.join(self.sites, name))
+        # Unless Caddy rejects the routes: then nothing of the archive stays, the connection to Caddy included.
+        self.reject()
+        self.assertEqual(self.confirm(archive).headers["location"], "/backup")
+        self.assertEqual((main.load_hosts(), main.load_mail()["host"], os.listdir(self.sites)), ([], "", []))
+        self.load.return_value = mock.Mock(status_code=200)
         preview = self.upload(archive).text
         self.assertIn("the switches under Settings, Security", preview)
         self.assertIn("the mail settings, without the password", preview)

@@ -2342,26 +2342,28 @@ async def backup_restore(request: Request, host: str | None = None):
         return page(request, "backup.html", hosts=hosts, host=current, **context)
     if any(item["path"] is None for item in plan):
         return page(request, "backup.html", status_code=400, hosts=hosts, host=current, error="A route name in the archive is not usable.")
+    if fresh and target["storage"] == "managed":
+        # A managed host keeps its base Caddyfile here, so this copy is restored with it. The reload
+        # below needs it; left behind after a rejected restore it is a file nobody reads.
+        Path(target["sites_dir"]).mkdir(parents=True, exist_ok=True)
+        write_private(Path(target["caddyfile"]), backup["caddyfile"])
+    changes = {item["path"]: item["content"] for item in plan if item["state"] != "unchanged"}
+    # One reload for all files: either the whole backup is live afterwards or none of it.
+    if changes and (error := apply_route(target, changes, "restore", f"{len(changes)} routes")):
+        back = "/backup" if fresh else f"/?host={target['id']}"
+        return redirect(back, "error", f"Caddy rejected the restored routes, nothing was changed: {error}")
+    # Everything else only now, so a rejected restore leaves the install as it was.
     if fresh:
         save_hosts([target])
-        if target["storage"] == "managed":
-            # A managed host keeps its base Caddyfile here, so this copy is restored with it.
-            Path(target["sites_dir"]).mkdir(parents=True, exist_ok=True)
-            write_private(Path(target["caddyfile"]), backup["caddyfile"])
     if with_settings and backup["settings"]:
         save_settings(**backup["settings"])
     if with_settings and backup["mail"]:
         write_private(MAIL_FILE, json.dumps(backup["mail"], indent=2))
     if new_groups:
         save_groups([*stored_groups(), *new_groups])
-    url = f"/?host={target['id']}"
-    changes = {item["path"]: item["content"] for item in plan if item["state"] != "unchanged"}
     if not changes:
-        return redirect(url, "ok", "Everything in the archive is already in place.")
-    # One reload for all files: either the whole backup is live afterwards or none of it.
-    if error := apply_route(target, changes, "restore", f"{len(changes)} routes"):
-        return redirect(url, "error", f"Caddy rejected the restored routes, nothing was changed: {error}")
-    return redirect(url, "ok", f"{len(changes)} routes restored and live.")
+        return redirect(f"/?host={target['id']}", "ok", "Everything in the archive is already in place.")
+    return redirect(f"/?host={target['id']}", "ok", f"{len(changes)} routes restored and live.")
 
 
 LOG_SNIPPET = (
