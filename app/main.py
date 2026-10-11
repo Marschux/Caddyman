@@ -1027,6 +1027,24 @@ def preflight(host: dict) -> list[dict]:
                 f"({snippet}) {{\n\ttls {{\n\t\tca https://ca.example/acme/acme/directory\n"
                 "\t\tca_root /etc/caddy/root_ca.crt\n\t}\n}",
             )
+            # Only next to Caddy: from another machine this container may not see what Caddy sees,
+            # and a red mark that can be wrong is worse than none.
+            if ca_url := "" if managed else acme_ca_url(text, snippet):
+                try:
+                    # Not verified: the certificate comes from the very CA that is being asked.
+                    answer = httpx.get(ca_url, timeout=REACH_TIMEOUT, verify=False)
+                    ca_ok, detail = answer.status_code == 200, f"HTTP {answer.status_code}"
+                except httpx.HTTPError as error:
+                    ca_ok, detail = False, str(error) or type(error).__name__
+                add(
+                    "ACME CA answers",
+                    ca_ok,
+                    f"{ca_url} - {detail}",
+                    "This is the address from the TLS snippet, asked from the Caddyman container. While the CA does not "
+                    "answer, Caddy can neither issue nor renew certificates. If Caddy reaches the CA under a name this "
+                    "container cannot resolve, the check fails although all is well.",
+                    "",
+                )
 
     if host.get("admin_user"):
         add(
@@ -1090,6 +1108,20 @@ def preflight(host: dict) -> list[dict]:
             "address and login in the settings. Create the hash with: docker exec -it caddy caddy hash-password",
             ADMIN_SITE_SNIPPET,
         )
+    # Caddy's own CA comes through the admin API: when that is down, the line above says so already.
+    if host["root_ca_url"] or admin_ok:
+        try:
+            _, source, _ = fetch_root_ca(host)
+            add("Root CA can be downloaded", True, source)
+        except ValueError as error:
+            add(
+                "Root CA can be downloaded",
+                False,
+                str(error),
+                "The Root CA page and the page without a login have nothing to offer until this answers. "
+                + ("Check the root CA source in the settings." if host["root_ca_url"] else "Caddy's own CA did not answer."),
+                "",
+            )
 
     add(
         "Sites directory is writable",
@@ -1163,6 +1195,13 @@ def valid_port(value: str) -> bool:
 
 def snippet_exists(caddyfile_text: str, snippet: str) -> bool:
     return bool(snippet and re.search(rf"^\({re.escape(snippet)}\)\s*\{{", caddyfile_text, re.MULTILINE))
+
+
+def acme_ca_url(caddyfile_text: str, snippet: str) -> str:
+    """The ACME directory a TLS snippet points at, or '' when it names none in the plain form 'ca <url>'."""
+    block = re.search(rf"^\({re.escape(snippet)}\)\s*\{{\n(.*?)^\}}", caddyfile_text, re.MULTILINE | re.DOTALL)
+    found = re.search(r"^\s*ca\s+(https?://\S+)\s*$", block.group(1), re.MULTILINE) if block else None
+    return found.group(1) if found else ""
 
 
 def acme_ca_available(host: dict) -> bool:

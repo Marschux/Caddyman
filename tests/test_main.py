@@ -139,12 +139,13 @@ class TestHosts(AppTest):
     def host(self, **overrides):
         return {**main.HOST_DEFAULTS, "name": "lab", "tls_snippet": "stepca", **overrides}
 
-    def checks(self, caddyfile_text, admin=None, **fields):
+    def checks(self, caddyfile_text, admin=None, root_ca=None, **fields):
         if caddyfile_text is not None:
             with open(self.caddyfile, "w", encoding="utf-8") as handle:
                 handle.write(caddyfile_text)
         admin = admin or mock.Mock(return_value=mock.Mock(status_code=200))
-        with mock.patch.object(main.httpx, "get", admin):
+        root_ca = root_ca or mock.Mock(return_value=("pem", "source", True))
+        with mock.patch.object(main.httpx, "get", admin), mock.patch.object(main, "fetch_root_ca", root_ca):
             host = self.host(caddyfile=self.caddyfile, sites_dir=self.sites, **fields)
             if fields.get("admin_user"):
                 host["admin_password_enc"] = main.VAULT.encrypt(b"pw").decode()
@@ -218,6 +219,32 @@ class TestHosts(AppTest):
                 "Sites directory is writable": True,
             },
         )
+
+    def test_preflight_asks_the_acme_ca_and_the_root_ca(self):
+        text = f"(stepca) {{\n\ttls {{\n\t\tca https://ca.lab.test:9001/acme/acme/directory\n\t}}\n}}\n\nimport {self.sites}/*.caddy\n"
+        result = self.checks(text, admin_user="caddyman")
+        self.assertTrue(result["ACME CA answers"])
+        self.assertTrue(result["Root CA can be downloaded"])
+
+        def ca_down(url, **kwargs):
+            if "ca.lab.test" in url:
+                raise main.httpx.ConnectError("refused")
+            return mock.Mock(status_code=200)
+
+        gone = mock.Mock(side_effect=ValueError("did not answer with a certificate"))
+        result = self.checks(text, admin=mock.Mock(side_effect=ca_down), root_ca=gone)
+        self.assertFalse(result["ACME CA answers"])
+        self.assertFalse(result["Root CA can be downloaded"])
+        self.assertTrue(result["Admin API is reachable"])
+        # From another machine Caddyman may not see what Caddy sees, so it does not ask there.
+        up = mock.Mock(return_value=mock.Mock(status_code=200, content=b""))
+        self.assertNotIn("ACME CA answers", self.checks(text, admin=up, storage="managed", id="h1"))
+        # A snippet that names no CA in the plain form is left alone, as is Caddy's own CA while the admin API is down.
+        down = mock.Mock(side_effect=main.httpx.ConnectError("refused"))
+        result = self.checks(f"(stepca) {{\n\ttls internal\n}}\n\nimport {self.sites}/*.caddy\n", admin=down)
+        self.assertNotIn("ACME CA answers", result)
+        self.assertNotIn("Root CA can be downloaded", result)
+        self.assertIn("Root CA can be downloaded", self.checks(text, admin=down, root_ca_url="https://ca.lab.test:9001/roots.pem"))
 
     def test_preflight_without_caddyfile(self):
         result = self.checks(None)
@@ -876,6 +903,7 @@ class TestManaged(AppTest):
         self.assertFalse(checks()[label])  # nothing pushed yet
         self.assertEqual(self.client.post(f"/hosts/{host['id']}/push").headers["location"], f"/status#host-{host['id']}")
         self.assertTrue(checks()[label])
+        self.patch(main, "fetch_root_ca", mock.Mock(return_value=("pem", "source", True)))
         self.assertEqual(set(checks().values()), {True})
         # Caddy restarted without --resume and serves something else now.
         self.get.return_value = mock.Mock(status_code=200, content=b"its own file")
