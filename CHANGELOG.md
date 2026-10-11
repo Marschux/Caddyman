@@ -1,5 +1,18 @@
 # Changelog
 
+## 2026-10-11 18:46
+- chore: version 0.9.0
+- feat: no name for the one Caddy, clearer labels for the two layouts
+- feat: status page offers a route for Caddyman itself while it is reached without HTTPS
+- feat: CADDYMAN_SETUP_TOKEN needs at least 12 characters
+- feat: larger brand on the login page, same size as on the setup page
+- fix: brand on the setup page one and a half times the size
+- feat: setup page without the bar, brand twice the size above the form
+- feat: admin account only through the setup page, CADDYMAN_ADMIN_USER and CADDYMAN_ADMIN_PASSWORD_HASH removed
+- feat: setup token can be set with CADDYMAN_SETUP_TOKEN
+- feat: two switches for the root CA, open page and hint on the login page
+
+
 ## 2026-10-09 17:37
 - feat: login page without the bar, brand centred above the form, version 0.8.14
 - feat: root CA hint as its own card on the login page, version 0.8.13
