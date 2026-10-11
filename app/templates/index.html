@@ -11,6 +11,13 @@
 	</div>
 	{% endif %}
 </div>
+{# Shown by routes.js, which also makes the column titles sort. #}
+{% if routes %}
+<form class="row filters" id="route-filter" hidden onsubmit="return false">
+	<input type="search" name="q" placeholder="Search host, target, group ..." aria-label="Search the routes">
+	<label class="check"><input type="checkbox" name="problems"> Only problems</label>
+</form>
+{% endif %}
 <table>
 	<thead>
 		<tr><th>Host</th><th>Type</th><th>Target</th><th>TLS</th><th>Certificate</th><th></th></tr>
@@ -23,7 +30,8 @@
 		{% if grouped and loop.changed(item.group) %}
 		<tr class="group"><th colspan="6">{{ item.group or "No group" }}</th></tr>
 		{% endif %}
-		<tr>
+		{# A problem: the target does not answer, or the certificate is not what it should be. #}
+		<tr data-group="{{ item.group }}"{% if item.target_down or (item.certificate and item.certificate.level in ("warn", "fail")) %} data-problem{% endif %}>
 			{% if route %}
 			<td class="nowrap">
 				<a class="out" href="{{ item.site }}" target="_blank" rel="noopener noreferrer"><strong>{{ route.host }}{{ ":" ~ route.port if route.port }}</strong></a>
@@ -69,3 +77,4 @@
 	</tbody>
 </table>
 {% endblock %}
+{% block scripts %}<script src="/static/routes.js" defer></script>{% endblock %}
