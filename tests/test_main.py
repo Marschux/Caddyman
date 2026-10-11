@@ -1014,6 +1014,16 @@ class TestManaged(AppTest):
         self.get.return_value = mock.Mock(status_code=200, content=b"its own file")
         self.assertFalse(checks()[label])
 
+    def test_disconnect_removes_the_copies_caddyman_kept(self):
+        _, host = self.add_host()
+        self.add_route()
+        kept = main.managed_dir(host["id"])
+        self.assertTrue((kept / "sites" / "pdf.caddy").is_file())
+        # The question before it says what goes, and how much.
+        self.assertIn("DELETES its copies with it: the base Caddyfile and 1 route files", self.client.get(f"/hosts/{host['id']}/edit").text)
+        self.assertEqual(self.client.post(f"/hosts/{host['id']}/delete").headers["location"], "/hosts/new")
+        self.assertFalse(kept.exists())
+
     def test_file_import_in_the_base_is_flagged(self):
         self.add_host(base_caddyfile=self.BASE + "\nimport /etc/caddy/sites/*.caddy")
         checks = {check["label"]: check["ok"] for check in main.preflight(main.load_hosts()[0])}
@@ -1106,6 +1116,25 @@ class TestCertificates(RouteTest):
         self.assertIn('class="cert warn"', page)
         # The explanation is the tooltip only, so the row stays one line.
         self.assertEqual(page.count("internal CA instead of your ACME CA"), 1)
+
+    def test_list_shows_the_status_of_a_hand_written_route(self):
+        files = {
+            "hand.caddy": "# a note\nhand.lab.test:8443 {\n\trespond 200\n}\n",
+            "plain.caddy": "http://plain.lab.test {\n\trespond 200\n}\n",
+            "two.caddy": "a.lab.test, b.lab.test {\n\trespond 200\n}\n",
+            "far.caddy": "far.lab.test:99999 {\n\trespond 200\n}\n",
+        }
+        for name, text in files.items():
+            with open(os.path.join(self.sites, name), "w", encoding="utf-8") as handle:
+                handle.write(text)
+        self.served.side_effect = None
+        self.served.return_value = make_certificate("Caddy Local Authority - ECC Intermediate")
+        page = self.client.get("/").text
+        # Only the one file whose first line is a single address with TLS is asked about.
+        self.assertEqual([call.args[1:] for call in self.served.call_args_list], [(8443, "hand.lab.test")])
+        # Who issued it is shown, without a verdict: nobody said which CA was meant.
+        self.assertEqual(page.count("Caddy Local Authority"), 1)
+        self.assertNotIn('class="cert warn"', page)
 
 
 class TestLogs(RouteTest):
@@ -1519,6 +1548,25 @@ class TestEdit(RouteTest):
         for text, expected in cases.items():
             route, reason = main.adopt_route(text, self.host)
             self.assertEqual((route["type"], route["tls"]), expected, reason)
+
+    def test_adopt_takes_basic_auth_and_host_header(self):
+        bcrypt_hash = main.hash_password("secret")
+        text = (
+            "a.lab.test {\n\timport stepca\n\tbasic_auth {\n\t\tada " + bcrypt_hash + "\n\t}\n"
+            "\treverse_proxy 10.0.0.7:3000 {\n\t\theader_up Host {upstream_hostport}\n\t}\n}\n"
+        )
+        route, reason = main.adopt_route(text, self.host)
+        self.assertEqual((route["auth_user"], route["auth_hash"], route["host_header"]), ("ada", bcrypt_hash, True), reason)
+        # What it writes back is the same block, hash untouched, and it opens in the form.
+        self.write("a.caddy", text)
+        self.client.post("/routes/a/adopt")
+        self.assertEqual(self.read("a.caddy").split("\n", 1)[1], text)
+        self.assertIn('name="auth_user" value="ada"', self.client.get("/routes/a/edit").text)
+        # Only in the shape Caddyman writes itself.
+        for odd in (text.replace(bcrypt_hash, "plaintext"), text.replace("ada ", "ada bob "),
+                    text.replace("header_up Host {upstream_hostport}", "header_up X-Real-IP {remote_host}"),
+                    text.replace("\t\tada " + bcrypt_hash + "\n", "")):
+            self.assertIsNone(main.adopt_route(odd, self.host)[0], odd)
 
     def test_adopt_refuses_what_it_does_not_fully_understand(self):
         refused = [

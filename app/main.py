@@ -10,6 +10,7 @@ import json
 import os
 import re
 import secrets
+import shutil
 import smtplib
 import socket
 import ssl
@@ -1583,11 +1584,23 @@ def adopt_route(content: str, host: dict) -> tuple[dict | None, str]:
     if not address:
         return None, "its address is not a plain hostname"
     form = {"host": address.group(2), "port": address.group(3) or "", "tls": "none" if address.group(1) else "default"}
-    for tokens in lines[1:-1]:
+    inner, index, login = lines[1:-1], 0, None
+    while index < len(inner):
+        tokens, block = inner[index], inner[index + 1 : index + 3]
+        index += 1
         if tokens == ["import", host["tls_snippet"]]:
             form["tls"] = "acme_ca"
         elif tokens == ["tls", "internal"]:
             form["tls"] = "internal"
+        elif tokens == ["basic_auth", "{"] and len(block) == 2 and len(block[0]) == 2 and block[1] == ["}"]:
+            # The two blocks Caddyman writes itself, and only in that shape. The hash is taken
+            # over as it stands; nobody is asked for the password behind it.
+            login = {"auth_user": block[0][0], "auth_hash": block[0][1]}
+            form["auth_user"] = login["auth_user"]
+            index += 2
+        elif tokens[0] == "reverse_proxy" and tokens[2:] == ["{"] and block == [["header_up", "Host", "{upstream_hostport}"], ["}"]]:
+            form.update(type="reverse_proxy", upstream=tokens[1], host_header="1")
+            index += 2
         elif tokens[0] == "reverse_proxy" and len(tokens) == 2:
             form.update(type="reverse_proxy", upstream=tokens[1])
         elif tokens[0] == "redir" and len(tokens) == 3 and tokens[1].endswith("{uri}"):
@@ -1598,7 +1611,9 @@ def adopt_route(content: str, host: dict) -> tuple[dict | None, str]:
             return None, f"it contains a line Caddyman would not write: {' '.join(tokens)}"
     if "type" not in form:
         return None, "it has no reverse_proxy, redir or root line"
-    route, error = route_from_form(form, host)
+    if login and not BCRYPT_RE.match(login["auth_hash"]):
+        return None, "its basic auth password is not a bcrypt hash"
+    route, error = route_from_form(form, host, previous=login)
     if error:
         return None, error
     rendered = [line.split() for line in render_route(route, host).splitlines()[1:]]
@@ -1676,6 +1691,23 @@ def certificate_status(host: dict, route: dict | None) -> dict | None:
     return status
 
 
+def hand_written(host: dict, name: str) -> dict | None:
+    """Just enough of a route to look at its certificate, for a file that does not open in the form.
+
+    Taken from the first line, when that is one plain address. Which CA was meant is unknown,
+    so the status can say who issued the certificate but not whether that is the wrong one.
+    """
+    try:
+        lines = (Path(host["sites_dir"]) / f"{name}.caddy").read_text(encoding="utf-8").splitlines()
+    except (OSError, UnicodeDecodeError):
+        return None
+    first = next((line.split() for line in lines if line.strip() and not line.lstrip().startswith("#")), [])
+    address = re.match(r"^(http://)?([^:/]+)(?::([0-9]+))?$", first[0]) if len(first) == 2 and first[1] == "{" else None
+    if not address or not HOSTNAME_RE.match(address.group(2)) or (address.group(3) and not valid_port(address.group(3))):
+        return None
+    return {"tls": "none" if address.group(1) else "default", "host": address.group(2), "port": address.group(3) or ""}
+
+
 def route_links(route: dict | None) -> tuple[str, str]:
     """Where a click on the hostname and on the target leads. Empty where there is nothing to open."""
     if not route:
@@ -1732,8 +1764,10 @@ def index(request: Request, host: str | None = None):
     # nothing cached. Fine for the dozens of routes a homelab has; cache for a minute
     # if the list ever feels slow.
     proxied = lambda item: item["route"] and item["route"]["type"] == "reverse_proxy"  # noqa: E731
+    for item in routes:
+        item["hand"] = None if item["route"] else hand_written(current, item["name"])
     with ThreadPoolExecutor(max_workers=8) as pool:
-        statuses = pool.map(lambda item: certificate_status(current, item["route"]), routes)
+        statuses = pool.map(lambda item: certificate_status(current, item["route"] or item["hand"]), routes)
         down = pool.map(lambda item: bool(proxied(item)) and not target_reachable(item["route"]["upstream"]), routes)
     for item, status, target_down in zip(routes, statuses, down):
         item["certificate"] = status
@@ -1974,7 +2008,7 @@ def host_edit(request: Request, host_id: str):
             host["form_base"] = Path(host["caddyfile"]).read_text(encoding="utf-8")
         except (OSError, UnicodeDecodeError):
             host["form_base"] = ""
-    return page(request, "host_form.html", host=host)
+    return page(request, "host_form.html", host=host, route_count=len(list_routes(host)))
 
 
 @app.post("/hosts/new")
@@ -2018,7 +2052,13 @@ async def host_save(request: Request, host_id: str | None = None):
 
 @app.post("/hosts/{host_id}/delete")
 def host_delete(host_id: str):
-    save_hosts([item for item in load_hosts() if item["id"] != host_id])
+    hosts = load_hosts()
+    save_hosts([item for item in hosts if item["id"] != host_id])
+    for item in hosts:
+        if item["id"] == host_id and item.get("storage") == "managed":
+            # Its base Caddyfile and routes live here and nowhere else Caddyman would look again:
+            # the next Caddy gets a new id. The question before disconnecting says so.
+            shutil.rmtree(managed_dir(item["id"]), ignore_errors=True)
     return RedirectResponse("/hosts/new", status_code=303)
 
 

@@ -37,8 +37,11 @@
 	}
 
 	function sort(column, descending) {
-		// A hand-written file fills only the first column; it sorts as empty in the others.
-		const key = (row) => (row.cells.length === 6 || column === 0 ? cells(row)[column] : "");
+		// A hand-written file fills the first column and the certificate; it sorts as empty in the others.
+		const key = (row) => {
+			if (row.cells.length === 6 || column === 0) return cells(row)[column];
+			return column === 4 ? cells(row)[2] : "";
+		};
 		const sorted = (rows) => rows.sort((a, b) => key(a).localeCompare(key(b), undefined, { numeric: true }) * (descending ? -1 : 1));
 		let run = [];
 		const order = [];
