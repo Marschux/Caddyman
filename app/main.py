@@ -2152,15 +2152,22 @@ BACKUP_README = """Caddyman backup
 Created: {created} UTC
 Caddyman version: {version}
 
-sites/       one file per route. This is what a restore writes back.
-Caddyfile    the base Caddyfile, as a copy for reference. Caddyman never writes it.
-hosts.json   where Caddy is reachable. Only used when restoring into an empty install.
+sites/         one file per route. This is what a restore writes back.
+groups.json    the names of the route groups. A restore adds the ones that are missing.
+Caddyfile      the base Caddyfile, as a copy for reference. Caddyman never writes it.
+hosts.json     where Caddy is reachable. Only used when restoring into an empty install.
+settings.json  the switches under Settings, Security. Only used when restoring into an empty install.
+mail.json      the mail settings without the password. Only used when restoring into an empty install.
 
 NOT IN HERE: the root CA.
 It lives in the volume of your CA (for step-ca: the volume mounted at /home/step),
 not with Caddy and not with Caddyman. Back that volume up separately. It matters more
 than this file: routes are retyped in an hour, but a lost root has to be imported on
 every device again.
+
+NOT IN HERE: the accounts and every password.
+Password hashes and the keys of two-factor logins would turn this file into something
+to lock away. To keep those too, back up the data volume of Caddyman (/data).
 """
 
 
@@ -2168,12 +2175,17 @@ def build_backup(host: dict) -> bytes:
     buffer = io.BytesIO()
     created = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
     # Field by field, so nothing that is ever added to a host ends up in a backup by accident.
-    keys = ("id", *HOST_DEFAULTS, "storage")
+    # The remembered CA of the admin API is a public certificate; logins and passwords stay out.
+    keys = ("id", *HOST_DEFAULTS, "storage", "admin_ca")
     hosts = [{key: item.get(key, HOST_DEFAULTS.get(key, "")) for key in keys} for item in load_hosts()]
+    mail = load_mail()
     with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as archive:
         archive.writestr("README.txt", BACKUP_README.format(created=created, version=VERSION))
         archive.writestr("backup.json", json.dumps({"created": created, "version": VERSION, "host_id": host["id"]}))
         archive.writestr("hosts.json", json.dumps(hosts, indent=2))
+        archive.writestr("settings.json", json.dumps({key: load_settings()[key] for key in SETTING_DEFAULTS}, indent=2))
+        archive.writestr("mail.json", json.dumps({key: mail[key] for key in MAIL_DEFAULTS}, indent=2))
+        archive.writestr("groups.json", json.dumps(load_groups(host), indent=2))
         try:
             archive.writestr("Caddyfile", Path(host["caddyfile"]).read_bytes())
         except OSError:
@@ -2201,7 +2213,7 @@ def read_backup(data: bytes) -> dict:
             name = item.filename[len("sites/") : -len(".caddy")]
             if item.filename == f"sites/{name}.caddy" and ROUTE_NAME_RE.match(name) and ".." not in name:
                 routes[name] = archive.read(item).decode("utf-8")
-            elif item.filename in ("hosts.json", "backup.json"):
+            elif item.filename in ("hosts.json", "backup.json", "settings.json", "mail.json", "groups.json"):
                 extra[item.filename] = json.loads(archive.read(item))
             elif item.filename == "Caddyfile":
                 extra["Caddyfile"] = archive.read(item).decode("utf-8")
@@ -2219,14 +2231,29 @@ def read_backup(data: bytes) -> dict:
         if host_problem(host) is None:
             host_id = str(item.get("id", ""))
             host_id = host_id if re.fullmatch(r"[0-9a-f]{8}", host_id) else secrets.token_hex(4)
-            hosts.append(with_paths({"id": host_id, **host}))
+            admin_ca = "\n".join(PEM_RE.findall(str(item.get("admin_ca", ""))))
+            try:
+                fingerprints(admin_ca)
+            except ValueError:
+                admin_ca = ""
+            hosts.append(with_paths({"id": host_id, **host, **({"admin_ca": admin_ca} if admin_ca else {})}))
     meta = extra.get("backup.json")
+    # Everything below is held to what the forms of the interface would accept.
+    settings = extra.get("settings.json")
+    settings = {key: "1" if settings.get(key) else "" for key in SETTING_DEFAULTS if key in settings} if isinstance(settings, dict) else {}
+    mail = extra.get("mail.json")
+    mail = {key: str(mail.get(key, default)) for key, default in MAIL_DEFAULTS.items()} if isinstance(mail, dict) else {}
+    groups = extra.get("groups.json")
+    groups = [name for name in groups if isinstance(name, str) and GROUP_RE.fullmatch(name)] if isinstance(groups, list) else []
     return {
         "routes": routes,
         "hosts": hosts,
         "meta": meta if isinstance(meta, dict) else {},
         "ignored": ignored,
         "caddyfile": extra.get("Caddyfile", ""),
+        "settings": settings,
+        "mail": mail if mail and mail["host"] and mail_problem(mail) is None else {},
+        "groups": groups,
     }
 
 
@@ -2284,9 +2311,18 @@ async def backup_restore(request: Request, host: str | None = None):
         error = "Add a Caddy host first: this archive has no usable host settings to restore the routes into."
         return page(request, "backup.html", status_code=400, hosts=hosts, host=current, error=error)
     plan = backup_plan(backup, target)
+    # The switches and the mail settings decide who gets in and where reset links go. They come
+    # back only into an empty install, and only for an account that could set them by hand.
+    with_settings = fresh and "settings" in request.state.me["permissions"]
+    new_groups = [name for name in backup["groups"] if not taken(name, stored_groups())]
+    also = [
+        *([f"{len(new_groups)} route groups"] if new_groups else []),
+        *(["the switches under Settings, Security"] if with_settings and backup["settings"] else []),
+        *(["the mail settings, without the password"] if with_settings and backup["mail"] else []),
+    ]
     if not confirmed:
         payload = base64.b64encode(data).decode()
-        context = {"plan": plan, "target": target, "fresh": fresh, "ignored": backup["ignored"], "payload": payload}
+        context = {"plan": plan, "target": target, "fresh": fresh, "ignored": backup["ignored"], "payload": payload, "also": also}
         return page(request, "backup.html", hosts=hosts, host=current, **context)
     if any(item["path"] is None for item in plan):
         return page(request, "backup.html", status_code=400, hosts=hosts, host=current, error="A route name in the archive is not usable.")
@@ -2296,6 +2332,12 @@ async def backup_restore(request: Request, host: str | None = None):
             # A managed host keeps its base Caddyfile here, so this copy is restored with it.
             Path(target["sites_dir"]).mkdir(parents=True, exist_ok=True)
             write_private(Path(target["caddyfile"]), backup["caddyfile"])
+    if with_settings and backup["settings"]:
+        save_settings(**backup["settings"])
+    if with_settings and backup["mail"]:
+        write_private(MAIL_FILE, json.dumps(backup["mail"], indent=2))
+    if new_groups:
+        save_groups([*stored_groups(), *new_groups])
     url = f"/?host={target['id']}"
     changes = {item["path"]: item["content"] for item in plan if item["state"] != "unchanged"}
     if not changes:

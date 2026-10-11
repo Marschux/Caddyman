@@ -1224,8 +1224,10 @@ class TestBackup(RouteTest):
         with zipfile.ZipFile(io.BytesIO(self.archive)) as archive:
             self.assertEqual(
                 sorted(archive.namelist()),
-                ["Caddyfile", "README.txt", "backup.json", "hosts.json", "sites/pdf.caddy", "sites/wiki.caddy"],
+                ["Caddyfile", "README.txt", "backup.json", "groups.json", "hosts.json", "mail.json", "settings.json",
+                 "sites/pdf.caddy", "sites/wiki.caddy"],
             )
+            self.assertIn("NOT IN HERE: the accounts", archive.read("README.txt").decode())
             self.assertEqual(archive.read("sites/pdf.caddy").decode(), self.pdf)
             self.assertIn("NOT IN HERE: the root CA", archive.read("README.txt").decode())
             everything = b"".join(archive.read(name) for name in archive.namelist())
@@ -1295,6 +1297,55 @@ class TestBackup(RouteTest):
         self.confirm(self.archive)
         self.assertEqual([(h["domain_suffix"], h["sites_dir"]) for h in main.load_hosts()], [("lab.test", self.sites)])
         self.assertEqual(sorted(os.listdir(self.sites)), ["pdf.caddy", "wiki.caddy"])
+
+    MAIL = {"public_url": "https://caddyman.lab.test", "host": "smtp.lab.test", "port": "587", "security": "starttls",
+            "user": "caddyman", "password": "mail-secret", "sender": "caddyman@lab.test"}
+
+    def test_groups_switches_and_mail_travel_without_secrets(self):
+        self.client.post("/groups", data={"name": "Media"})
+        self.client.post("/settings/security", data={"public_ca": "1"})  # the hint on the login page goes off
+        self.client.post("/settings/mail", data=self.MAIL)
+        archive = self.client.get("/backup/download").content
+        with zipfile.ZipFile(io.BytesIO(archive)) as packed:
+            everything = b"".join(packed.read(name) for name in packed.namelist())
+        self.assertIn(b"smtp.lab.test", everything)
+        for secret in (b"mail-secret", b"password_enc", b"password_hash", b"admin_password"):
+            self.assertNotIn(secret, everything)
+        # Into an install that has its Caddy: the groups come back, the switches and the mail settings stay as they are.
+        main.GROUPS_FILE.unlink()
+        main.MAIL_FILE.unlink()
+        main.SETTINGS_FILE.unlink()
+        self.assertIn("1 route groups", self.upload(archive).text)
+        self.confirm(archive)
+        self.assertEqual(main.stored_groups(), ["Media"])
+        self.assertEqual((main.load_mail()["host"], main.flag("login_ca_hint")), ("", True))
+        # Into an empty install everything comes back, the mail password excepted.
+        main.save_hosts([])
+        preview = self.upload(archive).text
+        self.assertIn("the switches under Settings, Security", preview)
+        self.assertIn("the mail settings, without the password", preview)
+        self.assertEqual(main.load_mail()["host"], "")  # the preview restores nothing
+        self.confirm(archive)
+        self.assertEqual((main.load_mail()["host"], main.load_mail()["user"]), ("smtp.lab.test", "caddyman"))
+        self.assertNotIn("password_enc", main.load_mail())
+        self.assertEqual((main.flag("public_ca"), main.flag("login_ca_hint")), (True, False))
+
+    def test_only_who_may_change_settings_restores_them(self):
+        # Mail settings decide where reset links go: the right to restore routes must not be enough to set them.
+        evil = {**self.MAIL, "public_url": "https://evil.example", "host": "evil.example"}
+        evil.pop("password")
+        archive = self.make_zip({"hosts.json": main.json.dumps([self.host]), "mail.json": main.json.dumps(evil),
+                                 "settings.json": '{"public_ca": ""}', "groups.json": '["ok", "bad\\nname", 7]'})
+        self.client.post("/settings/security", data={"public_ca": "1", "login_ca_hint": "1"})
+        self.client.post("/settings/users/new", data={"username": "keeper", "password": PASSWORD, "repeat": PASSWORD, "right_backup": "1"})
+        keeper = TestClient(main.app, follow_redirects=False)
+        keeper.post("/login", data={"username": "keeper", "password": PASSWORD})
+        main.save_hosts([])
+        payload = {"payload": base64.b64encode(archive).decode()}
+        self.assertNotIn("mail settings", keeper.post("/backup/restore", files={"archive": ("b.zip", archive, "application/zip")}).text)
+        keeper.post("/backup/restore", data=payload)
+        self.assertEqual((main.load_mail()["host"], main.flag("public_ca")), ("", True))
+        self.assertEqual(main.stored_groups(), ["ok"])  # names only, and only usable ones
 
     def test_hosts_in_the_archive_never_replace_existing_ones(self):
         tampered = self.make_zip({"hosts.json": '[{"id":"h1","name":"evil","admin_url":"http://evil:2019"}]'})
