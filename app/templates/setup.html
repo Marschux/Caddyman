@@ -18,6 +18,9 @@
 	<input id="token" name="token" autocomplete="off" required autofocus>
 	<label for="username">Username</label>
 	<input id="username" name="username" value="{{ username or '' }}" autocomplete="username" maxlength="64" required>
+	<label for="email">Email <span class="optional">optional</span></label>
+	<input id="email" name="email" type="email" value="{{ email or '' }}" autocomplete="email" maxlength="254">
+	<small>Only used to mail you a link when you forgot your password, once mail is set up.</small>
 	<label for="password">Password</label>
 	<input id="password" name="password" type="password" autocomplete="new-password" minlength="8" required>
 	<label for="repeat">Repeat password</label>

@@ -57,6 +57,12 @@ class TestAuth(AppTest):
         self.assertIn("AGPL-3.0-or-later", footer)
         self.assertIn(f'href="{main.SOURCE_URL}"', footer)
 
+    def test_setup_takes_an_email_for_the_admin(self):
+        self.assertEqual(self.setup_admin(email="not an address").status_code, 400)
+        self.assertFalse(main.AUTH_FILE.exists())
+        self.assertEqual(self.setup_admin(email=" ada@lab.test ").headers["location"], "/")
+        self.assertEqual(main.load_users()[0]["email"], "ada@lab.test")
+
     def test_setup_needs_the_token(self):
         self.assertEqual(self.setup_admin(token="wrong").status_code, 400)
         self.assertEqual(self.setup_admin(token="").status_code, 400)

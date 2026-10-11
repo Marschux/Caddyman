@@ -399,12 +399,13 @@ def setup_submit(
     request: Request,
     token: str = Form(""),
     username: str = Form(""),
+    email: str = Form(""),
     password: str = Form(""),
     repeat: str = Form(""),
 ):
     global SETUP_TOKEN
     address = client_address(request)
-    username = username.strip()
+    username, email = username.strip(), email.strip()
     if error := setup_token_problem():
         pass
     elif wait := locked_seconds(address):
@@ -413,11 +414,11 @@ def setup_submit(
         record_fail(address)
         error = "The token does not match."
     else:
-        error = user_problem({"username": username}, []) or password_problem(password, repeat)
+        error = user_problem({"username": username, "email": email}, []) or password_problem(password, repeat)
     if error:
-        return setup_page(request, status_code=400, error=error, username=username)
+        return setup_page(request, status_code=400, error=error, username=username, email=email)
     # The first account may do everything, including handing out rights to the next ones.
-    user = {"username": username, "realname": "", "email": "", "password_hash": hash_password(password), "permissions": list(PERMISSIONS)}
+    user = {"username": username, "realname": "", "email": email, "password_hash": hash_password(password), "permissions": list(PERMISSIONS)}
     save_users([user])
     SETUP_TOKEN = None
     return start_session(RedirectResponse("/", status_code=303), request, user)
