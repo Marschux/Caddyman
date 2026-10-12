@@ -93,10 +93,28 @@
 		});
 	});
 
+	// "No groups" is kept in this browser, so the list opens the way it was left. Without storage
+	// (private window, blocked site data) it just starts with groups.
+	const KEPT = "caddyman.routes.flat";
+	const store = (action) => {
+		try {
+			return action(localStorage);
+		} catch (error) {
+			return null;
+		}
+	};
+
 	filter.addEventListener("input", (event) => {
-		if (event.target.name === "flat") arrange();
+		if (event.target.name === "flat") {
+			store((kept) => (event.target.checked ? kept.setItem(KEPT, "1") : kept.removeItem(KEPT)));
+			arrange();
+		}
 		apply();
 	});
+	if (filter.elements.flat && store((kept) => kept.getItem(KEPT)) === "1") {
+		filter.elements.flat.checked = true;
+		arrange();
+	}
 	filter.hidden = false;
 	apply();
 })();
