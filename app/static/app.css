@@ -133,6 +133,10 @@ main:has(> .side) > .card.wide, main:has(> .side) > .toolbar.wide { max-width: n
 	main:has(> .side) { display: block; }
 	.side { flex-direction: row; flex-wrap: wrap; margin-bottom: 24px; }
 }
+/* The side list takes 228px, so a wide table needs to scroll earlier than on the other pages. */
+@media (max-width: 1100px) {
+	main:has(> .side) table { display: block; overflow-x: auto; }
+}
 
 main { flex: 1; width: 100%; max-width: 1280px; margin: 0 auto; padding: 48px 32px; }
 footer { padding: 32px; color: var(--ink-subtle); font-size: 13px; letter-spacing: 0.2px; text-align: center; }
