@@ -1520,7 +1520,8 @@ def route_from_form(form, host: dict, previous: dict | None = None) -> tuple[dic
         return f"{name}.{host['domain_suffix']}" if host["domain_suffix"] and "." not in name and name else name
 
     def usable(name: str) -> bool:
-        return bool(HOSTNAME_RE.match(name)) and ".." not in name and len(name) <= 253
+        # '*.' in front stands for every name one level below: a wildcard.
+        return bool(HOSTNAME_RE.match(name.removeprefix("*."))) and ".." not in name and len(name) <= 253
 
     name = full(get("host"))
     route = {"type": get("type"), "host": name, "port": get("port"), "tls": get("tls")}
@@ -1561,6 +1562,9 @@ def route_from_form(form, host: dict, previous: dict | None = None) -> tuple[dic
         return route, "This host has no TLS snippet in its base Caddyfile, so 'Own ACME CA' is not available."
     if route["tls"] == "dns" and not has_snippet(host, "dns_snippet"):
         return route, "This host has no DNS snippet in its base Caddyfile, so the DNS challenge is not available."
+    # No CA hands out a wildcard after a check over HTTP: that proves one name, not all of them.
+    if route["tls"] in ("acme_ca", "default") and any(item.startswith("*.") for item in (name, *aliases)):
+        return route, "A wildcard name needs the DNS challenge or Caddy's internal CA. A certificate for it cannot be obtained over HTTP."
     if route["type"] == "reverse_proxy":
         route["upstream"] = get("upstream")
         match = UPSTREAM_RE.match(route["upstream"])
@@ -1676,6 +1680,8 @@ def render_route(route: dict, host: dict) -> str:
 def route_file_name(route: dict, host: dict) -> str:
     """File name without extension: the hostname without the host's suffix."""
     name = route["host"].removesuffix(f".{host['domain_suffix']}") if host["domain_suffix"] else route["host"]
+    # A star cannot stand in a file name.
+    name = "wildcard" + name[1:] if name.startswith("*") else name
     return name + (f"_{route['port']}" if route["port"] else "")
 
 
@@ -2004,7 +2010,8 @@ def certificate_status(host: dict, route: dict | None) -> dict | None:
         return None
     address = urlsplit(host["admin_url"]).hostname
     try:
-        certificate = served_certificate(address, int(route["port"] or 443), route["host"])
+        # For a wildcard any name below it is asked for: Caddy answers with the certificate for all of them.
+        certificate = served_certificate(address, int(route["port"] or 443), route["host"].replace("*", "wildcard-check", 1))
     except ssl.SSLError:
         # Caddy answers the handshake with an alert as long as it has no certificate for the name.
         return {"level": "fail", "text": "No certificate", "detail": "Caddy has not obtained one yet. Its log says why."}
@@ -2084,7 +2091,8 @@ def route_links(route: dict | None) -> tuple[str, str]:
     if not route:
         return "", ""
     port = f":{route['port']}" if route.get("port") else ""
-    site = f"{'http' if route['tls'] == 'none' else 'https'}://{route['host']}{port}"
+    # A wildcard is no address anybody can open.
+    site = "" if "*" in route["host"] else f"{'http' if route['tls'] == 'none' else 'https'}://{route['host']}{port}"
     target = route.get("upstream") or route.get("target") or ""
     if route["type"] == "reverse_proxy" and "://" not in target:
         target = f"http://{target}"

@@ -1952,6 +1952,25 @@ class TestEdit(RouteTest):
         main.target_reachable.side_effect = lambda upstream: upstream != "10.0.0.8:3000"
         self.assertIn("No TCP connection from Caddyman to 10.0.0.8:3000.", self.client.get("/").text)
 
+    def test_wildcard_names(self):
+        # Not over HTTP: neither the own ACME CA nor Caddy's default can prove a wildcard that way.
+        self.assertEqual(self.create(host="*.apps.lab.test").status_code, 400)
+        self.assertEqual(self.create(host="*.apps.lab.test", tls="default").status_code, 400)
+        self.assertEqual(self.create(host="docs", aliases="*.docs.lab.test").status_code, 400)
+        for bad in ("a.*.lab.test", "*apps.lab.test", "*.*.lab.test"):
+            self.assertEqual(self.create(host=bad, tls="internal").status_code, 400, bad)
+        self.assertEqual(self.create(host="*.apps.lab.test", tls="internal").headers["location"], "/")
+        # The star cannot be part of a file name, and there is nothing to open behind it.
+        text = self.read("wildcard.apps.caddy")
+        self.assertIn("\n*.apps.lab.test {\n\ttls internal\n", text)
+        page = self.client.get("/").text
+        self.assertIn("<strong>*.apps.lab.test</strong>", page)
+        self.assertNotIn('href="https://*', page)
+        self.assertIn('value="*.apps.lab.test"', self.client.get("/routes/wildcard.apps/edit").text)
+        # The certificate is asked for under a name the wildcard covers.
+        self.assertEqual(self.served.call_args.args[2], "wildcard-check.apps.lab.test")
+        self.assertEqual(main.adopt_route(text, self.host)[0]["host"], "*.apps.lab.test")
+
     def test_skip_verify_option(self):
         block = "\t\ttransport http {\n\t\t\ttls_insecure_skip_verify\n\t\t}\n"
         self.edit(upstream="https://10.0.0.5:8006", skip_verify="1")

@@ -28,7 +28,8 @@
 	<label for="host">Hostname</label>
 	<input id="host" name="host" value="{{ route.host or '' }}" required autofocus
 		placeholder="{{ 'pdf' if host.domain_suffix else 'pdf.home.example' }}">
-	{% if host.domain_suffix %}<small>A short name gets <code>.{{ host.domain_suffix }}</code> appended.</small>{% endif %}
+	<small>{% if host.domain_suffix %}A short name gets <code>.{{ host.domain_suffix }}</code> appended. {% endif %}
+		<code>*.apps.example.com</code> stands for every name below it and needs the DNS challenge or Caddy's internal CA.</small>
 
 	{# One field per name, two side by side. The button adds a field; an empty one is dropped on saving. #}
 	<label>More hostnames <span class="optional">optional</span></label>
