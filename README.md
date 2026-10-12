@@ -7,7 +7,7 @@
 A web interface for Caddy routes that works with your own ACME CA, such as
 [step-ca](https://smallstep.com/docs/step-ca/).
 
-![Route list](docs/screenshot.png)
+![Route list](docs/assets/screenshot.png)
 
 - **Routes:** reverse proxy, redirect or static files, with optional basic auth
 - **TLS per route:** your own ACME CA, Caddy's default, Caddy's internal CA, or none
@@ -92,7 +92,7 @@ caddyman.home.example {
 
 Settings are optional and go into a `.env`, see [`docker/.env.example`](docker/.env.example).
 
-![Logs page](docs/screenshot-logs.png)
+![Logs page](docs/assets/screenshot-logs.png)
 
 ## Securing the admin API
 

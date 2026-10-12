@@ -1,10 +1,10 @@
 #!/bin/sh
 # pre-push hook: fasst Commits seit dem letzten Push in CHANGELOG.md zusammen.
 # Installation (im Projekt-Repo):
-#   mkdir -p scripts/hooks
-#   cp <dieses-file> scripts/hooks/pre-push
-#   chmod +x scripts/hooks/pre-push
-#   git config core.hooksPath scripts/hooks
+#   mkdir -p .github/hooks
+#   cp <dieses-file> .github/hooks/pre-push
+#   chmod +x .github/hooks/pre-push
+#   git config core.hooksPath .github/hooks
 #
 # The entries are the raw commit subjects, nothing is summarised.
 
