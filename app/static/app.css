@@ -121,6 +121,8 @@ main:has(> .side) > .notice { margin-bottom: 32px; }
 main:has(> .side) > .side { grid-column: 1; grid-row: span 12; align-self: start; }
 main:has(> .side) > .card { margin: 0 0 24px; }
 main:has(> .side) > .card + .card { margin-top: 0; }
+/* Next to the list a form fills the column, as wide as the tables on the System pages. */
+main:has(> .side) > .card.wide, main:has(> .side) > .toolbar.wide { max-width: none; }
 .side { display: flex; flex-direction: column; gap: 2px; }
 .side a { padding: 8px 12px; color: var(--ink-muted); text-decoration: none; border-radius: 8px; }
 .side a:hover { color: var(--ink); background: var(--surface-1); }
