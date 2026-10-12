@@ -82,14 +82,16 @@ header {
 	border-bottom: 1px solid var(--hairline-soft);
 }
 
-header form { display: flex; gap: 16px; align-items: center; color: var(--ink-subtle); }
-.account { display: flex; align-items: center; gap: 8px; color: var(--ink-muted); }
+header form { display: flex; gap: 8px; align-items: center; color: var(--ink-subtle); }
+/* The account as one pill: initials in the product colour, the name next to them. Leads to the profile. */
+.account { display: flex; align-items: center; gap: 8px; height: 32px; padding: 0 14px 0 3px; color: var(--ink); border: 1px solid var(--hairline-strong); border-radius: 9999px; }
+.account .avatar { width: 24px; height: 24px; margin: 0; color: var(--product); background: var(--product-bg); font-size: 10px; }
 /* The switch between the dark and the light look, left of the account. */
-header form.theme { margin-right: 16px; }
+header form.theme { margin-right: 8px; }
 button.icon { display: inline-flex; align-items: center; justify-content: center; width: 32px; height: 32px; margin: 0; padding: 0; color: var(--ink-muted); background: none; border: 1px solid var(--hairline-strong); border-radius: 50%; }
-button.icon:hover { color: var(--ink); background: var(--surface-2); border-color: var(--hairline-strong); }
+button.icon:hover { color: var(--product); background: var(--product-bg); border-color: var(--product); }
 button.icon svg { width: 16px; height: 16px; }
-.account:hover { color: var(--ink); text-decoration: none; }
+.account:hover { background: var(--product-bg); border-color: var(--product); text-decoration: none; }
 /* Initials instead of a picture: nothing to upload, nothing to store. */
 .avatar { display: inline-flex; align-items: center; justify-content: center; flex: none; width: 28px; height: 28px; margin-right: 4px; color: var(--ink); background: var(--surface-3); border-radius: 50%; font-size: 11px; font-weight: 700; letter-spacing: 0.4px; vertical-align: middle; }
 .avatar.big { width: 44px; height: 44px; margin-right: 10px; font-size: 16px; }
