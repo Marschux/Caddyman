@@ -15,7 +15,7 @@
 {# One system at a time, picked from the list at the left edge. /ca starts with the certificate
    itself, /trust with Windows. #}
 {% set systems = [("windows", "Windows"), ("macos", "macOS"), ("linux", "Debian and Ubuntu"),
-	("ios", "iPhone and iPad"), ("android", "Android"), ("firefox", "Firefox")] %}
+	("ios", "iPhone and iPad"), ("android", "Android"), ("chrome", "Chrome and Edge"), ("firefox", "Firefox")] %}
 {% set asked = request.query_params.get("os", "") %}
 {% set shown = asked if asked in systems|map("first")|list else ("windows" if public else "") %}
 {# With several certificates every link keeps the one that is picked. #}
@@ -147,6 +147,21 @@ sudo update-ca-certificates</pre>
 </section>
 {% endif %}
 
+{% if shown == "chrome" %}
+<section>
+	<h2>Chrome and Edge</h2>
+	<p class="empty">On Windows, macOS and Android these browsers use the store of the system, and so do Brave, Vivaldi,
+		Opera and Safari: follow the steps for the system, then close the browser completely and open it again.</p>
+	<p class="empty">On <strong>Linux</strong> they keep their own list and ignore the system store. Print the check code
+		of the downloaded file first and compare it:</p>
+	<pre>openssl x509 -in {{ file_name }} -noout -fingerprint -sha256 | cut -d= -f2 | tr -d : | cut -c1-12</pre>
+	<pre>certutil -d sql:$HOME/.pki/nssdb -A -t "C,," -n "{{ file_name }}" -i {{ file_name }}</pre>
+	<p class="empty"><code>certutil</code> is part of the package <code>libnss3-tools</code> on Debian and Ubuntu. Or import
+		the file in the browser itself at <code>chrome://certificate-manager</code>; older versions have it at
+		<code>chrome://settings/certificates</code> under Authorities.</p>
+</section>
+{% endif %}
+
 {% if shown == "firefox" %}
 <section>
 	<h2>Firefox</h2>
@@ -154,6 +169,9 @@ sudo update-ca-certificates</pre>
 		Settings, Privacy &amp; Security, Certificates, View Certificates, Authorities, Import, and tick "Trust this CA to identify websites".
 		Or let Firefox use the system store by setting this to <code>true</code> in <code>about:config</code>:</p>
 	<pre>security.enterprise_roots.enabled</pre>
+	<p class="empty">Firefox on <strong>Android</strong> has neither. Install the certificate as described under Android,
+		then open Settings, About Firefox, tap the logo five times and switch on "Use third party CA certificates"
+		under Secret Settings.</p>
 </section>
 {% endif %}
 

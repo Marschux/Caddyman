@@ -13,7 +13,7 @@ A web interface for Caddy routes that works with your own ACME CA, such as
 - **TLS per route:** your own ACME CA, Caddy's default, Caddy's internal CA, or none
 - **Certificate check:** shows who issued what each route really serves, and when it expires
 - **Root CA page:** download, fingerprints, a check code to pass on by voice, and import steps
-  for Windows, macOS, Debian, iPhone, Android and Firefox; open without a login at `/trust`
+  for Windows, macOS, Debian, iPhone, Android, Chrome and Firefox; open without a login at `/trust`
 - **Logs:** Caddy's log, live and filterable, to see why a certificate did not arrive; rotated
   files too, and an access log per route for the routes that ask for one
 - **Backup:** all routes as a ZIP, with a preview before a restore writes anything

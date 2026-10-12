@@ -973,7 +973,8 @@ class TestCa(RouteTest):
         self.assertIn("<h2>Windows</h2>", page.text)
         self.assertNotIn("<h2>macOS</h2>", page.text)
         for key, system in (("macos", "macOS"), ("linux", "Debian and Ubuntu"), ("ios", "iPhone and iPad"),
-                            ("android", "Android"), ("firefox", "Firefox"), ("nonsense", "Windows")):
+                            ("android", "Android"), ("chrome", "Chrome and Edge"), ("firefox", "Firefox"),
+                            ("nonsense", "Windows")):
             self.assertIn(f'href="?os={key}"' if key != "nonsense" else "<aside", page.text)
             self.assertIn(f"<h2>{system}</h2>", self.client.get(f"/trust?os={key}").text)
         self.assertEqual(self.client.get("/root-ca.crt").text, self.PEM + "\n")
