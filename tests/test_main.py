@@ -1829,6 +1829,23 @@ class TestEdit(RouteTest):
         self.edit()
         self.assertEqual(self.read("pdf.caddy"), self.original)
 
+    def test_more_hostnames_share_one_route(self):
+        self.edit(aliases="Docs, wiki.lab.test,pdf docs")
+        text = self.read("pdf.caddy")
+        route = main.read_route(main.Path(self.sites) / "pdf.caddy", self.host)
+        # Short names get the suffix, the main name and doubles drop out, the file keeps its name.
+        self.assertEqual(route["aliases"], ["docs.lab.test", "wiki.lab.test"])
+        self.assertIn("\npdf.lab.test, docs.lab.test, wiki.lab.test {\n", text)
+        self.assertIn('name="aliases" value="docs.lab.test, wiki.lab.test"', self.client.get("/routes/pdf/edit").text)
+        self.assertIn("<small>wiki.lab.test</small>", self.client.get("/").text)
+        taken, reason = main.adopt_route(text, self.host)
+        self.assertEqual(taken and taken["aliases"], route["aliases"], reason)
+        # Port and plain HTTP go for every name.
+        self.edit(aliases="docs", tls="none", port="8080")
+        self.assertIn("\nhttp://pdf.lab.test:8080, http://docs.lab.test:8080 {\n", self.read("pdf_8080.caddy"))
+        for bad in ("docs {", "a_b", " ".join(f"n{number}" for number in range(21))):
+            self.assertEqual(self.edit(name="pdf_8080", aliases=bad).status_code, 400, bad)
+
     def test_skip_verify_option(self):
         block = "\t\ttransport http {\n\t\t\ttls_insecure_skip_verify\n\t\t}\n"
         self.edit(upstream="https://10.0.0.5:8006", skip_verify="1")
@@ -1885,7 +1902,7 @@ class TestEdit(RouteTest):
         refused = [
             "a.lab.test {\n\treverse_proxy 10.0.0.7:3000\n\theader X-Frame-Options DENY\n}\n",
             "a.lab.test {\n\treverse_proxy 10.0.0.7:3000 10.0.0.8:3000\n}\n",
-            "a.lab.test, b.lab.test {\n\treverse_proxy 10.0.0.7:3000\n}\n",
+            "a.lab.test, b.lab.test:8443 {\n\treverse_proxy 10.0.0.7:3000\n}\n",
             "a.lab.test {\n\timport other\n\treverse_proxy 10.0.0.7:3000\n}\n",
             "a.lab.test {\n\treverse_proxy 10.0.0.7:3000\n}\nb.lab.test {\n\trespond 200\n}\n",
             "a.lab.test {\n\ttls internal\n}\n",

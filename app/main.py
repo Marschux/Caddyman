@@ -1340,6 +1340,7 @@ def acme_ca_available(host: dict) -> bool:
 
 
 MAX_NETWORKS = 20
+MAX_ALIASES = 20
 
 
 def allowed_networks(text: str) -> str | None:
@@ -1370,9 +1371,15 @@ def route_from_form(form, host: dict, previous: dict | None = None) -> tuple[dic
     and always in the same order, so files written before a key existed stay ours.
     """
     get = lambda key: str(form.get(key, "")).strip()  # noqa: E731
-    name = get("host").lower().strip(".")
-    if host["domain_suffix"] and "." not in name and name:
-        name = f"{name}.{host['domain_suffix']}"
+
+    def full(name: str) -> str:
+        name = name.lower().strip(".")
+        return f"{name}.{host['domain_suffix']}" if host["domain_suffix"] and "." not in name and name else name
+
+    def usable(name: str) -> bool:
+        return bool(HOSTNAME_RE.match(name)) and ".." not in name and len(name) <= 253
+
+    name = full(get("host"))
     route = {"type": get("type"), "host": name, "port": get("port"), "tls": get("tls")}
     if group := get("group"):
         route["group"] = group
@@ -1385,7 +1392,13 @@ def route_from_form(form, host: dict, previous: dict | None = None) -> tuple[dic
         if not allow:
             return route, f"Allowed networks are up to {MAX_NETWORKS} addresses or networks like 192.168.1.0/24, or the word 'private'."
         route["allow"] = allow
-    if not HOSTNAME_RE.match(name) or ".." in name or len(name) > 253:
+    # Further names for the same route. The first one stays the main name: it names the file.
+    aliases = [alias for alias in dict.fromkeys(map(full, get("aliases").replace(",", " ").split())) if alias != name]
+    if aliases:
+        route["aliases"] = aliases
+        if len(aliases) > MAX_ALIASES or not all(map(usable, aliases)):
+            return route, f"More hostnames are up to {MAX_ALIASES} names of lowercase letters, digits, '-' and '.', separated by commas."
+    if not usable(name):
         return route, "The hostname may only contain lowercase letters, digits, '-' and '.'."
     if route["port"] and not valid_port(route["port"]):
         return route, "The port has to be a number between 1 and 65535."
@@ -1439,12 +1452,11 @@ def route_from_form(form, host: dict, previous: dict | None = None) -> tuple[dic
 
 def render_route(route: dict, host: dict) -> str:
     """The complete file for a route. Expects metadata that passed route_from_form."""
-    address = route["host"] + (f":{route['port']}" if route["port"] else "")
+    # Caddy has no directive that turns TLS off; an http:// address does.
+    scheme, port = "http://" if route["tls"] == "none" else "", f":{route['port']}" if route["port"] else ""
+    address = ", ".join(f"{scheme}{name}{port}" for name in (route["host"], *route.get("aliases", [])))
     lines = []
-    if route["tls"] == "none":
-        # Caddy has no directive that turns TLS off; an http:// address does.
-        address = f"http://{address}"
-    elif route["tls"] == "acme_ca":
+    if route["tls"] == "acme_ca":
         lines.append(f"import {host['tls_snippet']}")
     elif route["tls"] == "internal":
         lines.append("tls internal")
@@ -1690,12 +1702,15 @@ def adopt_route(content: str, host: dict) -> tuple[dict | None, str]:
     give or take whitespace and line order, and refuses everything else.
     """
     lines = [line.split() for line in content.splitlines() if line.strip() and not line.startswith(META_PREFIX)]
-    if len(lines) < 3 or len(lines[0]) != 2 or lines[0][1] != "{" or lines[-1] != ["}"]:
+    if len(lines) < 3 or len(lines[0]) < 2 or lines[0][-1] != "{" or lines[-1] != ["}"]:
         return None, "it is not a single site block"
-    address = re.match(r"^(http://)?([^:/]+)(?::([0-9]+))?$", lines[0][0])
-    if not address:
+    # One address, or several separated by commas that differ in nothing but the name.
+    names = [re.match(r"^(http://)?([^:/,]+)(?::([0-9]+))?$", token.rstrip(",")) for token in lines[0][:-1]]
+    if not all(names) or len({(found.group(1), found.group(3)) for found in names}) != 1:
         return None, "its address is not a plain hostname"
+    address = names[0]
     form = {"host": address.group(2), "port": address.group(3) or "", "tls": "none" if address.group(1) else "default"}
+    form["aliases"] = " ".join(found.group(2) for found in names[1:])
     inner, index, login = lines[1:-1], 0, None
     while index < len(inner):
         tokens, block = inner[index], inner[index + 1 : index + 3]
@@ -1827,6 +1842,8 @@ PROBE_SECONDS = {True: 60, False: 15}
 # DNS answers for instance, finishes in the background and is there on the next load.
 PROBE_BUDGET = 6
 RUNNING, QUEUED = object(), object()
+# Certificate levels, worst first.
+CERT_RANK = ("fail", "warn", "unknown", "ok")
 
 
 def probes(jobs: dict[tuple, tuple]) -> dict[tuple, object]:
@@ -1899,7 +1916,7 @@ def own_route(route: dict | None, request: Request) -> str:
     """
     if not route or route["type"] != "reverse_proxy" or not route["upstream"].endswith(f":{OWN_PORT}"):
         return ""
-    return "used" if route["host"] == request.url.hostname else "own"
+    return "used" if request.url.hostname in (route["host"], *route.get("aliases", [])) else "own"
 
 
 def pick_host() -> tuple[list[dict], dict | None]:
@@ -1938,16 +1955,26 @@ def index(request: Request):
             # Caddy does not serve it: no certificate to look at, no target to reach.
             continue
         if served and served["tls"] != "none":
-            item["cert_key"] = ("certificate", current["admin_url"], served["host"], served["port"], served["tls"])
-            jobs[item["cert_key"]] = (certificate_status, (current, served), lambda status: status and status["level"] == "ok")
+            # One handshake per name: each of them gets a certificate of its own.
+            item["cert_keys"] = {}
+            for name in (served["host"], *served.get("aliases", [])):
+                key = ("certificate", current["admin_url"], name, served["port"], served["tls"])
+                item["cert_keys"][name] = key
+                jobs[key] = (certificate_status, (current, {**served, "host": name}), lambda status: status and status["level"] == "ok")
         if item["route"] and item["route"]["type"] == "reverse_proxy":
             item["reach_key"] = ("target", item["route"]["upstream"])
             jobs[item["reach_key"]] = (target_reachable, (item["route"]["upstream"],), bool)
     found = probes(jobs)
     late = {"level": "unknown", "text": "Still checking", "detail": "The check did not finish in time. Reload the page in a moment."}
     for item in routes:
-        status = found.get(item.get("cert_key"))
-        item["certificate"] = late if status in (RUNNING, QUEUED) else status
+        # The worst of all names is what the row shows; a further name is called by name.
+        item["certificate"], main = None, True
+        for name, key in item.get("cert_keys", {}).items():
+            status = late if found.get(key) in (RUNNING, QUEUED) else found.get(key)
+            shown = item["certificate"]
+            if status and (shown is None or CERT_RANK.index(status["level"]) < CERT_RANK.index(shown["level"])):
+                item["certificate"] = status if main else {**status, "detail": f"{name}: {status['detail']}"}
+            main = False
         # A check that is still running after all that time is a target that does not answer.
         # One that never got its turn says nothing about the target.
         item["target_down"] = found.get(item.get("reach_key"), True) in (False, RUNNING)

@@ -30,6 +30,11 @@
 		placeholder="{{ 'pdf' if host.domain_suffix else 'pdf.home.example' }}">
 	{% if host.domain_suffix %}<small>A short name gets <code>.{{ host.domain_suffix }}</code> appended.</small>{% endif %}
 
+	<label for="aliases">More hostnames <span class="optional">optional</span></label>
+	<input id="aliases" name="aliases" value="{{ (route.aliases or [])|join(', ') }}" autocomplete="off"
+		placeholder="{{ 'docs, wiki' if host.domain_suffix else 'docs.home.example, wiki.home.example' }}">
+	<small>Further names that lead to the same place, separated by commas. Each gets a certificate of its own.</small>
+
 	<div class="for-reverse_proxy">
 		<label for="upstream">Target</label>
 		<input id="upstream" name="upstream" value="{{ route.upstream or '' }}" placeholder="192.168.1.20:8080">
