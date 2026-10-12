@@ -208,7 +208,7 @@ button:focus-visible, a:focus-visible, summary:focus-visible { outline: 2px soli
 button.link { width: auto; margin: 0; padding: 0; font-weight: 500; color: var(--link); background: none; border: 0; border-radius: 4px; }
 button.link:hover { background: none; text-decoration: underline; text-underline-offset: 3px; }
 button.secondary, a.button.secondary { margin-top: 0; color: var(--ink); background: var(--surface-2); border-color: var(--surface-2); }
-button.secondary:hover, a.button.secondary:hover { background: var(--surface-3); border-color: var(--surface-3); }
+button.secondary:hover, a.button.secondary:hover { background: var(--surface-3); border-color: var(--product); }
 
 .heading { display: flex; justify-content: space-between; align-items: center; gap: 16px; margin-bottom: 24px; }
 .heading h1 { margin: 0; }
@@ -235,7 +235,7 @@ td.nowrap { white-space: nowrap; }
 .actions > * + * { margin-left: 8px; }
 /* Outlined, so they stay visible on the lifted row under the pointer. */
 .actions button, .actions a.button { width: auto; margin: 0; padding: 6px 14px; font-size: 13px; color: var(--ink); background: none; border-color: var(--hairline-strong); }
-.actions button:hover, .actions a.button:hover { background: var(--surface-3); border-color: var(--surface-3); }
+.actions button:hover, .actions a.button:hover { background: var(--surface-3); border-color: var(--product); }
 /* Delete in a list wears the product colour, not red: the question before it is the warning. */
 .actions button.danger { color: var(--product); }
 .actions button.danger:hover { background: var(--product-bg); border-color: var(--product); }
@@ -315,7 +315,7 @@ form.row[hidden] { display: none; }
    product colour, while it is ticked. The negative margin keeps the row as high as it was. */
 th label.check { display: inline-flex; margin: -5px 0; padding: 4px 12px; color: var(--ink-muted); font-size: 12px; font-weight: 600; letter-spacing: 0; text-transform: none; border: 1px solid var(--hairline-strong); border-radius: 8px; cursor: pointer; }
 th label.check input { position: absolute; width: 1px; height: 1px; opacity: 0; }
-th label.check:hover { color: var(--ink); background: var(--surface-3); border-color: var(--surface-3); }
+th label.check:hover { color: var(--ink); background: var(--surface-3); border-color: var(--product); }
 th label.check:has(:checked) { color: var(--product); background: var(--product-bg); border-color: var(--product); }
 th label.check:has(:focus-visible) { outline: 2px solid var(--link); outline-offset: 2px; }
 th label.check[hidden] { display: none; }
