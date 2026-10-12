@@ -45,7 +45,7 @@
 			<td{% if route.type != "redirect" %} class="nowrap"{% endif %}>{% if item.link %}<a class="out" href="{{ item.link }}" target="_blank" rel="noopener noreferrer"><code>{{ route.upstream or route.target }}</code></a>
 				{% else %}<code>{{ route.upstream or route.target or route.root }}</code>{% endif %}
 				{% for path, target in route.paths or [] %}<small><code>{{ path }}</code> to <code>{{ target }}</code></small>{% endfor %}
-				{% if item.target_down %}<span class="cert warn" title="No TCP connection from Caddyman to this target. Caddy may see it differently.">Not reachable</span>{% endif %}</td>
+				{% if item.target_down %}<span class="cert warn" title="No TCP connection from Caddyman to {{ item.target_down|join(', ') }}. Caddy may see it differently.">Not reachable</span>{% endif %}</td>
 			{# What is switched on for the route, always in the same place and order. The long name is the tooltip. #}
 			<td class="nowrap">
 				{% if route.sso %}<span class="tag" title="Single sign-on: the login service is asked first">SSO</span>{% endif %}

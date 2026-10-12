@@ -2154,8 +2154,11 @@ def index(request: Request):
                 item["cert_keys"][name] = key
                 jobs[key] = (certificate_status, (current, {**served, "host": name}), lambda status: status and status["level"] == "ok")
         if item["route"] and item["route"]["type"] == "reverse_proxy":
-            item["reach_key"] = ("target", item["route"]["upstream"])
-            jobs[item["reach_key"]] = (target_reachable, (item["route"]["upstream"],), bool)
+            # The main target and the one of every path.
+            item["reach_keys"] = {}
+            for target in (item["route"]["upstream"], *(pair[1] for pair in item["route"].get("paths", []))):
+                item["reach_keys"][target] = ("target", target)
+                jobs[("target", target)] = (target_reachable, (target,), bool)
     found = probes(jobs)
     late = {"level": "unknown", "text": "Still checking", "detail": "The check did not finish in time. Reload the page in a moment."}
     for item in routes:
@@ -2169,7 +2172,7 @@ def index(request: Request):
             main = False
         # A check that is still running after all that time is a target that does not answer.
         # One that never got its turn says nothing about the target.
-        item["target_down"] = found.get(item.get("reach_key"), True) in (False, RUNNING)
+        item["target_down"] = [target for target, key in item.get("reach_keys", {}).items() if found.get(key, True) in (False, RUNNING)]
         item["site"], item["link"] = route_links(item["route"])
         item["group"] = route_group(item["route"])
         item["own"] = own_route(item["route"], request)

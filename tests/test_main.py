@@ -1947,6 +1947,11 @@ class TestEdit(RouteTest):
         for guide in main.dns_guides("dns"):
             self.assertEqual(guide["snippet"].count("{") - guide["snippet"].count("{env."), guide["snippet"].count("}") - guide["snippet"].count("{env."), guide["name"])
 
+    def test_list_checks_the_target_of_every_path(self):
+        self.edit(path=["/api/*"], path_upstream=["10.0.0.8:3000"])
+        main.target_reachable.side_effect = lambda upstream: upstream != "10.0.0.8:3000"
+        self.assertIn("No TCP connection from Caddyman to 10.0.0.8:3000.", self.client.get("/").text)
+
     def test_skip_verify_option(self):
         block = "\t\ttransport http {\n\t\t\ttls_insecure_skip_verify\n\t\t}\n"
         self.edit(upstream="https://10.0.0.5:8006", skip_verify="1")
