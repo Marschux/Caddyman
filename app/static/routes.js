@@ -104,16 +104,20 @@
 		}
 	};
 
-	filter.addEventListener("input", (event) => {
-		if (event.target.name === "flat") {
-			store((kept) => (event.target.checked ? kept.setItem(KEPT, "1") : kept.removeItem(KEPT)));
+	filter.addEventListener("input", apply);
+	// The box sits in the last column title, outside the form it belongs to, so it is asked itself.
+	const box = filter.elements.flat;
+	if (box) {
+		box.addEventListener("input", () => {
+			store((kept) => (box.checked ? kept.setItem(KEPT, "1") : kept.removeItem(KEPT)));
+			arrange();
+			apply();
+		});
+		if (store((kept) => kept.getItem(KEPT)) === "1") {
+			box.checked = true;
 			arrange();
 		}
-		apply();
-	});
-	if (filter.elements.flat && store((kept) => kept.getItem(KEPT)) === "1") {
-		filter.elements.flat.checked = true;
-		arrange();
+		box.closest("label").hidden = false;
 	}
 	filter.hidden = false;
 	apply();

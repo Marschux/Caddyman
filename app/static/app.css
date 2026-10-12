@@ -308,6 +308,14 @@ form.row[hidden] { display: none; }
 #route-filter { flex: 1; margin: 0; }
 #route-filter input[name="q"] { max-width: 420px; }
 /* A column title that sorts: looks like the title, the arrow tells the direction. */
+/* "No groups" in the last column title: a box that looks like a button and stays pressed, in the
+   product colour, while it is ticked. The negative margin keeps the row as high as it was. */
+th label.check { display: inline-flex; margin: -5px 0; padding: 4px 12px; color: var(--ink-muted); font-size: 12px; font-weight: 600; letter-spacing: 0; text-transform: none; border: 1px solid var(--hairline-strong); border-radius: 8px; cursor: pointer; }
+th label.check input { position: absolute; width: 1px; height: 1px; opacity: 0; }
+th label.check:hover { color: var(--ink); background: var(--surface-3); border-color: var(--surface-3); }
+th label.check:has(:checked) { color: var(--product); background: var(--product-bg); border-color: var(--product); }
+th label.check:has(:focus-visible) { outline: 2px solid var(--link); outline-offset: 2px; }
+th label.check[hidden] { display: none; }
 button.sort { all: unset; cursor: pointer; }
 button.sort:hover { color: var(--ink); }
 button.sort:focus-visible { outline: 2px solid var(--link); outline-offset: 2px; }
