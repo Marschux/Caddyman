@@ -11,6 +11,10 @@
 	{% include "conflict.html" %}
 	{% if name %}
 	<input type="hidden" name="mode" value="form">
+	{% if route.off %}
+	<input type="hidden" name="off" value="1">
+	<p>This route is switched off. Changes are saved, but Caddy does not serve it until it is enabled in the route list.</p>
+	{% endif %}
 	<input type="hidden" name="mtime" value="{{ mtime }}">
 	{% endif %}
 

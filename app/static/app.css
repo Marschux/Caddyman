@@ -235,6 +235,8 @@ tbody tr:hover td { background: var(--surface-2); }
 td code { overflow-wrap: break-word; color: var(--ink); }
 td.nowrap { white-space: nowrap; }
 /* Not a flex container: a table cell has to stay a table cell or the row borders break. */
+/* A route that is switched off steps back; its buttons stay as they are. */
+tr.off td:not(.actions) { opacity: 0.5; }
 .actions { white-space: nowrap; text-align: right; }
 .actions form { display: inline; }
 .actions > * + * { margin-left: 8px; }

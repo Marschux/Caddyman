@@ -1402,6 +1402,9 @@ def route_from_form(form, host: dict, previous: dict | None = None) -> tuple[dic
             return route, "The directory has to be an absolute path of letters, digits, '.', '_', '-' and '/'."
     else:
         return route, "Unknown route type."
+    # Always the last key, so the button in the list can add and drop it without the form.
+    if get("off"):
+        route["off"] = True
     return route, None
 
 
@@ -1435,7 +1438,11 @@ def render_route(route: dict, host: dict) -> str:
         file = f"{ACCESS_LOG_DIR}/{ACCESS_LOG_PREFIX}{route_file_name(route, host)}.log"
         lines += ["log {", f"\toutput file {file} {{", "\t\troll_size 10MiB", "\t\troll_keep 3", "\t}", "}"]
     body = "".join(f"\t{line}\n" for line in lines)
-    return f"{META_PREFIX}{json.dumps(route, separators=(',', ':'))}\n{address} {{\n{body}}}\n"
+    site = f"{address} {{\n{body}}}\n"
+    if route.get("off"):
+        # Switched off: Caddy skips comments, while the file keeps every setting for later.
+        site = "".join(f"# {line}\n" for line in site.splitlines())
+    return f"{META_PREFIX}{json.dumps(route, separators=(',', ':'))}\n{site}"
 
 
 def route_file_name(route: dict, host: dict) -> str:
@@ -1884,6 +1891,9 @@ def index(request: Request):
     for item in routes:
         item["hand"] = None if item["route"] else hand_written(current, item["name"])
         served = item["route"] or item["hand"]
+        if served and served.get("off"):
+            # Caddy does not serve it: no certificate to look at, no target to reach.
+            continue
         if served and served["tls"] != "none":
             item["cert_key"] = ("certificate", current["admin_url"], served["host"], served["port"], served["tls"])
             jobs[item["cert_key"]] = (certificate_status, (current, served), lambda status: status and status["level"] == "ok")
@@ -1939,12 +1949,18 @@ def own_route_address(host: dict) -> tuple[bool, str]:
     for a route from the form. Another service on the same port counts as well, which is harmless.
     """
     try:
-        exists = any(f":{OWN_PORT}".encode() in path.read_bytes() for path in Path(host["sites_dir"]).glob("*.caddy"))
+        # Comments do not count: a route that is switched off leads nowhere.
+        exists = any(
+            f":{OWN_PORT}".encode() in line
+            for path in Path(host["sites_dir"]).glob("*.caddy")
+            for line in path.read_bytes().splitlines()
+            if not line.startswith(b"#")
+        )
     except OSError:
         exists = False
     for item in list_routes(host):
         route = item["route"]
-        if route and route["type"] == "reverse_proxy" and route["upstream"].endswith(f":{OWN_PORT}") and route["tls"] != "none":
+        if route and not route.get("off") and route["type"] == "reverse_proxy" and route["upstream"].endswith(f":{OWN_PORT}") and route["tls"] != "none":
             return True, f"https://{route['host']}" + (f":{route['port']}" if route["port"] else "")
     return exists, ""
 
@@ -2047,9 +2063,33 @@ async def route_update(request: Request, name: str):
     if error:
         return again(error=f"Caddy rejected the change, nothing was changed: {error}", status_code=400)
     url = "/"
+    if route and route.get("off"):
+        return redirect(url, "ok", f"{new_path.name} is saved and stays switched off.")
     if route and route["type"] == "reverse_proxy" and not target_reachable(route["upstream"]):
         return redirect(url, "warn", f"{new_path.name} is saved, but {route['upstream']} does not answer yet.")
     return redirect(url, "ok", f"{new_path.name} is saved and live.")
+
+
+@app.post("/routes/{name}/toggle")
+def route_toggle(name: str):
+    """Switch a route off or on again. The file stays where it is; only Caddy stops reading it."""
+    current, path = existing_route(name)
+    if path is None:
+        return redirect("/", "error", "This route does not exist.")
+    mtime = file_mtime(path)
+    route = read_route(path, current)
+    if route is None:
+        return redirect("/", "warn", f"{path.name} was written by hand. Adopt it first, or comment it out as text.")
+    off = not route.pop("off", False)
+    if off:
+        route["off"] = True
+    try:
+        error = apply_route(current, {path: render_route(route, current)}, "disable" if off else "enable", name, expect=(path, mtime))
+    except Conflict:
+        return redirect("/", "warn", f"{path.name} was changed in the meantime. Nothing was done.")
+    if error:
+        return redirect("/", "error", f"Caddy rejected the reload, {path.name} was left as it is: {error}")
+    return redirect("/", "ok", f"{route['host']} is switched off. Its file is kept." if off else f"{route['host']} is live again.")
 
 
 @app.post("/routes/{name}/adopt")

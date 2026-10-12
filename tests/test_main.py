@@ -392,10 +392,10 @@ class TestRoutes(RouteTest):
         answer = guest.post("/login", data={"username": "admin", "password": PASSWORD}, headers=through)
         self.assertNotIn("Secure", answer.headers["set-cookie"])
         self.assertIn("10.9.9.9", self.client.get("/status", headers=through).text)  # the hint names where Caddy was looked for
-        # Deleting that route comes with a word of warning, the others are asked as before.
+        # Deleting or switching off that route comes with a word of warning, the others are asked as before.
         self.create()
         page = self.client.get("/").text
-        self.assertEqual(page.count("This route leads to Caddyman itself. Without it"), 1)
+        self.assertEqual(page.count("This route leads to Caddyman itself. Without it"), 2)
         # Coming in through it makes that plain.
         self.assertIn("and you are using it right now. Without it", self.client.get("/", headers={"host": "caddyman.lab.test"}).text)
 
@@ -1787,6 +1787,25 @@ class TestEdit(RouteTest):
             "\treverse_proxy 10.0.0.5:9005 {\n\t\theader_up Host {upstream_hostport}\n\t}\n}\n", self.read("pdf.caddy")
         )
         self.assertIn('name="host_header" value="1" checked', self.client.get("/routes/pdf/edit").text)
+
+    def test_route_is_switched_off_and_on_again(self):
+        self.assertEqual(self.client.post("/routes/pdf/toggle").headers["location"], "/")
+        text = self.read("pdf.caddy")
+        # Nothing but comments is left for Caddy, and the file still opens in the form.
+        self.assertTrue(all(line.startswith("#") for line in text.splitlines()), text)
+        self.assertIn("# \treverse_proxy 10.0.0.5:9005\n", text)
+        self.assertIn('name="off" value="1"', self.client.get("/routes/pdf/edit").text)
+        self.assertIn(">Enable<", self.client.get("/").text)
+        # Saving the form keeps it off.
+        self.edit(upstream="10.0.0.6:80", off="1")
+        self.assertIn("# \treverse_proxy 10.0.0.6:80\n", self.read("pdf.caddy"))
+        self.edit(off="1")
+        self.client.post("/routes/pdf/toggle")
+        self.assertEqual(self.read("pdf.caddy"), self.original)
+        # A file written by hand is left alone.
+        self.write("hand.caddy", "hand.lab.test {\n\trespond 200\n}\n")
+        self.client.post("/routes/hand/toggle")
+        self.assertEqual(self.read("hand.caddy"), "hand.lab.test {\n\trespond 200\n}\n")
 
     def test_skip_verify_option(self):
         block = "\t\ttransport http {\n\t\t\ttls_insecure_skip_verify\n\t\t}\n"
