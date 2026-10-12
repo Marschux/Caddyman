@@ -1147,6 +1147,20 @@ def preflight(host: dict) -> list[dict]:
                 f"({sso}) {{\n\tforward_auth authelia:9091 {{\n\t\turi /api/authz/forward-auth\n"
                 "\t\tcopy_headers Remote-User Remote-Groups Remote-Email Remote-Name\n\t}\n}",
             )
+        # Caddy reads from top to bottom: a snippet below the import is unknown to the routes
+        # and every route that names it is rejected. Sent inline, the routes always come last.
+        imported = None if managed else re.search(rf"^\s*{re.escape(import_line)}\s*$", text, re.MULTILINE)
+        for name in filter(None, dict.fromkeys((snippet, host["sso_snippet"]))):
+            found = re.search(rf"^\({re.escape(name)}\)\s*\{{", text, re.MULTILINE)
+            if imported and found:
+                add(
+                    f"Snippet '{name}' stands above the import of the routes",
+                    found.start() < imported.start(),
+                    "",
+                    "Move the snippet above this line in the base Caddyfile. Caddy reads from top to bottom, "
+                    "and a route cannot use a snippet that only comes after it:",
+                    import_line,
+                )
 
     if host.get("admin_user"):
         add(

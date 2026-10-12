@@ -163,6 +163,15 @@ class TestHosts(AppTest):
             result = main.preflight(host)
         return {check["label"]: check["ok"] for check in result}
 
+    def test_a_snippet_below_the_import_is_reported(self):
+        label = "Snippet 'stepca' stands above the import of the routes"
+        snippet, imports = "(stepca) {\n\ttls internal\n}\n", f"import {self.sites}/*.caddy\n"
+        self.assertIs(self.checks(snippet + imports)[label], True)
+        late = self.checks(imports + snippet)
+        self.assertEqual((late["TLS snippet 'stepca' exists"], late[label]), (True, False))
+        # Without the snippet there is nothing to place.
+        self.assertNotIn(label, self.checks(imports))
+
     def test_setup_dialog_until_a_host_exists(self):
         self.assertEqual(self.client.get("/").headers["location"], "/hosts/new")
         self.assertEqual(self.client.post("/hosts/new", data=self.host()).headers["location"], "/status")
