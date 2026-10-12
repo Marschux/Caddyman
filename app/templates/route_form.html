@@ -112,6 +112,13 @@
 	<small>Everybody else gets a 403. Addresses or networks, separated by commas, or <code>private</code> for all
 		private networks. Empty means open to everybody who can reach Caddy.</small>
 
+	<div class="not-redirect">
+		<label class="check"><input type="checkbox" name="sso" value="1" {{ "checked" if route.sso }} {{ "disabled" if not sso }}>
+			Ask for a single sign-on first</label>
+		<small>{% if sso %}Puts the login service from the snippet <code>{{ host.sso_snippet }}</code> in front of this route.
+			{% else %}Needs an SSO snippet in the base Caddyfile, named under <a href="/settings/caddy">Settings</a>.{% endif %}</small>
+	</div>
+
 	<label class="check"><input type="checkbox" name="log" value="1" {{ "checked" if route.log }}> Write an access log for this route</label>
 	<small>Every request goes into a file of its own, to be read on the <a href="/logs">Logs page</a>. It needs the log
 		directory that page explains; without it Caddy keeps the file to itself.</small>

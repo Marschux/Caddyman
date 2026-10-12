@@ -382,6 +382,7 @@ fieldset.choice input { position: absolute; opacity: 0; pointer-events: none; }
 .route:has([value="reverse_proxy"]:checked) .for-reverse_proxy,
 .route:has([value="redirect"]:checked) .for-redirect,
 .route:has([value="static"]:checked) .for-static { display: block; }
+.route:has([value="redirect"]:checked) .not-redirect { display: none; }
 
 .game { position: fixed; inset: 0; z-index: 10; display: flex; flex-direction: column; background: var(--canvas); }
 .game header { position: static; gap: 16px; }

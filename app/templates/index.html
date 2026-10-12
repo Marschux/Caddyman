@@ -48,6 +48,7 @@
 				{% if item.target_down %}<span class="cert warn" title="No TCP connection from Caddyman to this target. Caddy may see it differently.">Not reachable</span>{% endif %}</td>
 			{# What is switched on for the route, always in the same place and order. The long name is the tooltip. #}
 			<td class="nowrap">
+				{% if route.sso %}<span class="tag" title="Single sign-on: the login service is asked first">SSO</span>{% endif %}
 				{% if route.auth_user %}<span class="tag" title="Basic auth: asks for a login">Auth</span>{% endif %}
 				{% if route.host_header %}<span class="tag" title="Host header: the target gets its own name as Host">Host</span>{% endif %}
 				{% if route.skip_verify %}<span class="tag" title="The target's certificate is not checked">No verify</span>{% endif %}

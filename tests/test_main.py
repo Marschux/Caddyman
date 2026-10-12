@@ -1869,6 +1869,26 @@ class TestEdit(RouteTest):
         self.assertEqual(self.edit(path=["/a", "/a"], path_upstream=["10.0.0.8", "10.0.0.9"]).status_code, 400)
         self.assertEqual(self.read("pdf.caddy"), text)
 
+    def test_single_sign_on_imports_the_snippet(self):
+        # Without a snippet there is nothing to import, and the tick cannot be set.
+        self.assertEqual(self.edit(sso="1").status_code, 400)
+        self.assertIn('name="sso" value="1"  disabled', self.client.get("/routes/pdf/edit").text)
+        with open(self.caddyfile, "a", encoding="utf-8") as handle:
+            handle.write("\n(sso) {\n\tforward_auth authelia:9091 {\n\t\turi /api/authz/forward-auth\n\t}\n}\n")
+        self.host["sso_snippet"] = "sso"
+        main.save_hosts([self.host])
+        self.edit(sso="1", allow="private")
+        text = self.read("pdf.caddy")
+        # The login service is asked after the refusal by address and before the target.
+        self.assertIn("\troute {\n\t\trespond @outside 403\n\t\timport sso\n\t\treverse_proxy 10.0.0.5:9005\n\t}\n}\n", text)
+        self.assertIn('name="sso" value="1" checked', self.client.get("/routes/pdf/edit").text)
+        self.assertIn(">SSO<", self.client.get("/").text)
+        taken, reason = main.adopt_route(text, self.host)
+        self.assertEqual(taken and taken.get("sso"), True, reason)
+        # A redirect has nothing to protect.
+        self.edit(type="redirect", target="https://b.lab.test", code="302", sso="1")
+        self.assertNotIn("sso", self.read("pdf.caddy"))
+
     def test_skip_verify_option(self):
         block = "\t\ttransport http {\n\t\t\ttls_insecure_skip_verify\n\t\t}\n"
         self.edit(upstream="https://10.0.0.5:8006", skip_verify="1")

@@ -944,6 +944,7 @@ HOST_DEFAULTS = {
     "caddyfile": "/etc/caddy/Caddyfile",
     "sites_dir": "/etc/caddy/sites",
     "tls_snippet": "",
+    "sso_snippet": "",
     "root_ca_url": "",
     "domain_suffix": "",
 }
@@ -977,7 +978,8 @@ def with_paths(host: dict) -> dict:
 
 def load_hosts() -> list[dict]:
     try:
-        return [with_paths(host) for host in json.loads(HOSTS_FILE.read_text(encoding="utf-8"))]
+        # The defaults fill in what a file from an older version does not know yet.
+        return [with_paths({**HOST_DEFAULTS, **host}) for host in json.loads(HOSTS_FILE.read_text(encoding="utf-8"))]
     except FileNotFoundError:
         return []
 
@@ -1051,8 +1053,10 @@ def host_problem(host: dict) -> str | None:
         return "Caddyfile and sites directory have to be absolute paths without '..'."
     if host.get("admin_user") and not AUTH_USER_RE.match(host["admin_user"]):
         return "The admin API username may only contain letters, digits, '.', '_', '@' and '-'."
-    if host["tls_snippet"] and not SNIPPET_RE.match(host["tls_snippet"]):
-        return "The snippet name may only contain letters, digits, '-' and '_'."
+    if any(host[key] and not SNIPPET_RE.match(host[key]) for key in ("tls_snippet", "sso_snippet")):
+        return "A snippet name may only contain letters, digits, '-' and '_'."
+    if host["sso_snippet"] and host["sso_snippet"] == host["tls_snippet"]:
+        return "The SSO snippet and the TLS snippet have to be two different snippets."
     if host["root_ca_url"] and not is_http_url(host["root_ca_url"]):
         return "The root CA source has to be an http or https URL."
     if host["domain_suffix"] and not HOSTNAME_RE.match(host["domain_suffix"]):
@@ -1133,6 +1137,16 @@ def preflight(host: dict) -> list[dict]:
                     "container cannot resolve, the check fails although all is well.",
                     "",
                 )
+        if sso := host["sso_snippet"]:
+            add(
+                f"SSO snippet '{sso}' exists",
+                snippet_exists(text, sso),
+                "",
+                "Add the snippet to the base Caddyfile, with the forward auth address of your login service. "
+                "This one is for Authelia; Authentik and others document their own:",
+                f"({sso}) {{\n\tforward_auth authelia:9091 {{\n\t\turi /api/authz/forward-auth\n"
+                "\t\tcopy_headers Remote-User Remote-Groups Remote-Email Remote-Name\n\t}\n}",
+            )
 
     if host.get("admin_user"):
         add(
@@ -1332,11 +1346,16 @@ def acme_ca_url(caddyfile_text: str, snippet: str) -> str:
     return found.group(1) if found else ""
 
 
-def acme_ca_available(host: dict) -> bool:
+def has_snippet(host: dict, key: str) -> bool:
+    """Whether the snippet a host setting names is in the base Caddyfile."""
     try:
-        return snippet_exists(Path(host["caddyfile"]).read_text(encoding="utf-8"), host["tls_snippet"])
+        return snippet_exists(Path(host["caddyfile"]).read_text(encoding="utf-8"), host[key])
     except (OSError, UnicodeDecodeError):
         return False
+
+
+def acme_ca_available(host: dict) -> bool:
+    return has_snippet(host, "tls_snippet")
 
 
 MAX_NETWORKS = 20
@@ -1403,6 +1422,11 @@ def route_from_form(form, host: dict, previous: dict | None = None) -> tuple[dic
         route["aliases"] = aliases
         if len(aliases) > MAX_ALIASES or not all(map(usable, aliases)):
             return route, f"More hostnames are up to {MAX_ALIASES} names of lowercase letters, digits, '-' and '.', separated by commas."
+    # A login service in front of the route. A redirect has nothing to protect.
+    if get("sso") and get("type") != "redirect":
+        route["sso"] = True
+        if not has_snippet(host, "sso_snippet"):
+            return route, "This host has no SSO snippet in its base Caddyfile, so a single sign-on cannot be put in front."
     if not usable(name):
         return route, "The hostname may only contain lowercase letters, digits, '-' and '.'."
     if route["port"] and not valid_port(route["port"]):
@@ -1482,6 +1506,8 @@ def render_route(route: dict, host: dict) -> str:
         lines.append("tls internal")
     # Everything that answers a request starts here; with allowed networks it is wrapped below.
     handlers = len(lines)
+    if route.get("sso"):
+        lines.append(f"import {host['sso_snippet']}")
     if route["type"] == "reverse_proxy":
         if route.get("auth_user"):
             lines += ["basic_auth {", f"\t{route['auth_user']} {route['auth_hash']}", "}"]
@@ -1739,6 +1765,8 @@ def adopt_route(content: str, host: dict) -> tuple[dict | None, str]:
         index += 1
         if tokens == ["import", host["tls_snippet"]]:
             form["tls"] = "acme_ca"
+        elif tokens == ["import", host["sso_snippet"]]:
+            form["sso"] = "1"
         elif tokens == ["tls", "internal"]:
             form["tls"] = "internal"
         elif tokens[:3] == ["@outside", "not", "client_ip"]:
@@ -1960,7 +1988,7 @@ def route_form_page(request: Request, host: dict, route: dict, error: str | None
     proxied = [item["route"] for item in list_routes(host) if item["route"] and item["route"]["type"] == "reverse_proxy"]
     context["game_routes"] = [[item["host"], item["upstream"]] for item in proxied]
     context["groups"] = load_groups(host)
-    return page(request, "route_form.html", host=host, route=route, error=error, acme_ca=acme_ca_available(host), **context)
+    return page(request, "route_form.html", host=host, route=route, error=error, acme_ca=acme_ca_available(host), sso=has_snippet(host, "sso_snippet"), **context)
 
 
 def existing_route(name: str) -> tuple[dict | None, Path | None]:

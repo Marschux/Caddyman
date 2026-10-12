@@ -76,6 +76,11 @@
 	<input id="tls_snippet" name="tls_snippet" value="{{ host.tls_snippet }}" placeholder="stepca">
 	<small>Name of the snippet in the base Caddyfile that points at your own ACME CA.</small>
 
+	<label for="sso_snippet">SSO snippet <span class="optional">optional</span></label>
+	<input id="sso_snippet" name="sso_snippet" value="{{ host.sso_snippet }}" placeholder="sso">
+	<small>Name of the snippet in the base Caddyfile that holds the <code>forward_auth</code> of your login service,
+		such as Authelia or Authentik. A route can then be put behind that login with one tick.</small>
+
 	<label for="root_ca_url">Root CA source <span class="optional">optional</span></label>
 	<input id="root_ca_url" name="root_ca_url" value="{{ host.root_ca_url }}" placeholder="https://ca.home.example:9001/roots.pem">
 	<small>Where the root certificate for your clients can be downloaded.</small>
