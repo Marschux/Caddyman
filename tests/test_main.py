@@ -1848,6 +1848,27 @@ class TestEdit(RouteTest):
         for bad in ("docs {", "a_b", " ".join(f"n{number}" for number in range(21))):
             self.assertEqual(self.edit(name="pdf_8080", aliases=bad).status_code, 400, bad)
 
+    def test_paths_go_to_targets_of_their_own(self):
+        self.edit(path=["/api/*", "", "/api/v2/*"], path_upstream=["10.0.0.8:3000", "", "https://10.0.0.9"], skip_verify="1")
+        text = self.read("pdf.caddy")
+        route = main.read_route(main.Path(self.sites) / "pdf.caddy", self.host)
+        # Longest path first, the certificate check is skipped only where TLS is spoken.
+        self.assertEqual(route["paths"], [["/api/v2/*", "https://10.0.0.9"], ["/api/*", "10.0.0.8:3000"]])
+        self.assertIn(
+            "\treverse_proxy /api/v2/* https://10.0.0.9 {\n\t\ttransport http {\n\t\t\ttls_insecure_skip_verify\n\t\t}\n\t}\n"
+            "\treverse_proxy /api/* 10.0.0.8:3000\n\treverse_proxy 10.0.0.5:9005\n}\n",
+            text,
+        )
+        page = self.client.get("/routes/pdf/edit").text
+        self.assertIn('<input name="path" value="/api/v2/*"', page)
+        self.assertIn('<input name="path_upstream" value="10.0.0.8:3000"', page)
+        taken, reason = main.adopt_route(text, self.host)
+        self.assertEqual(taken and taken["paths"], route["paths"], reason)
+        for path, target in (("/", "10.0.0.8"), ("api", "10.0.0.8"), ("/a {", "10.0.0.8"), ("/api/*", ""), ("/api/*", "10.0.0.8 {")):
+            self.assertEqual(self.edit(path=[path], path_upstream=[target]).status_code, 400, (path, target))
+        self.assertEqual(self.edit(path=["/a", "/a"], path_upstream=["10.0.0.8", "10.0.0.9"]).status_code, 400)
+        self.assertEqual(self.read("pdf.caddy"), text)
+
     def test_skip_verify_option(self):
         block = "\t\ttransport http {\n\t\t\ttls_insecure_skip_verify\n\t\t}\n"
         self.edit(upstream="https://10.0.0.5:8006", skip_verify="1")

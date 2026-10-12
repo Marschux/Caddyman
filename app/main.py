@@ -1341,6 +1341,9 @@ def acme_ca_available(host: dict) -> bool:
 
 MAX_NETWORKS = 20
 MAX_ALIASES = 20
+MAX_PATHS = 20
+# A path that goes to a target of its own. Never '/' alone: that is what the main target is for.
+PATH_RE = re.compile(r"^/[A-Za-z0-9._~-][A-Za-z0-9._~/-]*\*?$")
 
 
 def allowed_networks(text: str) -> str | None:
@@ -1431,9 +1434,24 @@ def route_from_form(form, host: dict, previous: dict | None = None) -> tuple[dic
                 return route, "Basic auth needs a password."
         if get("host_header"):
             route["host_header"] = True
+        # Paths that go to a target of their own: one pair of fields each, an empty pair is dropped.
+        typed = zip(form.getlist("path"), form.getlist("path_upstream")) if hasattr(form, "getlist") else form.get("paths", [])
+        paths = [[str(path).strip(), str(target).strip()] for path, target in typed if str(path).strip() or str(target).strip()]
         # Only where TLS is spoken at all: on a plain target the block would switch TLS on.
-        if get("skip_verify") and route["upstream"].startswith("https://"):
+        if get("skip_verify") and any(target.startswith("https://") for target in (route["upstream"], *(pair[1] for pair in paths))):
             route["skip_verify"] = True
+        if paths:
+            # Longest first. Caddy sorts them like that anyway, except in the route block
+            # around allowed networks, where the lines run as written.
+            route["paths"] = sorted(paths, key=lambda pair: -len(pair[0]))
+            if len(paths) > MAX_PATHS or len({pair[0] for pair in paths}) < len(paths):
+                return route, f"Paths to other targets are up to {MAX_PATHS}, each path once."
+            for path, target in paths:
+                match = UPSTREAM_RE.match(target)
+                if not PATH_RE.match(path) or ".." in path:
+                    return route, "A path starts with '/' and may end in '*', like /api/*. Letters, digits, '.', '_', '~', '-' and '/' only."
+                if not match or (match.group(4) and not valid_port(match.group(4))):
+                    return route, f"The target for {path} has to look like host, host:port or http://host:port."
     elif route["type"] == "redirect":
         route["target"], route["code"] = get("target").rstrip("/"), get("code")
         if not REDIRECT_RE.match(route["target"]):
@@ -1467,13 +1485,15 @@ def render_route(route: dict, host: dict) -> str:
     if route["type"] == "reverse_proxy":
         if route.get("auth_user"):
             lines += ["basic_auth {", f"\t{route['auth_user']} {route['auth_hash']}", "}"]
-        options = []
-        if route.get("host_header"):
-            options.append("\theader_up Host {upstream_hostport}")
-        if route.get("skip_verify"):
-            options += ["\ttransport http {", "\t\ttls_insecure_skip_verify", "\t}"]
-        proxy = f"reverse_proxy {route['upstream']}"
-        lines += [f"{proxy} {{", *options, "}"] if options else [proxy]
+        # The paths first, then everything else. The options go for every target of the route.
+        for path, target in [*route.get("paths", []), ("", route["upstream"])]:
+            options = []
+            if route.get("host_header"):
+                options.append("\theader_up Host {upstream_hostport}")
+            if route.get("skip_verify") and target.startswith("https://"):
+                options += ["\ttransport http {", "\t\ttls_insecure_skip_verify", "\t}"]
+            proxy = f"reverse_proxy {path} {target}" if path else f"reverse_proxy {target}"
+            lines += [f"{proxy} {{", *options, "}"] if options else [proxy]
     elif route["type"] == "redirect":
         lines.append(f"redir {route['target']}{{uri}} {route['code']}")
     else:
@@ -1733,17 +1753,24 @@ def adopt_route(content: str, host: dict) -> tuple[dict | None, str]:
             login = {"auth_user": block[0][0], "auth_hash": block[0][1]}
             form["auth_user"] = login["auth_user"]
             index += 2
-        elif tokens[0] == "reverse_proxy" and tokens[2:] == ["{"]:
-            form.update(type="reverse_proxy", upstream=tokens[1])
-            for option, shape in PROXY_OPTIONS.items():
-                if inner[index : index + len(shape)] == shape:
-                    form[option] = "1"
-                    index += len(shape)
-            if inner[index : index + 1] != [["}"]]:
+        elif tokens[0] == "reverse_proxy":
+            # One target, or a path and its target, each with or without the block of options.
+            opens = tokens[-1] == "{"
+            target = tokens[1 : -1 if opens else None]
+            if len(target) == 2 and target[0].startswith("/"):
+                form.setdefault("paths", []).append(target)
+            elif len(target) == 1:
+                form.update(type="reverse_proxy", upstream=target[0])
+            else:
                 return None, f"it contains a line Caddyman would not write: {' '.join(tokens)}"
-            index += 1
-        elif tokens[0] == "reverse_proxy" and len(tokens) == 2:
-            form.update(type="reverse_proxy", upstream=tokens[1])
+            if opens:
+                for option, shape in PROXY_OPTIONS.items():
+                    if inner[index : index + len(shape)] == shape:
+                        form[option] = "1"
+                        index += len(shape)
+                if inner[index : index + 1] != [["}"]]:
+                    return None, f"it contains a line Caddyman would not write: {' '.join(tokens)}"
+                index += 1
         elif tokens[0] == "redir" and len(tokens) == 3 and tokens[1].endswith("{uri}"):
             form.update(type="redirect", target=tokens[1].removesuffix("{uri}"), code=tokens[2])
         elif tokens[:2] == ["root", "*"] and len(tokens) == 3:

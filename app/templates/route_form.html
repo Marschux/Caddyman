@@ -43,7 +43,7 @@
 		<input id="upstream" name="upstream" value="{{ route.upstream or '' }}" placeholder="192.168.1.20:8080">
 		<small><code>host:port</code>, or <code>https://host:port</code> if the service itself speaks TLS. Without a port it is 80, or 443 for <code>https://</code>. WebSockets need no extra setting.</small>
 
-		<details {{ "open" if route.auth_user or route.host_header or route.skip_verify }}>
+		<details {{ "open" if route.auth_user or route.host_header or route.skip_verify or route.paths }}>
 			<summary>More options</summary>
 
 			<label for="auth_user">Basic auth username <span class="optional">optional</span></label>
@@ -63,6 +63,14 @@
 				Do not check the target's certificate</label>
 			<small>For an <code>https://</code> target with a self-signed certificate, like Proxmox, UniFi or a NAS.
 				The connection stays encrypted, but Caddy no longer notices if something else answers in its place.</small>
+
+			{# One pair of fields per path: the path at the left, its target at the right. #}
+			<label>Paths to other targets <span class="optional">optional</span></label>
+			<div class="fields">{% for path, target in route.paths or [] %}<input name="path" value="{{ path }}" aria-label="Path" autocomplete="off"><input name="path_upstream" value="{{ target }}" aria-label="Target for this path" autocomplete="off">{% endfor %}</div>
+			<button type="button" class="secondary"
+				onclick="const fields = this.parentElement.querySelectorAll('.fields')[0]; [['path', 'Path, like /api/*'], ['path_upstream', 'Target for this path']].forEach(([name, hint]) => { const field = document.createElement('input'); field.name = name; field.autocomplete = 'off'; field.placeholder = hint; field.setAttribute('aria-label', hint); fields.append(field); }); fields.children[fields.children.length - 2].focus()">Add path</button>
+			<small>Requests below such a path go to its own target, everything else to the target above. <code>/api/*</code>
+				means everything below <code>/api/</code>. The path is passed on unchanged. Empty both fields to remove a path.</small>
 		</details>
 	</div>
 

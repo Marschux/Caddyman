@@ -346,6 +346,8 @@ form.row input:not([type]) { width: auto; flex: 0 1 320px; }
 /* One step up from the card it sits in. */
 details { margin-top: 24px; padding: 12px 16px; background: var(--surface-2); border-radius: 8px; }
 details[open] { padding-bottom: 20px; }
+/* The block has the colour of a grey button: the outline keeps the button visible on it. */
+details button.secondary { border-color: var(--hairline-strong); }
 summary { cursor: pointer; color: var(--ink); font-weight: 600; border-radius: 4px; }
 label.check { display: flex; gap: 10px; align-items: baseline; font-weight: 500; }
 
