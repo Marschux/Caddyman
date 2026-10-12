@@ -265,6 +265,27 @@ class TestHosts(AppTest):
         self.assertNotIn("Root CA can be downloaded", result)
         self.assertIn("Root CA can be downloaded", self.checks(text, admin=down, root_ca_url="https://ca.lab.test:9001/roots.pem"))
 
+    def test_preflight_asks_for_the_two_words_the_log_setup_gained(self):
+        logger = "{\n\tlog caddyman {\n\t\toutput file /var/log/caddy/caddy.log\n\t\tformat json\n\t}\n}\n"
+        base = logger + f"import {self.sites}/*.caddy\n"
+        twice = "Requests of routes with an access log stay out of Caddy's own log"
+        # Nothing to say while no route writes an access log.
+        self.assertNotIn(twice, self.checks(base))
+        host = self.host(caddyfile=self.caddyfile, sites_dir=self.sites, domain_suffix="lab.test")
+        route = {"type": "reverse_proxy", "host": "pdf.lab.test", "port": "", "tls": "default", "log": True, "upstream": "10.0.0.5:80"}
+        with open(os.path.join(self.sites, "pdf.caddy"), "w", encoding="utf-8", newline="\n") as handle:
+            handle.write(main.render_route(route, host))
+        self.assertFalse(self.checks(base, domain_suffix="lab.test")[twice])
+        self.assertTrue(self.checks(base.replace("format json", "format json\n\t\texclude http.log.access"), domain_suffix="lab.test")[twice])
+        # A Caddy reached over the network only: the site that serves the log has to list the directory.
+        site = "admin.lab.test {\n\thandle_path /caddyman-logs/* {\n\t\troot * /var/log/caddy\n\t\tfile_server\n\t}\n}\n"
+        up = mock.Mock(return_value=mock.Mock(status_code=200, content=b""))
+        listed = "Rotated logs are listed"
+        self.assertFalse(self.checks(site, admin=up, storage="managed", id="h1")[listed])
+        self.assertTrue(self.checks(site.replace("file_server", "file_server browse"), admin=up, storage="managed", id="h1")[listed])
+        self.assertNotIn(listed, self.checks("admin.lab.test {\n\trespond 200\n}\n", admin=up, storage="managed", id="h1"))
+        self.assertNotIn(listed, self.checks(site))  # next door the files are read directly
+
     def test_preflight_without_caddyfile(self):
         result = self.checks(None)
         self.assertFalse(result["Base Caddyfile is readable"])

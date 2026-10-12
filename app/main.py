@@ -1227,6 +1227,28 @@ def preflight(host: dict) -> list[dict]:
             "file, dropping every route. Start Caddy with the command below, then use 'Reload Caddy' on this page.",
             "command: caddy run --resume --config /etc/caddy/Caddyfile --adapter caddyfile",
         )
+    if text is not None:
+        # Two words the log setup gained later. Each is only asked about where it matters.
+        logger = re.search(r"^\s*log\s+\S+\s*\{", text, re.MULTILINE)
+        if logger and any(item["route"] and item["route"].get("log") for item in list_routes(host)):
+            add(
+                "Requests of routes with an access log stay out of Caddy's own log",
+                "exclude http.log.access" in text,
+                "",
+                "A route writes an access log of its own, and the logger in the base Caddyfile takes the same lines as "
+                "well, so every request is written twice. Add this line inside that logger's block, then restart Caddy "
+                "or use 'Reload Caddy':",
+                "exclude http.log.access",
+            )
+        if managed and LOG_REMOTE_DIR in text:
+            add(
+                "Rotated logs are listed",
+                re.search(r"\bfile_server\s+browse\b", text),
+                "",
+                "The site that serves the log has no directory listing, so the Logs page only offers caddy.log. "
+                "Write it like this in the base Caddyfile under Settings, then use 'Reload Caddy':",
+                f"handle_path {LOG_REMOTE_DIR}/* {{\n\troot * /var/log/caddy\n\tfile_server browse\n}}",
+            )
     # About Caddyman, not about Caddy, but this is the list people look at. The key itself is
     # never shown: every account can open this page.
     add(
