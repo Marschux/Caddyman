@@ -237,6 +237,16 @@ td.nowrap { white-space: nowrap; }
 .actions button.danger { color: var(--product); }
 .actions button.danger:hover { background: var(--product-bg); border-color: var(--product); }
 .actions input { width: 200px; padding: 5px 10px; font-size: 13px; }
+/* After the rule above, which resets the margin: a link after a form keeps the same distance as a form after a link. */
+.actions > * + a.button { margin-left: 8px; }
+/* Several labels in one cell that may wrap: same distance in both directions, no indent on the second line. */
+.tags { display: flex; flex-wrap: wrap; gap: 6px; }
+.tags .tag { margin: 0; }
+/* An account in a list: the avatar, next to it the name and under that the address. */
+.who { display: flex; align-items: center; gap: 8px; }
+.who small { margin-top: 2px; }
+/* The column that gets the room the others do not need. */
+th.grow { width: 100%; }
 /* The name of a group above its routes. */
 tr.group th { padding: 10px 16px; color: var(--ink-muted); background: var(--surface-2); }
 td > .tag:first-child { margin-left: 0; }

@@ -8,21 +8,25 @@
 </div>
 <table>
 	<thead>
-		<tr><th>User</th><th>Email</th><th>Rights</th><th>Two-factor</th><th></th></tr>
+		<tr><th>User</th><th class="grow">Rights</th><th>Two-factor</th><th></th></tr>
 	</thead>
 	<tbody>
 		{% for user in users %}
 		<tr>
-			<td class="nowrap"><span class="avatar">{{ user|initials }}</span>
-				<strong>{{ user.username }}</strong>{% if user.realname %} <span class="empty">{{ user.realname }}</span>{% endif %}
-			{% if user.invited %}<span class="tag" title="Has not set a password yet. The link in the mail works once, for one day.">Invited</span>{% endif %}</td>
-			<td>{{ user.email or "-" }}</td>
-			<td>{% for right, label in PERMISSIONS.items() if right in user.permissions %}<span class="tag" title="{{ label }}">{{ right }}</span>{% else %}<span class="empty">Read only</span>{% endfor %}</td>
+			{# The address sits under the name: a column of its own left no room for the rights. #}
+			<td class="nowrap"><div class="who"><span class="avatar">{{ user|initials }}</span>
+				<div><strong>{{ user.username }}</strong>{% if user.realname %} <span class="empty">{{ user.realname }}</span>{% endif %}
+				{% if user.invited %}<span class="tag" title="Has not set a password yet. The link in the mail works once, for one day.">Invited</span>{% endif %}
+				{% if user.email %}<small>{{ user.email }}</small>{% endif %}</div></div></td>
+			<td><div class="tags">
+				{% if user.permissions|length == PERMISSIONS|length %}<span class="tag" title="{{ PERMISSIONS.values()|join(', ') }}">All rights</span>
+				{% else %}{% for right, label in PERMISSIONS.items() if right in user.permissions %}<span class="tag" title="{{ label }}">{{ right }}</span>{% else %}<span class="empty">Read only</span>{% endfor %}{% endif %}
+			</div></td>
 			<td class="nowrap">{% if user.totp %}<span class="cert ok">On</span>{% else %}<span class="cert">Off</span>{% endif %}</td>
 			<td class="actions">
 				{% if user.invited %}
 				<form method="post" action="/settings/users/{{ user.username|urlencode }}/invite">
-					<button type="submit">Resend invitation</button>
+					<button type="submit" title="Send the invitation mail again">Resend</button>
 				</form>
 				{% endif %}
 				<a class="button" href="/settings/users/{{ user.username|urlencode }}/edit">Edit</a>
