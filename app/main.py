@@ -7,6 +7,7 @@ import gzip
 import hashlib
 import hmac
 import io
+import ipaddress
 import json
 import os
 import re
@@ -1338,6 +1339,29 @@ def acme_ca_available(host: dict) -> bool:
         return False
 
 
+MAX_NETWORKS = 20
+
+
+def allowed_networks(text: str) -> str | None:
+    """The networks a route is limited to, tidied and joined by spaces, or None when one is no network.
+
+    'private' stands for every private range. Everything else goes through ipaddress, so
+    nothing but an address or a network can reach the route file.
+    """
+    found = []
+    for item in text.replace(",", " ").split()[: MAX_NETWORKS + 1]:
+        try:
+            if item.lower() == "private":
+                found.append("private")
+            elif "/" in item:
+                found.append(str(ipaddress.ip_network(item, strict=False)))
+            else:
+                found.append(str(ipaddress.ip_address(item)))
+        except ValueError:
+            return None
+    return " ".join(dict.fromkeys(found)) if len(found) <= MAX_NETWORKS else None
+
+
 def route_from_form(form, host: dict, previous: dict | None = None) -> tuple[dict, str | None]:
     """Normalise the form into route metadata and name the first problem, if any.
 
@@ -1356,6 +1380,11 @@ def route_from_form(form, host: dict, previous: dict | None = None) -> tuple[dic
             return route, "A group name is up to 40 letters, digits, spaces, '.', '_' and '-'."
     if get("log"):
         route["log"] = True
+    if get("allow"):
+        allow = allowed_networks(get("allow"))
+        if not allow:
+            return route, f"Allowed networks are up to {MAX_NETWORKS} addresses or networks like 192.168.1.0/24, or the word 'private'."
+        route["allow"] = allow
     if not HOSTNAME_RE.match(name) or ".." in name or len(name) > 253:
         return route, "The hostname may only contain lowercase letters, digits, '-' and '.'."
     if route["port"] and not valid_port(route["port"]):
@@ -1419,6 +1448,8 @@ def render_route(route: dict, host: dict) -> str:
         lines.append(f"import {host['tls_snippet']}")
     elif route["tls"] == "internal":
         lines.append("tls internal")
+    # Everything that answers a request starts here; with allowed networks it is wrapped below.
+    handlers = len(lines)
     if route["type"] == "reverse_proxy":
         if route.get("auth_user"):
             lines += ["basic_auth {", f"\t{route['auth_user']} {route['auth_hash']}", "}"]
@@ -1433,6 +1464,12 @@ def render_route(route: dict, host: dict) -> str:
         lines.append(f"redir {route['target']}{{uri}} {route['code']}")
     else:
         lines += [f"root * {route['root']}", "file_server"]
+    if route.get("allow"):
+        # In a route block the lines run as written. Outside of one Caddy sorts them, and a
+        # redirect or a login would come before the refusal.
+        networks = route["allow"].replace("private", "private_ranges")
+        inside = [f"\t{line}" for line in lines[handlers:]]
+        lines[handlers:] = [f"@outside not client_ip {networks}", "route {", "\trespond @outside 403", *inside, "}"]
     if route.get("log"):
         # Every request to this route, in a file of its own next to Caddy's log, where the Logs page finds it.
         file = f"{ACCESS_LOG_DIR}/{ACCESS_LOG_PREFIX}{route_file_name(route, host)}.log"
@@ -1667,6 +1704,12 @@ def adopt_route(content: str, host: dict) -> tuple[dict | None, str]:
             form["tls"] = "acme_ca"
         elif tokens == ["tls", "internal"]:
             form["tls"] = "internal"
+        elif tokens[:3] == ["@outside", "not", "client_ip"]:
+            form["allow"] = " ".join(tokens[3:]).replace("private_ranges", "private")
+        elif tokens in (["route", "{"], ["respond", "@outside", "403"], ["}"]):
+            # The wrapper around a route with allowed networks. Whether it sits where
+            # Caddyman would put it shows in the comparison at the end.
+            continue
         elif tokens == ["basic_auth", "{"] and len(block) == 2 and len(block[0]) == 2 and block[1] == ["}"]:
             # The two blocks Caddyman writes itself, and only in that shape. The hash is taken
             # over as it stands; nobody is asked for the password behind it.

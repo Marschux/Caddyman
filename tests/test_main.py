@@ -1807,6 +1807,28 @@ class TestEdit(RouteTest):
         self.client.post("/routes/hand/toggle")
         self.assertEqual(self.read("hand.caddy"), "hand.lab.test {\n\trespond 200\n}\n")
 
+    def test_allowed_networks_wrap_the_route(self):
+        self.edit(allow="192.168.2.5/24, private  10.0.0.9", auth_user="max", auth_password="secret")
+        text = self.read("pdf.caddy")
+        route = main.read_route(main.Path(self.sites) / "pdf.caddy", self.host)
+        self.assertEqual(route["allow"], "192.168.2.0/24 private 10.0.0.9")
+        # The refusal comes first, before the login: outside of a route block Caddy would sort it behind.
+        self.assertIn(
+            "\timport stepca\n\t@outside not client_ip 192.168.2.0/24 private_ranges 10.0.0.9\n\troute {\n"
+            "\t\trespond @outside 403\n\t\tbasic_auth {\n\t\t\tmax " + route["auth_hash"] + "\n\t\t}\n"
+            "\t\treverse_proxy 10.0.0.5:9005\n\t}\n}\n",
+            text,
+        )
+        self.assertIn('name="allow" value="192.168.2.0/24 private 10.0.0.9"', self.client.get("/routes/pdf/edit").text)
+        taken, reason = main.adopt_route(text, self.host)
+        self.assertEqual(taken and taken["allow"], route["allow"], reason)
+        # Nothing but addresses reaches the file.
+        for bad in ("lan", "10.0.0.0/33", "10.0.0.1 {\n\trespond", "1.1.1.1 " * 21):
+            self.assertEqual(self.edit(allow=bad).status_code, 400, bad)
+        self.assertEqual(self.read("pdf.caddy"), text)
+        self.edit()
+        self.assertEqual(self.read("pdf.caddy"), self.original)
+
     def test_skip_verify_option(self):
         block = "\t\ttransport http {\n\t\t\ttls_insecure_skip_verify\n\t\t}\n"
         self.edit(upstream="https://10.0.0.5:8006", skip_verify="1")

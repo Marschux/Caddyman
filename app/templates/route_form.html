@@ -91,6 +91,11 @@
 	<input id="port" name="port" value="{{ route.port or '' }}" inputmode="numeric" placeholder="443">
 	<small>Any other port has to be published on the Caddy container. Caddyman cannot check or change that.</small>
 
+	<label for="allow">Allowed networks <span class="optional">optional</span></label>
+	<input id="allow" name="allow" value="{{ route.allow or '' }}" placeholder="192.168.1.0/24, 10.0.0.5" autocomplete="off">
+	<small>Everybody else gets a 403. Addresses or networks, separated by commas, or <code>private</code> for all
+		private networks. Empty means open to everybody who can reach Caddy.</small>
+
 	<label class="check"><input type="checkbox" name="log" value="1" {{ "checked" if route.log }}> Write an access log for this route</label>
 	<small>Every request goes into a file of its own, to be read on the <a href="/logs">Logs page</a>. It needs the log
 		directory that page explains; without it Caddy keeps the file to itself.</small>
