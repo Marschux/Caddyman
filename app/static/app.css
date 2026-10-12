@@ -184,7 +184,7 @@ input[type="radio"], input[type="checkbox"] { width: auto; padding: 0; accent-co
 input[type="file"] { padding: 7px; font-size: 14px; }
 /* The browser's own button, dressed like the grey ones. */
 input[type="file"]::file-selector-button { margin-right: 12px; padding: 6px 14px; font: 600 13px/1.29 var(--sans); color: var(--ink); background: var(--surface-2); border: 1px solid var(--surface-2); border-radius: 8px; cursor: pointer; }
-input[type="file"]::file-selector-button:hover { background: var(--surface-3); border-color: var(--surface-3); }
+input[type="file"]::file-selector-button:hover { background: var(--surface-3); border-color: var(--product); }
 
 /* Primary: white on black, 8px corners. Never a pill, never a product colour. */
 button, a.button {
@@ -202,7 +202,7 @@ button, a.button {
 button { width: 100%; margin-top: 28px; }
 /* In a wide card a button is as wide as its text; across the whole card it would be a bar. */
 .card.wide button { width: auto; }
-button:hover, a.button:hover { background: var(--ink-hover); border-color: var(--ink-hover); text-decoration: none; }
+button:hover, a.button:hover { background: var(--ink-hover); border-color: var(--product); text-decoration: none; }
 button:focus-visible, a:focus-visible, summary:focus-visible { outline: 2px solid var(--link); outline-offset: 2px; }
 
 button.link { width: auto; margin: 0; padding: 0; font-weight: 500; color: var(--link); background: none; border: 0; border-radius: 4px; }
