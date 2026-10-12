@@ -2,8 +2,8 @@
 {% block title %}{{ "Add user" if new else "Edit " ~ user.username }} - Caddyman{% endblock %}
 {% block content %}
 {% include "settings_nav.html" %}
+<div class="heading"><h2>{{ "Add a user" if new else "Edit " ~ user.username }}</h2></div>
 <form method="post" class="card wide">
-	<h2>{{ "Add a user" if new else "Edit " ~ user.username }}</h2>
 	{% if error %}<p class="error" role="alert">{{ error }}</p>{% endif %}
 
 	{% if new %}

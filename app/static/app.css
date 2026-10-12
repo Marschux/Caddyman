@@ -124,7 +124,9 @@ main:has(> .side) > .side { grid-column: 1; grid-row: span 12; align-self: start
 main:has(> .side) > .card { margin: 0 0 24px; }
 main:has(> .side) > .card + .card { margin-top: 0; }
 /* Next to the list a form fills the column, as wide as the tables on the System pages. */
-main:has(> .side) > .card.wide, main:has(> .side) > .toolbar.wide { max-width: none; }
+main:has(> .side) > .card.wide { max-width: none; }
+/* The title stands above the card here, so the card starts with a field. */
+main:has(> .side) > .card > :first-child { margin-top: 0; }
 .side { display: flex; flex-direction: column; gap: 2px; }
 .side a { padding: 8px 12px; color: var(--ink-muted); text-decoration: none; border-radius: 8px; }
 .side a:hover { color: var(--ink); background: var(--surface-1); }
@@ -221,7 +223,6 @@ button.secondary:hover, a.button.secondary:hover { background: var(--surface-3);
 .toolbar .buttons { display: flex; gap: 8px; margin-left: auto; }
 .toolbar button { width: auto; margin: 0; }
 /* As wide as the card below it. */
-.toolbar.wide { max-width: 640px; }
 
 /* Separate borders so the rounded corners can clip the rows. */
 table { width: 100%; border-collapse: separate; border-spacing: 0; background: var(--surface-1); border: 1px solid var(--hairline); border-radius: 12px; overflow: hidden; }
@@ -390,6 +391,8 @@ fieldset.choice input { position: absolute; opacity: 0; pointer-events: none; }
 @media (max-width: 768px) {
 	header { height: auto; flex-wrap: wrap; gap: 8px; padding: 12px 16px; }
 	nav { order: 3; width: 100%; height: 40px; margin: 0; overflow-x: auto; }
+	/* The bar wraps here and nothing pushes the buttons to the right any more. */
+	header form.theme { margin-left: auto; }
 	main { padding: 24px 16px; }
 	h1 { font-size: 28px; letter-spacing: -0.6px; }
 	table { display: block; overflow-x: auto; }

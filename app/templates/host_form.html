@@ -4,15 +4,16 @@
 {# The first setup is a dialog of its own; afterwards this is the first block of the Settings tab. #}
 {% if host.id %}
 {% include "settings_nav.html" %}
-<div class="toolbar wide">
-	<form method="post" action="/hosts/{{ host.id }}/delete" class="buttons"
+<div class="heading">
+	<h2>Caddy</h2>
+	<form method="post" action="/hosts/{{ host.id }}/delete" class="inline"
 		data-confirm="{% if host.storage == 'managed' %}Disconnect Caddyman from this Caddy? Caddyman DELETES its copies with it: the base Caddyfile and {{ route_count if route_count is defined else 'all' }} route files. Download a backup first if you want to keep them. Caddy itself keeps running what it has, and the setup dialog comes back.{% else %}Disconnect Caddyman from this Caddy? The route files and Caddy itself stay untouched, and the setup dialog comes back, for instance to switch between the two layouts.{% endif %}" onsubmit="return confirm(this.dataset.confirm)">
 		<button type="submit" class="secondary">Disconnect this Caddy</button>
 	</form>
 </div>
 {% endif %}
 <form method="post" class="card wide hostform">
-	{% if host.id %}<h2>Caddy</h2>{% else %}<h1>Set up your Caddy</h1>{% endif %}
+	{% if not host.id %}<h1>Set up your Caddy</h1>{% endif %}
 	{% if first %}<p>Caddyman needs to know where your Caddy runs before it can manage routes.
 		Moving from another install? <a href="/backup">Restore a backup</a> instead.</p>{% endif %}
 	{% if error %}<p class="error" role="alert">{{ error }}</p>{% endif %}

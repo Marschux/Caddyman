@@ -2,9 +2,8 @@
 {% block title %}Security settings - Caddyman{% endblock %}
 {% block content %}
 {% include "settings_nav.html" %}
+<div class="heading"><h2>Security</h2></div>
 <form method="post" action="/settings/security" class="card wide">
-	<h2>Security</h2>
-
 	<label class="check"><input type="checkbox" name="require_2fa" value="1" {{ "checked" if settings.require_2fa }}>
 		Require two-factor login for every account</label>
 	<small>An account without it gets no further than its own profile after logging in, until it has set one up.
