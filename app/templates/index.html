@@ -48,6 +48,7 @@
 			<td class="nowrap">
 				{% if route.auth_user %}<span class="tag" title="Basic auth: asks for a login">Auth</span>{% endif %}
 				{% if route.host_header %}<span class="tag" title="Host header: the target gets its own name as Host">Host</span>{% endif %}
+				{% if route.skip_verify %}<span class="tag" title="The target's certificate is not checked">No verify</span>{% endif %}
 				{% if route.log %}{% if "logs" in request.state.me.permissions %}<a class="tag" title="Access log: open it" href="/logs?file=access-{{ item.name|urlencode }}.log">Log</a>{% else %}<span class="tag" title="Access log">Log</span>{% endif %}{% endif %}
 			</td>
 			<td class="nowrap"><span class="tag">{{ {"acme_ca": "Own ACME CA", "default": "Caddy default", "internal": "Caddy internal", "none": "None"}[route.tls] }}</span></td>

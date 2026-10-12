@@ -31,7 +31,7 @@
 		<input id="upstream" name="upstream" value="{{ route.upstream or '' }}" placeholder="192.168.1.20:8080">
 		<small><code>host:port</code>, or <code>https://host:port</code> if the service itself speaks TLS. Without a port it is 80, or 443 for <code>https://</code>. WebSockets need no extra setting.</small>
 
-		<details {{ "open" if route.auth_user or route.host_header }}>
+		<details {{ "open" if route.auth_user or route.host_header or route.skip_verify }}>
 			<summary>More options</summary>
 
 			<label for="auth_user">Basic auth username <span class="optional">optional</span></label>
@@ -46,6 +46,11 @@
 			<label class="check"><input type="checkbox" name="host_header" value="1" {{ "checked" if route.host_header }}>
 				Send the target's own hostname as Host header</label>
 			<small>For services that only answer under their own name. By default they see the hostname of this route.</small>
+
+			<label class="check"><input type="checkbox" name="skip_verify" value="1" {{ "checked" if route.skip_verify }}>
+				Do not check the target's certificate</label>
+			<small>For an <code>https://</code> target with a self-signed certificate, like Proxmox, UniFi or a NAS.
+				The connection stays encrypted, but Caddy no longer notices if something else answers in its place.</small>
 		</details>
 	</div>
 

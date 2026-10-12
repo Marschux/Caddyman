@@ -1387,6 +1387,9 @@ def route_from_form(form, host: dict, previous: dict | None = None) -> tuple[dic
                 return route, "Basic auth needs a password."
         if get("host_header"):
             route["host_header"] = True
+        # Only where TLS is spoken at all: on a plain target the block would switch TLS on.
+        if get("skip_verify") and route["upstream"].startswith("https://"):
+            route["skip_verify"] = True
     elif route["type"] == "redirect":
         route["target"], route["code"] = get("target").rstrip("/"), get("code")
         if not REDIRECT_RE.match(route["target"]):
@@ -1416,10 +1419,13 @@ def render_route(route: dict, host: dict) -> str:
     if route["type"] == "reverse_proxy":
         if route.get("auth_user"):
             lines += ["basic_auth {", f"\t{route['auth_user']} {route['auth_hash']}", "}"]
+        options = []
         if route.get("host_header"):
-            lines += [f"reverse_proxy {route['upstream']} {{", "\theader_up Host {upstream_hostport}", "}"]
-        else:
-            lines.append(f"reverse_proxy {route['upstream']}")
+            options.append("\theader_up Host {upstream_hostport}")
+        if route.get("skip_verify"):
+            options += ["\ttransport http {", "\t\ttls_insecure_skip_verify", "\t}"]
+        proxy = f"reverse_proxy {route['upstream']}"
+        lines += [f"{proxy} {{", *options, "}"] if options else [proxy]
     elif route["type"] == "redirect":
         lines.append(f"redir {route['target']}{{uri}} {route['code']}")
     else:
@@ -1625,6 +1631,14 @@ def apply_route(
         return error
 
 
+# What a reverse_proxy block may hold when a hand-written file is taken over: the lines
+# render_route writes for each option, in its order.
+PROXY_OPTIONS = {
+    "host_header": [["header_up", "Host", "{upstream_hostport}"]],
+    "skip_verify": [["transport", "http", "{"], ["tls_insecure_skip_verify"], ["}"]],
+}
+
+
 def adopt_route(content: str, host: dict) -> tuple[dict | None, str]:
     """Metadata for a hand-written file, or the reason it cannot be taken over.
 
@@ -1652,9 +1666,15 @@ def adopt_route(content: str, host: dict) -> tuple[dict | None, str]:
             login = {"auth_user": block[0][0], "auth_hash": block[0][1]}
             form["auth_user"] = login["auth_user"]
             index += 2
-        elif tokens[0] == "reverse_proxy" and tokens[2:] == ["{"] and block == [["header_up", "Host", "{upstream_hostport}"], ["}"]]:
-            form.update(type="reverse_proxy", upstream=tokens[1], host_header="1")
-            index += 2
+        elif tokens[0] == "reverse_proxy" and tokens[2:] == ["{"]:
+            form.update(type="reverse_proxy", upstream=tokens[1])
+            for option, shape in PROXY_OPTIONS.items():
+                if inner[index : index + len(shape)] == shape:
+                    form[option] = "1"
+                    index += len(shape)
+            if inner[index : index + 1] != [["}"]]:
+                return None, f"it contains a line Caddyman would not write: {' '.join(tokens)}"
+            index += 1
         elif tokens[0] == "reverse_proxy" and len(tokens) == 2:
             form.update(type="reverse_proxy", upstream=tokens[1])
         elif tokens[0] == "redir" and len(tokens) == 3 and tokens[1].endswith("{uri}"):

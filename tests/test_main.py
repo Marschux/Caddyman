@@ -1788,6 +1788,21 @@ class TestEdit(RouteTest):
         )
         self.assertIn('name="host_header" value="1" checked', self.client.get("/routes/pdf/edit").text)
 
+    def test_skip_verify_option(self):
+        block = "\t\ttransport http {\n\t\t\ttls_insecure_skip_verify\n\t\t}\n"
+        self.edit(upstream="https://10.0.0.5:8006", skip_verify="1")
+        self.assertIn("\treverse_proxy https://10.0.0.5:8006 {\n" + block + "\t}\n}\n", self.read("pdf.caddy"))
+        self.assertIn('name="skip_verify" value="1" checked', self.client.get("/routes/pdf/edit").text)
+        # Together with the Host header, in a fixed order, and it can be taken over again.
+        self.edit(upstream="https://10.0.0.5:8006", skip_verify="1", host_header="1")
+        text = self.read("pdf.caddy")
+        self.assertIn("{\n\t\theader_up Host {upstream_hostport}\n" + block + "\t}\n}\n", text)
+        route, reason = main.adopt_route(text, self.host)
+        self.assertEqual((route.get("host_header"), route.get("skip_verify")), (True, True), reason)
+        # A plain target has no certificate: the tick is dropped and the file stays as it was.
+        self.edit(skip_verify="1")
+        self.assertEqual(self.read("pdf.caddy"), self.original)
+
     def test_adopt_a_newsite_file(self):
         self.write("wiki.caddy", "wiki.lab.test {\n    reverse_proxy 10.0.0.7:3000\n    import stepca\n}\n")
         self.assertIn("Adopt this route", self.client.get("/routes/wiki/edit").text)

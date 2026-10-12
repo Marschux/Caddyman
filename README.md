@@ -9,7 +9,7 @@ A web interface for Caddy routes that works with your own ACME CA, such as
 
 ![Route list](assets/screenshot.png)
 
-- **Routes:** reverse proxy, redirect or static files, with optional basic auth
+- **Routes:** reverse proxy, redirect or static files, with optional basic auth; targets with a self-signed certificate work too
 - **TLS per route:** your own ACME CA, Caddy's default, Caddy's internal CA, or none
 - **Certificate check:** shows who issued what each route really serves, and when it expires
 - **Root CA page:** download, fingerprints, a check code to pass on by voice, and import steps
