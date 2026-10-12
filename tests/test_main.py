@@ -33,6 +33,11 @@ class AppTest(unittest.TestCase):
         main.SETTINGS_FILE.unlink(missing_ok=True)
         main.GROUPS_FILE.unlink(missing_ok=True)
         main.LOGIN_FAILS.clear()
+        # No name is looked up from a test: where "Caddy" sits is said by each test that needs it.
+        self.caddy_at = mock.patch.object(main, "resolve_addresses", mock.Mock(return_value=set()))
+        self.caddy_at.start()
+        self.addCleanup(self.caddy_at.stop)
+        main.CADDY_ADDRESSES.update(until=0.0, found=frozenset(), busy=False)
         # Entering the client runs the startup that creates the setup token.
         self.client = TestClient(main.app, follow_redirects=False)
         self.client.__enter__()
@@ -344,13 +349,28 @@ class TestRoutes(RouteTest):
         self.assertNotIn("Caddyman is reached without HTTPS", unseen)
         self.assertIn("HTTPS in front of Caddyman is recognised", unseen)
         self.assertIn("CADDYMAN_FORWARDED_ALLOW_IPS=testclient", unseen)
-        # Once Caddy is trusted the request reads as https and the line turns good.
-        secure = TestClient(main.app, base_url="https://caddyman.lab.test", follow_redirects=False)
-        secure.cookies.set(main.SESSION_COOKIE, self.client.cookies[main.SESSION_COOKIE])
-        trusted = secure.get("/status").text
+        # The Caddy from the settings is believed by itself: the address behind the name in the admin URL.
+        main.resolve_addresses.return_value = {"testclient"}
+        main.CADDY_ADDRESSES["until"] = 0.0
+        through = {"x-forwarded-proto": "https", "x-forwarded-for": "198.51.100.7, 203.0.113.9"}
+        trusted = self.client.get("/status", headers=through).text
+        self.assertEqual(main.resolve_addresses.call_args.args, ("caddy",))
         self.assertNotIn("Caddyman is reached without HTTPS", trusted)
         self.assertNotIn("CADDYMAN_FORWARDED_ALLOW_IPS=", trusted)
         self.assertIn("HTTPS in front of Caddyman is recognised", trusted)
+        # Then the session cookie is marked Secure, and the login limit counts the visitor, not Caddy.
+        guest = TestClient(main.app, follow_redirects=False)
+        answer = guest.post("/login", data={"username": "admin", "password": "wrong"}, headers=through)
+        self.assertEqual(list(main.LOGIN_FAILS), ["203.0.113.9"])
+        answer = guest.post("/login", data={"username": "admin", "password": PASSWORD}, headers=through)
+        self.assertIn("Secure", answer.headers["set-cookie"])
+        # The same headers from anywhere else change nothing.
+        main.resolve_addresses.return_value = {"10.9.9.9"}
+        main.CADDY_ADDRESSES["until"] = 0.0
+        main.LOGIN_FAILS.clear()
+        answer = guest.post("/login", data={"username": "admin", "password": PASSWORD}, headers=through)
+        self.assertNotIn("Secure", answer.headers["set-cookie"])
+        self.assertIn("10.9.9.9", self.client.get("/status", headers=through).text)  # the hint names where Caddy was looked for
         # Deleting that route comes with a word of warning, the others are asked as before.
         self.create()
         page = self.client.get("/").text

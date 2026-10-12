@@ -1028,6 +1028,7 @@ def remember_admin_ca(host: dict, previous: str = "") -> str:
 
 def save_hosts(hosts: list[dict]) -> None:
     write_private(HOSTS_FILE, json.dumps(hosts, indent=2))
+    CADDY_ADDRESSES["until"] = 0.0  # the admin URL may have changed: look its addresses up again
 
 
 def is_http_url(value: str) -> bool:
@@ -2754,11 +2755,78 @@ def status(request: Request):
         hosts[0]["checks"].append({
             "label": "HTTPS in front of Caddyman is recognised",
             "ok": way == "https",
-            "detail": "" if way == "https" else f"Caddy at {caddy} says HTTPS, Caddyman does not take its word",
-            "hint": "This page came in through Caddy over HTTPS, but Caddyman only believes that from addresses it was told "
-            "to trust. Until then the session cookie is not marked Secure. Put Caddy's address, or the subnet of the "
-            "Docker network, into the .env file next to the compose file and start the container again:",
+            "detail": "" if way == "https" else f"{caddy} says HTTPS, but is not the Caddy from the settings",
+            "hint": "Caddyman believes the Caddy it manages, which it finds under the name in the admin API address "
+            f"({', '.join(sorted(caddy_addresses())) or 'no address found for it'}). This page came through something "
+            "else: another proxy in front, or Caddy under an address that name does not lead to. Until that is "
+            "trusted too, the session cookie is not marked Secure and the login limit counts everybody as one. "
+            "Add the address to the .env file next to the compose file and start the container again:",
             "block": f"CADDYMAN_FORWARDED_ALLOW_IPS={caddy}",
         })
     context = {"no_https": bool(hosts) and way == "plain", "has_own_route": has_route, "own_address": address}
     return page(request, "status.html", hosts=hosts, audit=read_audit(), **context)
+
+
+# What comes through the Caddy this tool manages is believed without further setup: that it
+# was HTTPS, and which address the visitor has. The first decides whether the session cookie
+# is marked Secure, the second what the login limit counts against. Caddy writes both headers
+# itself and does not pass on what a visitor sent, so its address is the thing to check.
+CADDY_ADDRESSES = {"until": 0.0, "found": frozenset(), "busy": False}
+CADDY_ADDRESS_SECONDS = 60
+
+
+def resolve_addresses(hostname: str) -> set[str]:
+    try:
+        return {info[4][0] for info in socket.getaddrinfo(hostname, None)}
+    except OSError:
+        return set()
+
+
+def caddy_addresses() -> frozenset[str]:
+    """The addresses behind the name in the admin URL: where requests from the managed Caddy come from.
+
+    Looked up again every minute in the background, so a slow DNS never holds a request.
+    Only the very first look, and the one after the settings changed, waits a moment.
+    """
+    state = CADDY_ADDRESSES
+    if state["until"] < time.monotonic() and not state["busy"]:
+        state["busy"] = True
+
+        def refresh() -> None:
+            try:
+                hosts = load_hosts()
+                name = urlsplit(hosts[0]["admin_url"]).hostname if hosts else None
+                state["found"] = frozenset(resolve_addresses(name)) if name else frozenset()
+                state["until"] = time.monotonic() + CADDY_ADDRESS_SECONDS
+            finally:
+                state["busy"] = False
+
+        first = state["until"] == 0
+        looking = PROBES.submit(refresh)
+        if first:
+            wait([looking], timeout=1)
+    return state["found"]
+
+
+class TrustCaddy:
+    """Takes scheme and visitor address from the forwarded headers when the request comes from the managed Caddy."""
+
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        client = scope.get("client")
+        if scope["type"] == "http" and client and client[0] in caddy_addresses():
+            headers = {name: value.decode("latin-1") for name, value in scope["headers"]}
+            scheme = headers.get(b"x-forwarded-proto", "").strip().lower()
+            if scheme in ("http", "https"):
+                scope["scheme"] = scheme
+            # The last entry is the address Caddy itself saw; anything before it came from further out.
+            visitor = headers.get(b"x-forwarded-for", "").split(",")[-1].strip()
+            if visitor:
+                scope["client"] = (visitor, 0)
+        await self.app(scope, receive, send)
+
+
+# Added last, so it runs first: everything else then sees the request as the visitor sent it.
+app.add_middleware(TrustCaddy)

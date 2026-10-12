@@ -75,8 +75,9 @@ own before the first start.
 password of the `:2020` site.
 
 **5. Put Caddyman itself behind HTTPS.** Until then your login crosses the network in the clear.
-The status page offers the route with one click. Set `CADDYMAN_FORWARDED_ALLOW_IPS` to Caddy's
-address or the Docker subnet afterwards, so Caddyman knows it is reached over HTTPS.
+The status page offers the route with one click. Caddyman believes the Caddy it manages when
+that says a request came in over HTTPS, so nothing has to be set for it. Only another proxy in
+front needs `CADDYMAN_FORWARDED_ALLOW_IPS`; the status page says so if that is the case.
 
 To have even the setup page behind HTTPS, put the route into the sites directory by hand, restart
 Caddy, and open Caddyman under that name for step 3. It shows up in the route list later and can be adopted
@@ -171,7 +172,7 @@ status page shows its check code, the same one the Root CA page gives.
 |---|---|---|
 | `CADDYMAN_SECRET_KEY` | generated | Signs sessions and links from mails, encrypts the passwords for the admin API and the mail server and the keys of two-factor logins. `openssl rand -base64 32` |
 | `CADDYMAN_SETUP_TOKEN` | random, in the log | Your own token for the setup page, at least 12 characters |
-| `CADDYMAN_FORWARDED_ALLOW_IPS` | `127.0.0.1` | Whose `X-Forwarded-*` headers are trusted. Behind Caddy: its address or the Docker subnet |
+| `CADDYMAN_FORWARDED_ALLOW_IPS` | `127.0.0.1` | Whose `X-Forwarded-*` headers are trusted besides the managed Caddy, which is trusted by itself |
 | `CADDYMAN_LOG_DIR` | `/var/log/caddy` | Where Caddy's log directory is mounted |
 | `CADDYMAN_DATA_DIR` | `/data` | Account, settings, change log |
 | `CADDYMAN_HOST` / `CADDYMAN_PORT` | `0.0.0.0` / `5052` | |
