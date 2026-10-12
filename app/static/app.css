@@ -270,6 +270,9 @@ section > .copyable { margin: 8px 0; }
 .copyable > button { position: absolute; top: 8px; right: 8px; width: auto; margin: 0; padding: 4px 10px; font-size: 12px;
 	/* covers the strip between button and edge, where a long line would peek out */
 	box-shadow: 7px 0 0 var(--surface-1); }
+/* In the product colour, like Delete in a list. The ground stays solid: a long line runs under the button. */
+.copyable > button { color: var(--product); background: var(--surface-2); border-color: var(--hairline-strong); }
+.copyable > button:hover { background: var(--surface-3); border-color: var(--product); }
 /* A command too long to read: only its start shows, the button takes all of it. */
 pre.cut { overflow: hidden; }
 section > ol { margin: 8px 0; padding-left: 22px; }
