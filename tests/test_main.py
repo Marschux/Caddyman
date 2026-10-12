@@ -1889,6 +1889,18 @@ class TestEdit(RouteTest):
         self.edit(type="redirect", target="https://b.lab.test", code="302", sso="1")
         self.assertNotIn("sso", self.read("pdf.caddy"))
 
+    def test_hsts_header(self):
+        self.edit(hsts="1", allow="private")
+        text = self.read("pdf.caddy")
+        # Outside of the route block, so the refusal by address carries it as well.
+        self.assertIn('\timport stepca\n\theader Strict-Transport-Security "max-age=31536000"\n\t@outside not', text)
+        self.assertIn('name="hsts" value="1" checked', self.client.get("/routes/pdf/edit").text)
+        taken, reason = main.adopt_route(text, self.host)
+        self.assertEqual(taken and taken.get("hsts"), True, reason)
+        # Without TLS there is nothing to insist on.
+        self.edit(hsts="1", tls="none")
+        self.assertNotIn("Strict-Transport-Security", self.read("pdf.caddy"))
+
     def test_skip_verify_option(self):
         block = "\t\ttransport http {\n\t\t\ttls_insecure_skip_verify\n\t\t}\n"
         self.edit(upstream="https://10.0.0.5:8006", skip_verify="1")

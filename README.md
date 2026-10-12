@@ -10,7 +10,7 @@ A web interface for Caddy routes that works with your own ACME CA, such as
 ![Route list](assets/screenshot.png)
 
 - **Routes:** reverse proxy, redirect or static files, with several hostnames and paths to other targets; can be switched off without deleting
-- **Access per route:** basic auth, allowed networks, or your single sign-on (Authelia, Authentik) through a `forward_auth` snippet; targets with a self-signed certificate work too
+- **Access per route:** basic auth, allowed networks, or your single sign-on (Authelia, Authentik) through a `forward_auth` snippet; targets with a self-signed certificate work too; HSTS per route
 - **TLS per route:** your own ACME CA, Caddy's default, Caddy's internal CA, or none
 - **Certificate check:** shows who issued what each route really serves, and when it expires
 - **Root CA page:** download, fingerprints, a check code to pass on by voice, and import steps

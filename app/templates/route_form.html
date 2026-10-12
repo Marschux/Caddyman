@@ -119,6 +119,12 @@
 			{% else %}Needs an SSO snippet in the base Caddyfile, named under <a href="/settings/caddy">Settings</a>.{% endif %}</small>
 	</div>
 
+	<label class="check"><input type="checkbox" name="hsts" value="1" {{ "checked" if route.hsts }}>
+		Tell browsers to use HTTPS only (HSTS)</label>
+	<small>For a year, a browser that has seen this route refuses plain HTTP for its name and no longer lets anybody
+		click past a certificate error. Meant for public names; with a CA of your own, only if every client trusts it.
+		No effect with TLS "None".</small>
+
 	<label class="check"><input type="checkbox" name="log" value="1" {{ "checked" if route.log }}> Write an access log for this route</label>
 	<small>Every request goes into a file of its own, to be read on the <a href="/logs">Logs page</a>. It needs the log
 		directory that page explains; without it Caddy keeps the file to itself.</small>

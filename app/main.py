@@ -1360,6 +1360,7 @@ def acme_ca_available(host: dict) -> bool:
 
 MAX_NETWORKS = 20
 MAX_ALIASES = 20
+HSTS_LINE = 'header Strict-Transport-Security "max-age=31536000"'
 MAX_PATHS = 20
 # A path that goes to a target of its own. Never '/' alone: that is what the main target is for.
 PATH_RE = re.compile(r"^/[A-Za-z0-9._~-][A-Za-z0-9._~/-]*\*?$")
@@ -1427,6 +1428,9 @@ def route_from_form(form, host: dict, previous: dict | None = None) -> tuple[dic
         route["sso"] = True
         if not has_snippet(host, "sso_snippet"):
             return route, "This host has no SSO snippet in its base Caddyfile, so a single sign-on cannot be put in front."
+    # HSTS only means something where the route speaks TLS.
+    if get("hsts") and get("tls") != "none":
+        route["hsts"] = True
     if not usable(name):
         return route, "The hostname may only contain lowercase letters, digits, '-' and '.'."
     if route["port"] and not valid_port(route["port"]):
@@ -1504,6 +1508,9 @@ def render_route(route: dict, host: dict) -> str:
         lines.append(f"import {host['tls_snippet']}")
     elif route["tls"] == "internal":
         lines.append("tls internal")
+    if route.get("hsts"):
+        # One year, this name only. Caddy puts headers first, so every answer of the route carries it.
+        lines.append(HSTS_LINE)
     # Everything that answers a request starts here; with allowed networks it is wrapped below.
     handlers = len(lines)
     if route.get("sso"):
@@ -1767,6 +1774,8 @@ def adopt_route(content: str, host: dict) -> tuple[dict | None, str]:
             form["tls"] = "acme_ca"
         elif tokens == ["import", host["sso_snippet"]]:
             form["sso"] = "1"
+        elif tokens == HSTS_LINE.split():
+            form["hsts"] = "1"
         elif tokens == ["tls", "internal"]:
             form["tls"] = "internal"
         elif tokens[:3] == ["@outside", "not", "client_ip"]:
