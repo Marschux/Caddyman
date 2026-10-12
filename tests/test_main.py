@@ -434,8 +434,8 @@ class TestRoutes(RouteTest):
         self.assertIn('<option value="Media" selected', self.client.get("/routes/wiki/edit").text)
         self.assertEqual(self.create(host="bad", group="{}").status_code, 400)
         page = self.client.get("/").text
-        self.assertLess(page.index('colspan="6">Media<'), page.index("wiki.lab.test"))
-        self.assertLess(page.index('colspan="6">No group<'), page.index("pdf.lab.test"))
+        self.assertLess(page.index('colspan="7">Media<'), page.index("wiki.lab.test"))
+        self.assertLess(page.index('colspan="7">No group<'), page.index("pdf.lab.test"))
         # A rejected rename leaves file and list alone, a good one rewrites the file and stays editable.
         self.reject()
         self.client.post("/groups/rename", data={"old": "Media", "new": "Films"})
@@ -451,7 +451,7 @@ class TestRoutes(RouteTest):
         self.assertEqual(self.read("wiki.caddy").replace("wiki", "pdf"), self.read("pdf.caddy"))
         self.assertEqual(self.read("pdf.caddy").splitlines()[0], plain)
         self.assertEqual(main.stored_groups(), [])
-        self.assertNotIn('colspan="6">', self.client.get("/").text)
+        self.assertNotIn('colspan="7">', self.client.get("/").text)
 
     def test_other_types_and_tls_modes(self):
         self.create(type="redirect", host="old", target="https://new.lab.test/", code="301", tls="internal")
@@ -1384,7 +1384,7 @@ class TestLogs(RouteTest):
         self.assertIn('"tls":"acme_ca","log":true,"upstream"', self.read("pdf.caddy"))
         # It still opens in the form, with the box ticked, and the list leads to its log.
         self.assertIn('name="log" value="1" checked', self.client.get("/routes/pdf/edit").text)
-        self.assertIn('href="/logs?file=access-pdf.log">Access log</a>', self.client.get("/").text)
+        self.assertIn('href="/logs?file=access-pdf.log">Log</a>', self.client.get("/").text)
         # A request reads as one line, and "Hide admin API requests" does not hide it in a route's own log.
         line = ('{"level":"info","ts":5,"logger":"http.log.access.log0","msg":"handled request","status":200,"size":12,"duration":0.0042,'
                 '"request":{"method":"GET","uri":"/print?x=1","host":"pdf.lab.test","remote_ip":"10.0.0.9"}}')

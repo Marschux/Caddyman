@@ -9,7 +9,7 @@
 	// What the search looks at: every cell but the buttons, plus the name of the group.
 	const text = new Map(routes.map((row) => [row, cells(row).join(" ").toLowerCase() + " " + (row.dataset.group || "").toLowerCase()]));
 	const none = body.insertRow();
-	none.innerHTML = '<td colspan="6" class="empty">No route matches.</td>';
+	none.innerHTML = '<td colspan="7" class="empty">No route matches.</td>';
 
 	function cells(row) {
 		return [...row.cells].slice(0, -1).map((cell) => cell.textContent.replace(/\s+/g, " ").trim());
@@ -39,8 +39,8 @@
 	function sort(column, descending) {
 		// A hand-written file fills the first column and the certificate; it sorts as empty in the others.
 		const key = (row) => {
-			if (row.cells.length === 6 || column === 0) return cells(row)[column];
-			return column === 4 ? cells(row)[2] : "";
+			if (row.cells.length === 7 || column === 0) return cells(row)[column];
+			return column === 5 ? cells(row)[2] : "";
 		};
 		const sorted = (rows) => rows.sort((a, b) => key(a).localeCompare(key(b), undefined, { numeric: true }) * (descending ? -1 : 1));
 		let run = [];
