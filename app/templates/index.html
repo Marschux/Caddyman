@@ -54,7 +54,12 @@
 				{% set cert = item.certificate %}
 				{% if cert %}
 				{# The explanation lives in the tooltip, so a route with a problem stays one line like the others. #}
+				{# A good certificate on a route with a TLS label only says how long it lasts; the issuer moves into the tooltip. #}
+				{% if route and cert.level == "ok" %}
+				<span class="cert ok" title="Issued by {{ cert.issuer }}. {{ cert.detail }}">{{ cert.short }}</span>
+				{% else %}
 				<span class="cert {{ cert.level }}" title="{{ cert.detail }}">{{ cert.text }}</span>
+				{% endif %}
 				{% if cert.level in ("warn", "fail") and "logs" in request.state.me.permissions %}<a href="/logs?q={{ (route or item.hand).host|urlencode }}&amp;quiet=1">Show its log</a>{% endif %}
 				{% else %}<span class="empty">-</span>{% endif %}
 			</td>

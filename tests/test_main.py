@@ -1265,6 +1265,12 @@ class TestCertificates(RouteTest):
         self.assertIn('class="cert warn"', page)
         # The explanation is the tooltip only, so the row stays one line.
         self.assertEqual(page.count("internal CA instead of your ACME CA"), 1)
+        self.assertIn("Caddy Local Authority - ECC Intermediate - ", page)
+        # A good one only says how long it lasts, the label next to it names the CA already.
+        self.served.return_value = make_certificate("Lab CA Intermediate", hours=30)
+        main.PROBE_CACHE.clear()
+        page = self.client.get("/").text
+        self.assertRegex(page, r'class="cert ok" title="Issued by Lab CA Intermediate\. Expires [^"]+">(29|30) h left<')
 
     def test_list_shows_the_status_of_a_hand_written_route(self):
         files = {

@@ -1738,7 +1738,9 @@ def certificate_status(host: dict, route: dict | None) -> dict | None:
     detail = f"Expires {expires:%Y-%m-%d %H:%M} UTC"
     if expires <= datetime.now(timezone.utc):
         return {"level": "fail", "text": f"Expired - {issuer}", "detail": detail}
-    status = {"level": "ok", "text": f"{issuer} - {time_left(expires)} left", "detail": detail}
+    left = f"{time_left(expires)} left"
+    # short is what the list shows where the TLS label next to it already says who issues.
+    status = {"level": "ok", "text": f"{issuer} - {left}", "short": left, "issuer": issuer, "detail": detail}
     if route["tls"] == "acme_ca" and CADDY_INTERNAL_ISSUER in issuer:
         # The failure that went unnoticed longest: a route quietly served from Caddy's own CA.
         status.update(level="warn", detail=f"Issued by Caddy's internal CA instead of your ACME CA. {detail}")
