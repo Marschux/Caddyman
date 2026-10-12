@@ -1,4 +1,4 @@
-// Search, "only problems" and sorting for the list of routes. Everything works on the rows
+// Search, "only problems", "no group" and sorting for the list of routes. Everything works on the rows
 // the server sent; the rows of a group stay below its name.
 (() => {
 	const filter = document.getElementById("route-filter");
@@ -18,6 +18,8 @@
 	function apply() {
 		const query = filter.elements.q.value.trim().toLowerCase();
 		const problems = filter.elements.problems.checked;
+		// The box is only there when the list has groups.
+		const ungrouped = Boolean(filter.elements.ungrouped && filter.elements.ungrouped.checked);
 		let shown = 0;
 		let group = null;
 		for (const row of [...body.rows]) {
@@ -28,7 +30,7 @@
 				row.hidden = true;
 				continue;
 			}
-			row.hidden = !text.get(row).includes(query) || (problems && !("problem" in row.dataset));
+			row.hidden = !text.get(row).includes(query) || (problems && !("problem" in row.dataset)) || (ungrouped && Boolean(row.dataset.group));
 			if (row.hidden) continue;
 			shown += 1;
 			if (group) group.hidden = false;

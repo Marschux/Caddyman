@@ -436,6 +436,8 @@ class TestRoutes(RouteTest):
         page = self.client.get("/").text
         self.assertLess(page.index('colspan="7">Media<'), page.index("wiki.lab.test"))
         self.assertLess(page.index('colspan="7">No group<'), page.index("pdf.lab.test"))
+        # The box that shows only routes without a group is there as long as there are groups.
+        self.assertIn('name="ungrouped"', page)
         # A rejected rename leaves file and list alone, a good one rewrites the file and stays editable.
         self.reject()
         self.client.post("/groups/rename", data={"old": "Media", "new": "Films"})
@@ -452,6 +454,7 @@ class TestRoutes(RouteTest):
         self.assertEqual(self.read("pdf.caddy").splitlines()[0], plain)
         self.assertEqual(main.stored_groups(), [])
         self.assertNotIn('colspan="7">', self.client.get("/").text)
+        self.assertNotIn('name="ungrouped"', self.client.get("/").text)
 
     def test_other_types_and_tls_modes(self):
         self.create(type="redirect", host="old", target="https://new.lab.test/", code="301", tls="internal")

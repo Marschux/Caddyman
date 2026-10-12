@@ -32,7 +32,7 @@
 		said += 1;
 		if (said <= LINES.length) {
 			note.textContent = LINES[said - 1];
-			form.querySelector("h1").after(note);
+			form.querySelector(".heading").after(note);
 			return;
 		}
 		said = 0;
