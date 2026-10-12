@@ -1393,7 +1393,9 @@ def route_from_form(form, host: dict, previous: dict | None = None) -> tuple[dic
             return route, f"Allowed networks are up to {MAX_NETWORKS} addresses or networks like 192.168.1.0/24, or the word 'private'."
         route["allow"] = allow
     # Further names for the same route. The first one stays the main name: it names the file.
-    aliases = [alias for alias in dict.fromkeys(map(full, get("aliases").replace(",", " ").split())) if alias != name]
+    # The form sends one field per name; a file that is taken over hands them in as one text.
+    typed = " ".join(map(str, form.getlist("aliases"))) if hasattr(form, "getlist") else get("aliases")
+    aliases = [alias for alias in dict.fromkeys(map(full, typed.replace(",", " ").split())) if alias != name]
     if aliases:
         route["aliases"] = aliases
         if len(aliases) > MAX_ALIASES or not all(map(usable, aliases)):

@@ -30,10 +30,13 @@
 		placeholder="{{ 'pdf' if host.domain_suffix else 'pdf.home.example' }}">
 	{% if host.domain_suffix %}<small>A short name gets <code>.{{ host.domain_suffix }}</code> appended.</small>{% endif %}
 
-	<label for="aliases">More hostnames <span class="optional">optional</span></label>
-	<input id="aliases" name="aliases" value="{{ (route.aliases or [])|join(', ') }}" autocomplete="off"
-		placeholder="{{ 'docs, wiki' if host.domain_suffix else 'docs.home.example, wiki.home.example' }}">
-	<small>Further names that lead to the same place, separated by commas. Each gets a certificate of its own.</small>
+	{# One field per name, two side by side. The button adds a field; an empty one is dropped on saving. #}
+	<label>More hostnames <span class="optional">optional</span></label>
+	<div class="fields">{% for alias in route.aliases or [] %}<input name="aliases" value="{{ alias }}" aria-label="Further hostname" autocomplete="off">{% endfor %}</div>
+	<noscript><input name="aliases" aria-label="Further hostnames, separated by commas"></noscript>
+	<button type="button" class="secondary" data-placeholder="{{ 'docs' if host.domain_suffix else 'docs.home.example' }}"
+		onclick="const field = document.createElement('input'); field.name = 'aliases'; field.autocomplete = 'off'; field.placeholder = this.dataset.placeholder; field.setAttribute('aria-label', 'Further hostname'); this.parentElement.querySelector('.fields').append(field); field.focus()">Add hostname</button>
+	<small>Further names that lead to the same place. Each gets a certificate of its own. Empty a field to remove the name.</small>
 
 	<div class="for-reverse_proxy">
 		<label for="upstream">Target</label>

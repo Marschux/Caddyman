@@ -1830,13 +1830,15 @@ class TestEdit(RouteTest):
         self.assertEqual(self.read("pdf.caddy"), self.original)
 
     def test_more_hostnames_share_one_route(self):
-        self.edit(aliases="Docs, wiki.lab.test,pdf docs")
+        self.edit(aliases=["Docs", "wiki.lab.test,pdf", "", "docs"])
         text = self.read("pdf.caddy")
         route = main.read_route(main.Path(self.sites) / "pdf.caddy", self.host)
         # Short names get the suffix, the main name and doubles drop out, the file keeps its name.
         self.assertEqual(route["aliases"], ["docs.lab.test", "wiki.lab.test"])
         self.assertIn("\npdf.lab.test, docs.lab.test, wiki.lab.test {\n", text)
-        self.assertIn('name="aliases" value="docs.lab.test, wiki.lab.test"', self.client.get("/routes/pdf/edit").text)
+        page = self.client.get("/routes/pdf/edit").text
+        self.assertIn('<input name="aliases" value="docs.lab.test"', page)
+        self.assertIn('<input name="aliases" value="wiki.lab.test"', page)
         self.assertIn("<small>wiki.lab.test</small>", self.client.get("/").text)
         taken, reason = main.adopt_route(text, self.host)
         self.assertEqual(taken and taken["aliases"], route["aliases"], reason)

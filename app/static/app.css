@@ -183,6 +183,9 @@ input, select, textarea {
 	border-radius: 8px;
 }
 
+/* Several values of one kind, two side by side, with the button that adds one below. */
+.fields { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 8px; }
+.fields:empty { display: none; }
 input::placeholder, textarea::placeholder { color: var(--ink-subtle); }
 textarea { font: 13px/1.6 var(--mono); tab-size: 4; resize: vertical; }
 input:focus, select:focus, textarea:focus { outline: 1px solid var(--link); border-color: var(--link); }
