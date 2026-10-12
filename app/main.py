@@ -1810,7 +1810,14 @@ def route_links(route: dict | None) -> tuple[str, str]:
     if route["type"] == "reverse_proxy" and "://" not in target:
         target = f"http://{target}"
     # Only ever a web address: the value comes from a file somebody may have edited.
-    return site, target if target.startswith(("http://", "https://")) else ""
+    if not target.startswith(("http://", "https://")):
+        return site, ""
+    # A name without a dot (a container next to Caddy, localhost) or a loopback address means
+    # something only on Caddy's side. A browser cannot open it and would wait for nothing.
+    name = urlsplit(target).hostname or ""
+    if route["type"] == "reverse_proxy" and ("." not in name or name.startswith("127.")):
+        return site, ""
+    return site, target
 
 
 def own_route(route: dict | None, request: Request) -> str:

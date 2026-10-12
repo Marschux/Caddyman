@@ -572,6 +572,10 @@ class TestRoutes(RouteTest):
         self.assertEqual(links(type="reverse_proxy", upstream="10.0.0.5:9005"), ("https://pdf.lab.test", "http://10.0.0.5:9005"))
         self.assertEqual(links(type="reverse_proxy", upstream="https://10.0.0.5", tls="none", port="8080"),
                          ("http://pdf.lab.test:8080", "https://10.0.0.5"))
+        # A container name or a loopback address is only reachable from Caddy, so there is no link to wait on.
+        for upstream in ("caddyman:5052", "http://whoami", "localhost:8080", "127.0.0.1:3000"):
+            self.assertEqual(links(type="reverse_proxy", upstream=upstream), ("https://pdf.lab.test", ""))
+        self.assertEqual(links(type="reverse_proxy", upstream="nas.lab.test:5000")[1], "http://nas.lab.test:5000")
         self.assertEqual(links(type="redirect", target="https://x.test/a")[1], "https://x.test/a")
         self.assertEqual(links(type="redirect", target="javascript:alert(1)")[1], "")
         self.assertEqual(links(type="static", root="/srv/www")[1], "")
