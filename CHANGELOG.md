@@ -1,5 +1,26 @@
 # Changelog
 
+## 2026-10-12 15:41
+- chore: version 0.12.0
+- feat: footer names the author
+- fix: a target only Caddy can reach (container name, loopback) is no longer a link in the route list
+- feat: white buttons and the file button get the product colour as border under the pointer too
+- feat: grey and outlined buttons get the product colour as border under the pointer
+- feat: copy buttons wear the product colour
+- feat: No groups is a toggle button in the last column title of the route list
+- feat: the route list remembers No groups in the browser
+- feat: No groups in the route list shows one list without the group names, instead of only routes without a group
+- feat: route form has Edit as text as a button next to the title; route list can show only routes without a group
+- fix: a button in a wide card is as wide as its text; unused red delete rule removed
+- feat: top right is one group: the account as a pill with turquoise initials, log out as an icon button
+- fix: users list keeps its shape: address under the name, one label for all rights, even distances between the buttons
+- feat: root CA page has steps for Chrome and Edge, and for Firefox on Android
+- feat: settings forms are as wide as the other pages with a side list
+- feat: route list has a column for the options of a route, with short labels
+- feat: a good certificate in the route list only says how long it lasts, the issuer is in the tooltip
+- chore: screenshots in docs/assets, pre-push hook in .github/hooks
+
+
 ## 2026-10-12 02:12
 - chore: version 0.11.0
 - feat: status page asks for the two words an older log setup lacks, where they matter
