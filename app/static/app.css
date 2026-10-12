@@ -348,6 +348,12 @@ details { margin-top: 24px; padding: 12px 16px; background: var(--surface-2); bo
 details[open] { padding-bottom: 20px; }
 /* The block has the colour of a grey button: the outline keeps the button visible on it. */
 details button.secondary { border-color: var(--hairline-strong); }
+/* A list to pick from inside such a block: each entry opens what there is to copy. */
+details.guide { margin-top: 12px; }
+.guide details { margin-top: 4px; padding: 6px 0 0; background: none; }
+.guide details[open] { padding-bottom: 12px; }
+.guide details summary { font-weight: 500; }
+.guide pre { background: var(--canvas); }
 summary { cursor: pointer; color: var(--ink); font-weight: 600; border-radius: 4px; }
 label.check { display: flex; gap: 10px; align-items: baseline; font-weight: 500; }
 

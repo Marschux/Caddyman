@@ -1936,6 +1936,17 @@ class TestEdit(RouteTest):
         self.assertIn(">DNS challenge<", self.client.get("/").text)
         self.assertEqual(main.adopt_route(text, self.host)[0]["tls"], "dns")
 
+    def test_settings_show_what_caddy_needs_per_dns_provider(self):
+        self.host["dns_snippet"] = "le-dns"
+        main.save_hosts([self.host])
+        page = self.client.get("/hosts/h1/edit").text
+        for part in ("xcaddy build --with github.com/caddy-dns/netcup", "      NETCUP_API_KEY: &lt;from your provider&gt;",
+                     "(le-dns) {\n\ttls {\n\t\tdns netcup {\n\t\t\tcustomer_number {env.NETCUP_CUSTOMER_NUMBER}"):
+            self.assertIn(part, page)
+        # Every snippet is a block of its own with balanced braces.
+        for guide in main.dns_guides("dns"):
+            self.assertEqual(guide["snippet"].count("{") - guide["snippet"].count("{env."), guide["snippet"].count("}") - guide["snippet"].count("{env."), guide["name"])
+
     def test_skip_verify_option(self):
         block = "\t\ttransport http {\n\t\t\ttls_insecure_skip_verify\n\t\t}\n"
         self.edit(upstream="https://10.0.0.5:8006", skip_verify="1")

@@ -80,6 +80,24 @@
 	<input id="dns_snippet" name="dns_snippet" value="{{ host.dns_snippet }}" placeholder="dns">
 	<small>Name of the snippet in the base Caddyfile that holds <code>tls { dns ... }</code> for Let's Encrypt over the
 		DNS challenge. It needs a Caddy built with the plugin of your DNS provider; the token stays with Caddy.</small>
+	{# Nothing is written from here: the three blocks are to be copied to where Caddy lives. #}
+	<details class="guide">
+		<summary>What Caddy needs for it, by provider</summary>
+		<p>Pick your DNS provider. Build Caddy from the Dockerfile, give it the variables, and put the snippet into
+			the base Caddyfile above the line that imports the routes. The status page then says whether Caddy can read it.</p>
+		{% for guide in dns_guides(host.dns_snippet or "dns") %}
+		<details>
+			<summary>{{ guide.name }}</summary>
+			<small>Dockerfile for Caddy</small>
+			<pre>{{ guide.dockerfile }}</pre>
+			<small>In the compose file of Caddy</small>
+			<pre>{{ guide.environment }}</pre>
+			<small>In the base Caddyfile</small>
+			<pre>{{ guide.snippet }}</pre>
+		</details>
+		{% endfor %}
+		<p>Not in the list? Most providers have a plugin under <code>github.com/caddy-dns</code>; its page shows the lines for the snippet.</p>
+	</details>
 
 	<label for="sso_snippet">SSO snippet <span class="optional">optional</span></label>
 	<input id="sso_snippet" name="sso_snippet" value="{{ host.sso_snippet }}" placeholder="sso">

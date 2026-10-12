@@ -105,7 +105,8 @@ FROM caddy:2-alpine
 COPY --from=builder /usr/bin/caddy /usr/bin/caddy
 ```
 
-Give that Caddy the token in its environment, add a snippet to the base Caddyfile above the `import`
+The Caddy settings show this Dockerfile, the variables and the snippet for a dozen providers, ready to
+copy. Give that Caddy the token in its environment, add a snippet to the base Caddyfile above the `import`
 line, and name it in the Caddy settings as "DNS snippet". The token never reaches Caddyman; the status
 page asks Caddy whether it can read the snippet.
 

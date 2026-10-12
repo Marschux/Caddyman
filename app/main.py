@@ -269,6 +269,8 @@ app.mount("/static", StaticFiles(directory=BASE_DIR / "static"), name="static")
 templates = Jinja2Templates(directory=BASE_DIR / "templates")
 templates.env.filters["initials"] = initials
 templates.env.globals["PERMISSIONS"] = PERMISSIONS
+# The settings page calls it by name: defined further down, with the rest about Caddy.
+templates.env.globals["dns_guides"] = lambda snippet: dns_guides(snippet)
 
 
 # Open without a login: the root certificate is public by nature, and the people who
@@ -1145,7 +1147,7 @@ def preflight(host: dict) -> list[dict]:
                 snippet_exists(text, dns),
                 "",
                 "Add the snippet to the base Caddyfile, with the plugin and the token of your DNS provider. "
-                "This one is for Cloudflare; Caddy has to be built with that plugin and needs the token in its environment:",
+                "This one is for Cloudflare; the Caddy settings show the snippet, the image and the variables for other providers:",
                 f"({dns}) {{\n\ttls {{\n\t\tdns cloudflare {{env.CLOUDFLARE_API_TOKEN}}\n\t}}\n}}",
             )
         if sso := host["sso_snippet"]:
@@ -1227,7 +1229,7 @@ def preflight(host: dict) -> list[dict]:
             not problem,
             problem,
             "Caddy was asked to read the snippet and refused. If it says that a module is not registered, this Caddy "
-            "was built without the plugin of your DNS provider: build an image with xcaddy, the README shows how.",
+            "was built without the plugin of your DNS provider. The Caddy settings show the Dockerfile for it, next to the DNS snippet.",
             "",
         )
     if host.get("admin_ca"):
@@ -1379,6 +1381,62 @@ def acme_ca_url(caddyfile_text: str, snippet: str) -> str:
     block = re.search(rf"^\({re.escape(snippet)}\)\s*\{{\n(.*?)^\}}", caddyfile_text, re.MULTILINE | re.DOTALL)
     found = re.search(r"^\s*ca\s+(https?://\S+)\s*$", block.group(1), re.MULTILINE) if block else None
     return found.group(1) if found else ""
+
+
+# What Caddy needs for the DNS challenge, per provider: the name of its plugin under
+# github.com/caddy-dns and the lines of the 'dns' directive. Every one of them was read by a
+# Caddy built with that plugin. Whoever is missing takes the snippet of a neighbour as a start.
+DNS_PROVIDERS = {
+    "Cloudflare": ("cloudflare", ["dns cloudflare {env.CLOUDFLARE_API_TOKEN}"]),
+    "deSEC": ("desec", ["dns desec {", "\ttoken {env.DESEC_TOKEN}", "}"]),
+    "DigitalOcean": ("digitalocean", ["dns digitalocean {env.DO_AUTH_TOKEN}"]),
+    "Duck DNS": ("duckdns", ["dns duckdns {env.DUCKDNS_API_TOKEN}"]),
+    "Gandi": ("gandi", ["dns gandi {env.GANDI_BEARER_TOKEN}"]),
+    "Hetzner": ("hetzner", ["dns hetzner {env.HETZNER_API_TOKEN}"]),
+    "INWX": ("inwx", ["dns inwx {", "\tusername {env.INWX_USERNAME}", "\tpassword {env.INWX_PASSWORD}", "}"]),
+    "IONOS": ("ionos", ["dns ionos {env.IONOS_API_TOKEN}"]),
+    "Namecheap": ("namecheap", ["dns namecheap {", "\tapi_key {env.NAMECHEAP_API_KEY}", "\tuser {env.NAMECHEAP_API_USER}", "}"]),
+    "netcup": (
+        "netcup",
+        [
+            "dns netcup {",
+            "\tcustomer_number {env.NETCUP_CUSTOMER_NUMBER}",
+            "\tapi_key {env.NETCUP_API_KEY}",
+            "\tapi_password {env.NETCUP_API_PASSWORD}",
+            "}",
+        ],
+    ),
+    "OVH": (
+        "ovh",
+        [
+            "dns ovh {",
+            "\tendpoint {env.OVH_ENDPOINT}",
+            "\tapplication_key {env.OVH_APPLICATION_KEY}",
+            "\tapplication_secret {env.OVH_APPLICATION_SECRET}",
+            "\tconsumer_key {env.OVH_CONSUMER_KEY}",
+            "}",
+        ],
+    ),
+    "Porkbun": ("porkbun", ["dns porkbun {", "\tapi_key {env.PORKBUN_API_KEY}", "\tapi_secret_key {env.PORKBUN_API_SECRET_KEY}", "}"]),
+}
+
+
+def dns_guides(snippet: str) -> list[dict]:
+    """Per provider the three things to copy: the image, the variables for Caddy, the snippet."""
+    guides = []
+    for name, (plugin, lines) in DNS_PROVIDERS.items():
+        directive = "".join(f"\t\t{line}\n" for line in lines)
+        variables = re.findall(r"\{env\.([A-Z0-9_]+)\}", directive)
+        guides.append(
+            {
+                "name": name,
+                "dockerfile": f"FROM caddy:2-builder AS builder\nRUN xcaddy build --with github.com/caddy-dns/{plugin}\n\n"
+                "FROM caddy:2-alpine\nCOPY --from=builder /usr/bin/caddy /usr/bin/caddy",
+                "environment": "    environment:\n" + "".join(f"      {variable}: <from your provider>\n" for variable in variables).rstrip(),
+                "snippet": f"({snippet}) {{\n\ttls {{\n{directive}\t}}\n}}",
+            }
+        )
+    return guides
 
 
 def dns_snippet_problem(host: dict, caddyfile_text: str) -> str:
