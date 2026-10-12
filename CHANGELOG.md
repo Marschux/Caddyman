@@ -1,5 +1,37 @@
 # Changelog
 
+## 2026-10-12 02:12
+- chore: version 0.11.0
+- feat: status page asks for the two words an older log setup lacks, where they matter
+- feat: the Caddy from the settings is trusted by itself for HTTPS and the visitor's address, no variable needed
+- fix: root CA page follows the switch for the open page again; docs: new screenshots, the two root CA switches
+- feat: status page says when HTTPS in front of Caddyman goes unnoticed, and keeps pointing at the own route while the page comes in unencrypted
+- fix: the conflict box keeps its distance from the form below it
+- feat: logs page reads older parts and the rotated files of a Caddy elsewhere, a route can write its own access log
+- refactor: one Caddy, so no host parameter in addresses and handlers any more
+- feat: the switch between the dark and the light look is a button in the bar, next to the account
+- feat: light look per account, CA of the admin API can be pasted, layouts are called shared files and network only, live log over the network every 20 seconds
+- feat: route list keeps certificate and target checks for a while and never waits long for one that hangs, rotated logs are listed, file button in the dark look
+- feat: adopt takes basic auth and host header, hand-written routes show their certificate, disconnect removes the copies kept for a Caddy elsewhere
+- feat: status page says when the secret key was made by Caddyman instead of coming from the environment
+- feat: the route to Caddyman itself keeps only the warning before deleting, the tag and the form hint are gone
+- feat: the route that leads to Caddyman itself is marked, with a word of warning before deleting or changing it
+- docs: what the secret key protects and what to do after changing it
+- feat: the mail port follows the encryption unless it was set by hand
+- fix: restoring into an install without a Caddy needs the right to change the settings
+- fix: a restore that Caddy rejects leaves groups, switches, mail settings and the connection to Caddy untouched
+- feat: setup page takes an optional email address for the admin account
+- feat: add user says why a password is needed while mail is not set up
+- feat: user list marks invited accounts and can send the invitation again
+- feat: backup holds groups, the security switches, the mail settings without the password and the remembered CA of the admin API
+- feat: a new account can be invited by mail and sets its own password, the link works once for one day
+- feat: mail settings take a CA certificate for a mail server with a certificate from a private CA
+- fix: the mark of the open tab and list entry is a clean aria-current attribute
+- feat: a root CA source with several certificates gives each its own download, check code and command
+- feat: status page checks that the ACME CA answers and that the root CA can be downloaded
+- feat: version number in the footer links to the source, the separate link is gone
+
+
 ## 2026-10-11 23:52
 - chore: version 0.10.0
 - feat: disconnect and send a test mail are buttons above their settings block
