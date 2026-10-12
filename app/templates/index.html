@@ -56,7 +56,7 @@
 				{% if route.allow %}<span class="tag" title="Only reachable from: {{ route.allow }}">IP</span>{% endif %}
 				{% if route.log %}{% if "logs" in request.state.me.permissions %}<a class="tag" title="Access log: open it" href="/logs?file=access-{{ item.name|urlencode }}.log">Log</a>{% else %}<span class="tag" title="Access log">Log</span>{% endif %}{% endif %}
 			</td>
-			<td class="nowrap"><span class="tag">{{ {"acme_ca": "Own ACME CA", "default": "Caddy default", "internal": "Caddy internal", "none": "None"}[route.tls] }}</span></td>
+			<td class="nowrap"><span class="tag">{{ {"acme_ca": "Own ACME CA", "default": "Caddy default", "dns": "DNS challenge", "internal": "Caddy internal", "none": "None"}[route.tls] }}</span></td>
 			{% else %}
 			<td><code>{{ item.name }}.caddy</code></td>
 			<td colspan="4" class="empty">Not created here, or edited by hand</td>

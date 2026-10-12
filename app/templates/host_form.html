@@ -76,6 +76,11 @@
 	<input id="tls_snippet" name="tls_snippet" value="{{ host.tls_snippet }}" placeholder="stepca">
 	<small>Name of the snippet in the base Caddyfile that points at your own ACME CA.</small>
 
+	<label for="dns_snippet">DNS snippet <span class="optional">optional</span></label>
+	<input id="dns_snippet" name="dns_snippet" value="{{ host.dns_snippet }}" placeholder="dns">
+	<small>Name of the snippet in the base Caddyfile that holds <code>tls { dns ... }</code> for Let's Encrypt over the
+		DNS challenge. It needs a Caddy built with the plugin of your DNS provider; the token stays with Caddy.</small>
+
 	<label for="sso_snippet">SSO snippet <span class="optional">optional</span></label>
 	<input id="sso_snippet" name="sso_snippet" value="{{ host.sso_snippet }}" placeholder="sso">
 	<small>Name of the snippet in the base Caddyfile that holds the <code>forward_auth</code> of your login service,

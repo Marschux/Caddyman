@@ -98,10 +98,14 @@
 			Own ACME CA{{ " (" ~ host.tls_snippet ~ ")" if acme_ca else " - no snippet configured for this host" }}
 		</option>
 		<option value="default" {{ "selected" if route.tls == "default" }}>Caddy default (Let's Encrypt for public names)</option>
+		<option value="dns" {{ "selected" if route.tls == "dns" }} {{ "disabled" if not dns }}>
+			Let's Encrypt over DNS{{ " (" ~ host.dns_snippet ~ ")" if dns else " - no snippet configured for this host" }}
+		</option>
 		<option value="internal" {{ "selected" if route.tls == "internal" }}>Caddy internal CA</option>
 		<option value="none" {{ "selected" if route.tls == "none" }}>None - plain HTTP</option>
 	</select>
-	<small>With Caddy's internal CA the root certificate lives in Caddy's data directory and changes when that is lost.</small>
+	<small>With Caddy's internal CA the root certificate lives in Caddy's data directory and changes when that is lost.
+		Over DNS, a name gets a public certificate without being reachable from the internet.</small>
 
 	<label for="port">Port <span class="optional">optional</span></label>
 	<input id="port" name="port" value="{{ route.port or '' }}" inputmode="numeric" placeholder="443">

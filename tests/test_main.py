@@ -172,6 +172,19 @@ class TestHosts(AppTest):
         # Without the snippet there is nothing to place.
         self.assertNotIn(label, self.checks(imports))
 
+    def test_dns_snippet_is_handed_to_caddy_to_read(self):
+        label = "Caddy understands the DNS snippet"
+        text = "(dns) {\n\ttls {\n\t\tdns cloudflare {env.TOKEN}\n\t}\n}\n" + f"import {self.sites}/*.caddy\n"
+        refused = mock.Mock(status_code=400, json=lambda: {"error": "module not registered: dns.providers.cloudflare"})
+        with mock.patch.object(main.httpx, "post", mock.Mock(return_value=refused)) as post:
+            self.assertIs(self.checks(text, dns_snippet="dns")[label], False)
+        # Only the snippet and a site that uses it, to be adapted and never loaded.
+        self.assertTrue(post.call_args.args[0].endswith("/adapt"))
+        self.assertEqual(post.call_args.kwargs["content"].decode(), text.split("import")[0] + "\ndns-check.invalid {\n\timport dns\n}\n")
+        with mock.patch.object(main.httpx, "post", mock.Mock(return_value=mock.Mock(status_code=200))):
+            self.assertIs(self.checks(text, dns_snippet="dns")[label], True)
+            self.assertNotIn(label, self.checks(text))
+
     def test_setup_dialog_until_a_host_exists(self):
         self.assertEqual(self.client.get("/").headers["location"], "/hosts/new")
         self.assertEqual(self.client.post("/hosts/new", data=self.host()).headers["location"], "/status")
@@ -1909,6 +1922,19 @@ class TestEdit(RouteTest):
         # Without TLS there is nothing to insist on.
         self.edit(hsts="1", tls="none")
         self.assertNotIn("Strict-Transport-Security", self.read("pdf.caddy"))
+
+    def test_dns_challenge_imports_the_snippet(self):
+        self.assertEqual(self.edit(tls="dns").status_code, 400)  # no snippet yet
+        with open(self.caddyfile, "a", encoding="utf-8") as handle:
+            handle.write("\n(dns) {\n\ttls {\n\t\tdns cloudflare {env.TOKEN}\n\t}\n}\n")
+        self.host["dns_snippet"] = "dns"
+        main.save_hosts([self.host])
+        self.edit(tls="dns")
+        text = self.read("pdf.caddy")
+        self.assertIn("pdf.lab.test {\n\timport dns\n\treverse_proxy 10.0.0.5:9005\n}\n", text)
+        self.assertIn('<option value="dns" selected', self.client.get("/routes/pdf/edit").text)
+        self.assertIn(">DNS challenge<", self.client.get("/").text)
+        self.assertEqual(main.adopt_route(text, self.host)[0]["tls"], "dns")
 
     def test_skip_verify_option(self):
         block = "\t\ttransport http {\n\t\t\ttls_insecure_skip_verify\n\t\t}\n"

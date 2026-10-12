@@ -945,6 +945,7 @@ HOST_DEFAULTS = {
     "sites_dir": "/etc/caddy/sites",
     "tls_snippet": "",
     "sso_snippet": "",
+    "dns_snippet": "",
     "root_ca_url": "",
     "domain_suffix": "",
 }
@@ -1053,10 +1054,11 @@ def host_problem(host: dict) -> str | None:
         return "Caddyfile and sites directory have to be absolute paths without '..'."
     if host.get("admin_user") and not AUTH_USER_RE.match(host["admin_user"]):
         return "The admin API username may only contain letters, digits, '.', '_', '@' and '-'."
-    if any(host[key] and not SNIPPET_RE.match(host[key]) for key in ("tls_snippet", "sso_snippet")):
+    snippets = [host[key] for key in ("tls_snippet", "sso_snippet", "dns_snippet") if host[key]]
+    if not all(map(SNIPPET_RE.match, snippets)):
         return "A snippet name may only contain letters, digits, '-' and '_'."
-    if host["sso_snippet"] and host["sso_snippet"] == host["tls_snippet"]:
-        return "The SSO snippet and the TLS snippet have to be two different snippets."
+    if len(set(snippets)) < len(snippets):
+        return "The TLS, SSO and DNS snippets have to be different snippets."
     if host["root_ca_url"] and not is_http_url(host["root_ca_url"]):
         return "The root CA source has to be an http or https URL."
     if host["domain_suffix"] and not HOSTNAME_RE.match(host["domain_suffix"]):
@@ -1137,6 +1139,15 @@ def preflight(host: dict) -> list[dict]:
                     "container cannot resolve, the check fails although all is well.",
                     "",
                 )
+        if dns := host["dns_snippet"]:
+            add(
+                f"DNS snippet '{dns}' exists",
+                snippet_exists(text, dns),
+                "",
+                "Add the snippet to the base Caddyfile, with the plugin and the token of your DNS provider. "
+                "This one is for Cloudflare; Caddy has to be built with that plugin and needs the token in its environment:",
+                f"({dns}) {{\n\ttls {{\n\t\tdns cloudflare {{env.CLOUDFLARE_API_TOKEN}}\n\t}}\n}}",
+            )
         if sso := host["sso_snippet"]:
             add(
                 f"SSO snippet '{sso}' exists",
@@ -1150,7 +1161,7 @@ def preflight(host: dict) -> list[dict]:
         # Caddy reads from top to bottom: a snippet below the import is unknown to the routes
         # and every route that names it is rejected. Sent inline, the routes always come last.
         imported = None if managed else re.search(rf"^\s*{re.escape(import_line)}\s*$", text, re.MULTILINE)
-        for name in filter(None, dict.fromkeys((snippet, host["sso_snippet"]))):
+        for name in filter(None, dict.fromkeys((snippet, host["dns_snippet"], host["sso_snippet"]))):
             found = re.search(rf"^\({re.escape(name)}\)\s*\{{", text, re.MULTILINE)
             if imported and found:
                 add(
@@ -1208,6 +1219,16 @@ def preflight(host: dict) -> list[dict]:
             "to the base Caddyfile, restart Caddy, and enter the address (http://caddy:2020) and the login in the "
             "settings. Create the hash with: docker exec -it caddy caddy hash-password",
             ADMIN_SITE_SNIPPET,
+        )
+    if admin_ok and text is not None and snippet_exists(text, host["dns_snippet"]):
+        problem = dns_snippet_problem(host, text)
+        add(
+            "Caddy understands the DNS snippet",
+            not problem,
+            problem,
+            "Caddy was asked to read the snippet and refused. If it says that a module is not registered, this Caddy "
+            "was built without the plugin of your DNS provider: build an image with xcaddy, the README shows how.",
+            "",
         )
     if host.get("admin_ca"):
         # Remembered on first use, so it is shown: the codes are the ones the Root CA page gives.
@@ -1321,7 +1342,7 @@ def pushed_digest(host: dict) -> str:
 
 META_PREFIX = "# caddyman "
 ROUTE_TYPES = ("reverse_proxy", "redirect", "static")
-TLS_MODES = ("acme_ca", "default", "internal", "none")
+TLS_MODES = ("acme_ca", "default", "dns", "internal", "none")
 REDIRECT_CODES = ("301", "302", "308")
 # The port may be left out: Caddy then takes 443 for https:// and 80 for everything else.
 UPSTREAM_RE = re.compile(r"^(https?://)?([A-Za-z0-9]([A-Za-z0-9.-]*[A-Za-z0-9])?)(?::([0-9]{1,5}))?$")
@@ -1358,6 +1379,33 @@ def acme_ca_url(caddyfile_text: str, snippet: str) -> str:
     block = re.search(rf"^\({re.escape(snippet)}\)\s*\{{\n(.*?)^\}}", caddyfile_text, re.MULTILINE | re.DOTALL)
     found = re.search(r"^\s*ca\s+(https?://\S+)\s*$", block.group(1), re.MULTILINE) if block else None
     return found.group(1) if found else ""
+
+
+def dns_snippet_problem(host: dict, caddyfile_text: str) -> str:
+    """Caddy's own words on why it cannot read the DNS snippet, '' when it can.
+
+    The plugin of a DNS provider is compiled into Caddy, and the admin API has no list of
+    what is in there. So Caddy is handed the snippet with a site that uses it and asked to
+    adapt that: nothing is loaded, and a missing plugin shows as an unknown module.
+    """
+    name = host["dns_snippet"]
+    block = re.search(rf"^\({re.escape(name)}\)\s*\{{\n.*?^\}}", caddyfile_text, re.MULTILINE | re.DOTALL)
+    if not block:
+        return ""
+    try:
+        response = httpx.post(
+            f"{host['admin_url']}/adapt",
+            content=f"{block.group(0)}\n\ndns-check.invalid {{\n\timport {name}\n}}\n".encode(),
+            headers={"Content-Type": "text/caddyfile"},
+            timeout=ADMIN_TIMEOUT,
+            auth=admin_auth(host),
+            verify=admin_verify(host),
+        )
+        if response.status_code == 200:
+            return ""
+        return str(response.json().get("error", "")) or f"HTTP {response.status_code}"
+    except (httpx.HTTPError, ValueError) as error:
+        return str(error) or type(error).__name__
 
 
 def has_snippet(host: dict, key: str) -> bool:
@@ -1453,6 +1501,8 @@ def route_from_form(form, host: dict, previous: dict | None = None) -> tuple[dic
         return route, "Unknown TLS mode."
     if route["tls"] == "acme_ca" and not acme_ca_available(host):
         return route, "This host has no TLS snippet in its base Caddyfile, so 'Own ACME CA' is not available."
+    if route["tls"] == "dns" and not has_snippet(host, "dns_snippet"):
+        return route, "This host has no DNS snippet in its base Caddyfile, so the DNS challenge is not available."
     if route["type"] == "reverse_proxy":
         route["upstream"] = get("upstream")
         match = UPSTREAM_RE.match(route["upstream"])
@@ -1520,6 +1570,8 @@ def render_route(route: dict, host: dict) -> str:
     lines = []
     if route["tls"] == "acme_ca":
         lines.append(f"import {host['tls_snippet']}")
+    elif route["tls"] == "dns":
+        lines.append(f"import {host['dns_snippet']}")
     elif route["tls"] == "internal":
         lines.append("tls internal")
     if route.get("hsts"):
@@ -1786,6 +1838,8 @@ def adopt_route(content: str, host: dict) -> tuple[dict | None, str]:
         index += 1
         if tokens == ["import", host["tls_snippet"]]:
             form["tls"] = "acme_ca"
+        elif tokens == ["import", host["dns_snippet"]]:
+            form["tls"] = "dns"
         elif tokens == ["import", host["sso_snippet"]]:
             form["sso"] = "1"
         elif tokens == HSTS_LINE.split():
@@ -2011,7 +2065,7 @@ def route_form_page(request: Request, host: dict, route: dict, error: str | None
     proxied = [item["route"] for item in list_routes(host) if item["route"] and item["route"]["type"] == "reverse_proxy"]
     context["game_routes"] = [[item["host"], item["upstream"]] for item in proxied]
     context["groups"] = load_groups(host)
-    return page(request, "route_form.html", host=host, route=route, error=error, acme_ca=acme_ca_available(host), sso=has_snippet(host, "sso_snippet"), **context)
+    return page(request, "route_form.html", host=host, route=route, error=error, acme_ca=acme_ca_available(host), sso=has_snippet(host, "sso_snippet"), dns=has_snippet(host, "dns_snippet"), **context)
 
 
 def existing_route(name: str) -> tuple[dict | None, Path | None]:

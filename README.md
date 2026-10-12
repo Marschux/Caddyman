@@ -11,7 +11,7 @@ A web interface for Caddy routes that works with your own ACME CA, such as
 
 - **Routes:** reverse proxy, redirect or static files, with several hostnames and paths to other targets; can be switched off without deleting
 - **Access per route:** basic auth, allowed networks, or your single sign-on (Authelia, Authentik) through a `forward_auth` snippet; targets with a self-signed certificate work too; HSTS per route
-- **TLS per route:** your own ACME CA, Caddy's default, Caddy's internal CA, or none
+- **TLS per route:** your own ACME CA, Caddy's default, Let's Encrypt over the DNS challenge, Caddy's internal CA, or none
 - **Certificate check:** shows who issued what each route really serves, and when it expires
 - **Root CA page:** download, fingerprints, a check code to pass on by voice, and import steps
   for Windows, macOS, Debian, iPhone, Android, Chrome and Firefox; open without a login at `/trust`
@@ -60,6 +60,8 @@ import /etc/caddy/sites/*.caddy
 | `:2020` site | Caddyman reaching Caddy's admin API, behind a login. Required. Create the hash with `docker exec -it caddy caddy hash-password` |
 | `import` | The routes. Required |
 | `(stepca)` snippet | The TLS mode "Own ACME CA". Optional; the name is up to you |
+| a DNS snippet | The TLS mode "Let's Encrypt over DNS", see below. Optional |
+| an SSO snippet | Putting a route behind your single sign-on with one tick: a snippet holding the `forward_auth` of Authelia, Authentik or the like. Optional |
 | `log caddyman` | The Logs page. Optional; `docker logs` keeps working next to it |
 
 Do not publish port 2020. Restart Caddy after editing the file.
@@ -88,6 +90,30 @@ there:
 caddyman.home.example {
 	import stepca
 	reverse_proxy caddyman:5052
+}
+```
+
+**Let's Encrypt over DNS.** A name that is not reachable from the internet can still get a public
+certificate when Caddy proves the name through your DNS provider. That needs a
+Caddy built with the provider's plugin, for instance:
+
+```dockerfile
+FROM caddy:2-builder AS builder
+RUN xcaddy build --with github.com/caddy-dns/cloudflare
+
+FROM caddy:2-alpine
+COPY --from=builder /usr/bin/caddy /usr/bin/caddy
+```
+
+Give that Caddy the token in its environment, add a snippet to the base Caddyfile above the `import`
+line, and name it in the Caddy settings as "DNS snippet". The token never reaches Caddyman; the status
+page asks Caddy whether it can read the snippet.
+
+```
+(dns) {
+	tls {
+		dns cloudflare {env.CLOUDFLARE_API_TOKEN}
+	}
 }
 ```
 
