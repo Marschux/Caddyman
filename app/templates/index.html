@@ -9,8 +9,8 @@
 	<form class="row filters" id="route-filter" hidden onsubmit="return false">
 		<input type="search" name="q" placeholder="Search host, target, group ..." aria-label="Search the routes">
 		<label class="check"><input type="checkbox" name="problems"> Only problems</label>
-		{# Only where there are groups at all: without any, every route is one without a group. #}
-		{% if routes|selectattr("group")|list %}<label class="check"><input type="checkbox" name="ungrouped"> No group</label>{% endif %}
+		{# One list without the names of the groups in between. Only where there are groups at all. #}
+		{% if routes|selectattr("group")|list %}<label class="check"><input type="checkbox" name="flat"> No groups</label>{% endif %}
 	</form>
 	{% endif %}
 	{% if may_change %}
