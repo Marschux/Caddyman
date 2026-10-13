@@ -1150,7 +1150,7 @@ def preflight(host: dict) -> list[dict]:
     except (OSError, UnicodeDecodeError) as error:
         text = None
         if managed:
-            add("Base Caddyfile is stored", False, str(error), "Edit this host and paste the base Caddyfile.", "")
+            add("Base Caddyfile is stored", False, str(error), "Edit this host and paste the base Caddyfile.")
         else:
             add(
                 "Base Caddyfile is readable",
@@ -1249,7 +1249,6 @@ def preflight(host: dict) -> list[dict]:
             admin_auth(host) is not None,
             "",
             "The stored password was encrypted with a different CADDYMAN_SECRET_KEY. Edit this host and enter it again.",
-            "",
         )
     running = None
     try:
@@ -1265,7 +1264,6 @@ def preflight(host: dict) -> list[dict]:
             f"{host['admin_url']} - {detail}",
             "Caddyman does not know the CA behind this certificate. Open the Caddy settings and press "
             '"Save and check": it then fetches the CA and remembers it for this address.',
-            "",
         )
     elif managed:
         add(
@@ -1298,7 +1296,6 @@ def preflight(host: dict) -> list[dict]:
             problem,
             "Caddy was asked to read the snippet and refused. If it says that a module is not registered, this Caddy "
             "was built without the plugin of your DNS provider. The Caddy settings show the Dockerfile for it, next to the DNS snippet.",
-            "",
         )
     if host.get("admin_ca"):
         # Remembered on first use, so it is shown: the codes are the ones the Root CA page gives.
