@@ -1,9 +1,9 @@
 {% extends "base.html" %}
-{% block title %}Mail - Caddyman{% endblock %}
+{% block title %}SMTP - Caddyman{% endblock %}
 {% block content %}
 {% include "settings_nav.html" %}
 <div class="heading">
-	<h2>Mail</h2>
+	<h2>SMTP</h2>
 	<form method="post" action="/settings/mail/test" class="inline">
 		<button type="submit" class="secondary" title="Goes to the address in your own profile, with the settings as they are saved. An error from the mail server is shown word for word.">Send a test mail</button>
 	</form>

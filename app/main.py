@@ -841,7 +841,9 @@ def settings_caddy():
 @app.get("/settings/security")
 def settings_security(request: Request):
     without = [user["username"] for user in load_users() if not user.get("totp")]
-    return page(request, "settings_security.html", settings=load_settings(), without=without)
+    settings = load_settings()
+    zones = {"chosen": settings.get("time_zone", ""), "fallback": TIME_ZONE.key, "zones": sorted(available_timezones())}
+    return page(request, "settings_security.html", settings=settings, without=without, **zones)
 
 
 @app.post("/settings/security")
@@ -857,8 +859,9 @@ def settings_security_save(
 
 
 @app.get("/settings/general")
-def settings_general(request: Request):
-    return page(request, "settings_general.html", chosen=load_settings().get("time_zone", ""), fallback=TIME_ZONE.key, zones=sorted(available_timezones()))
+def settings_general():
+    # The block is called General; its page kept the address it had as Security.
+    return RedirectResponse("/settings/security", status_code=303)
 
 
 @app.post("/settings/general")
@@ -868,9 +871,9 @@ def settings_general_save(zone: str = Form("")):
         if zone:
             ZoneInfo(zone)
     except (KeyError, ValueError, OSError):
-        return redirect("/settings/general", "error", "Unknown time zone. Pick one from the list, like Europe/Berlin.")
+        return redirect("/settings/security", "error", "Unknown time zone. Pick one from the list, like Europe/Berlin.")
     save_settings(time_zone=zone)
-    return redirect("/settings/general", "ok", "Saved.")
+    return redirect("/settings/security", "ok", "Saved.")
 
 
 @app.get("/settings/users")
@@ -2935,7 +2938,7 @@ sites/         one file per route. This is what a restore writes back.
 groups.json    the names of the route groups. A restore adds the ones that are missing.
 Caddyfile      the base Caddyfile, as a copy for reference. Caddyman never writes it.
 hosts.json     where Caddy is reachable. Only used when restoring into an empty install.
-settings.json  the switches under Settings, Security. Only used when restoring into an empty install.
+settings.json  the switches under Settings, General. Only used when restoring into an empty install.
 mail.json      the mail settings without the password. Only used when restoring into an empty install.
 errors.json    the design chosen for each error page. Only used when restoring into an empty install.
 
@@ -3108,7 +3111,7 @@ async def backup_restore(request: Request):
     new_groups = [name for name in backup["groups"] if not taken(name, stored_groups())]
     also = [
         *([f"{len(new_groups)} route groups"] if new_groups else []),
-        *(["the switches under Settings, Security"] if with_settings and backup["settings"] else []),
+        *(["the switches under Settings, General"] if with_settings and backup["settings"] else []),
         *(["the mail settings, without the password"] if with_settings and backup["mail"] else []),
         *(["the designs of the error pages"] if with_settings and backup["errors"] else []),
     ]

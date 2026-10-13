@@ -1419,7 +1419,7 @@ class TestLogs(RouteTest):
         self.client.post("/settings/general", data={"zone": "Europe/Berlin"})
         self.assertEqual(main.parse_log_line('{"ts":0}')["time"], "1970-01-01 01:00:00")
         self.assertIn("Time (Europe/Berlin)", self.client.get("/changes").text)
-        self.assertIn('name="zone" value="Europe/Berlin"', self.client.get("/settings/general").text)
+        self.assertIn('name="zone" value="Europe/Berlin"', self.client.get("/settings/security").text)
         self.assertIn("Recent changes", self.client.get("/changes").text)
         self.assertNotIn("Recent changes", self.client.get("/status").text)
         self.assertLess(len(lines), 5)
@@ -1701,7 +1701,7 @@ class TestBackup(RouteTest):
         self.assertEqual((main.load_hosts(), main.load_mail()["host"], os.listdir(self.sites)), ([], "", []))
         self.load.return_value = mock.Mock(status_code=200)
         preview = self.upload(archive).text
-        self.assertIn("the switches under Settings, Security", preview)
+        self.assertIn("the switches under Settings, General", preview)
         self.assertIn("the mail settings, without the password", preview)
         self.assertEqual(main.load_mail()["host"], "")  # the preview restores nothing
         self.confirm(archive)

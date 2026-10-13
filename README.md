@@ -143,7 +143,7 @@ the route list and the status page. The change log on the status page names who 
 
 Every account can switch on two-factor login in its profile: scan the QR code with an
 authenticator app, keep the recovery codes. Whoever manages users can switch it off again for
-somebody who lost both. "Settings", "Security" makes it a must for every account.
+somebody who lost both. "Settings", "General" makes it a must for every account.
 
 The same block has two switches for the root certificate. "Offer the root CA without a login"
 opens `/trust` and the download to everybody who can reach Caddyman; the people who need the
@@ -225,7 +225,7 @@ status page shows its check code, the same one the Root CA page gives.
 - **Back up your CA separately.** The backup holds the routes, not the root CA. A lost root has
   to be imported on every device again.
 - **The backup has no accounts and no passwords.** It holds the routes and their groups, the
-  connection to Caddy, the switches under "Security", the designs of the error pages and the mail
+  connection to Caddy, the switches under "General", the designs of the error pages and the mail
   settings without the password. The last four only come back when restoring into an empty install. To keep the
   accounts too, back up the data volume.
 - **Restart both containers after editing the base Caddyfile by hand.** Mounted as a single
