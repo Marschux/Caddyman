@@ -645,6 +645,18 @@ class TestRoutes(RouteTest):
         self.put("legacy.caddy", "legacy.lab.test {\n\trespond 200\n}\n")
         self.assertIn("legacy.caddy", self.client.get("/").text)
 
+    def test_the_message_for_the_next_page_is_no_session(self):
+        answer = self.client.post("/groups", data={"name": "Media"})
+        self.assertNotIn("Secure", answer.headers["set-cookie"])
+        with self.assertRaises(main.BadSignature):
+            main.SESSIONS.loads(answer.cookies["caddyman_flash"])
+        self.assertIn("Media was added", self.client.get("/groups").text)
+        # Through Caddy over HTTPS it is marked Secure like the session cookie.
+        main.resolve_addresses.return_value = {"testclient"}
+        main.CADDY_ADDRESSES["until"] = 0.0
+        answer = self.client.post("/groups", data={"name": "Films"}, headers={"x-forwarded-proto": "https"})
+        self.assertIn("Secure", answer.headers["set-cookie"])
+
     def test_a_metadata_line_with_a_number_for_text_is_not_ours(self):
         # It renders to the very same file, so only its shape tells.
         route = {"type": "reverse_proxy", "host": "pdf.lab.test", "port": "", "tls": "default", "upstream": 123}

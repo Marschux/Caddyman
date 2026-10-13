@@ -131,6 +131,8 @@ def load_secret_key() -> tuple[str, bool]:
 
 SECRET_KEY, SECRET_KEY_FROM_ENV = load_secret_key()
 SESSIONS = URLSafeTimedSerializer(SECRET_KEY, salt="session")
+# A message for the next page has the shape of a session value, so it gets a key of its own.
+FLASHES = URLSafeTimedSerializer(SECRET_KEY, salt="flash")
 # Encrypts the admin API passwords in hosts.json. Lose the key and they have to be typed in again.
 VAULT = Fernet(base64.urlsafe_b64encode(hashlib.sha256(f"vault:{SECRET_KEY}".encode()).digest()))
 
@@ -170,6 +172,8 @@ USERS_LOCK = threading.Lock()
 EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\Z")
 # Who is acting, for the change log. Set per request by the middleware.
 CURRENT_USER: contextvars.ContextVar[str] = contextvars.ContextVar("user", default="-")
+# Whether the request at hand came over HTTPS, for cookies set where no request is in reach.
+OVER_HTTPS: contextvars.ContextVar[bool] = contextvars.ContextVar("https", default=False)
 
 
 def load_users() -> list[dict]:
@@ -413,6 +417,7 @@ async def require_session(request: Request, call_next):
     # The path the router goes by. request.url is put together from the Host header, which the
     # client writes: "Host: x/login?" would turn every address into /login there.
     path = request.scope["path"]
+    OVER_HTTPS.set(request.url.scheme == "https")
     # Switched on under Settings: nothing but HTTPS. What Caddy fetches itself and the root
     # certificate stay open, or the error pages and the way to trust the CA would be cut off.
     if request.url.scheme != "https" and path != "/healthz" and not path.startswith(("/static/", "/error/")) and path not in PUBLIC_PATHS and https_only():
@@ -458,7 +463,7 @@ def page(request: Request, template: str, status_code: int = 200, **context):
     flash = None
     if cookie := request.cookies.get(FLASH_COOKIE):
         try:
-            flash = SESSIONS.loads(cookie, max_age=60)
+            flash = FLASHES.loads(cookie, max_age=60)
         except BadSignature:
             pass
     context = {"version": VERSION, "source_url": SOURCE_URL, "flash": flash, **context}
@@ -472,7 +477,7 @@ def redirect(url: str, kind: str = "", text: str = "") -> RedirectResponse:
     """Redirect after a POST; the message is shown once on the next page."""
     response = RedirectResponse(url, status_code=303)
     if text:
-        response.set_cookie(FLASH_COOKIE, SESSIONS.dumps([kind, text[:500]]), max_age=60, httponly=True, samesite="lax")
+        response.set_cookie(FLASH_COOKIE, FLASHES.dumps([kind, text[:500]]), max_age=60, httponly=True, samesite="lax", secure=OVER_HTTPS.get())
     return response
 
 
