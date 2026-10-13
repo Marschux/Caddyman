@@ -1680,7 +1680,7 @@ class TestBackup(RouteTest):
         self.client.post("/settings/general", data={"zone": "Europe/Berlin"})
         # "Only over HTTPS" is never part of a backup: restored without its route, it would lock everybody out.
         main.save_settings(https_only="1")
-        archive = main.build_backup(main.pick_host()[1])
+        archive = main.build_backup(main.pick_host())
         main.save_settings(https_only="")
         with zipfile.ZipFile(io.BytesIO(archive)) as packed:
             everything = b"".join(packed.read(name) for name in packed.namelist())

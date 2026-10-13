@@ -131,6 +131,21 @@ SESSIONS = URLSafeTimedSerializer(SECRET_KEY, salt="session")
 # Encrypts the admin API passwords in hosts.json. Lose the key and they have to be typed in again.
 VAULT = Fernet(base64.urlsafe_b64encode(hashlib.sha256(f"vault:{SECRET_KEY}".encode()).digest()))
 
+
+def seal(text: str) -> str:
+    return VAULT.encrypt(text.encode()).decode()
+
+
+def unseal(text: str) -> str:
+    """Raises InvalidToken for what another secret key encrypted."""
+    return VAULT.decrypt(text.encode()).decode()
+
+
+def said(error: Exception) -> str:
+    """What an error says, or its name when it says nothing."""
+    return str(error) or type(error).__name__
+
+
 # Set at startup while no admin exists, cleared once setup is done.
 SETUP_TOKEN: str | None = None
 
@@ -282,7 +297,6 @@ def start_session(response: RedirectResponse, request: Request, user: dict) -> R
 async def lifespan(app: FastAPI):
     global SETUP_TOKEN
     if not load_users():
-        port = OWN_PORT
         if setup_token_problem():
             # No fallback to a random token: whoever set one cannot read this log.
             SETUP_TOKEN = None
@@ -291,7 +305,7 @@ async def lifespan(app: FastAPI):
             SETUP_TOKEN = ENV_SETUP_TOKEN or secrets.token_hex(8)
             # A token somebody chose is not repeated in the log.
             shown = "the value of CADDYMAN_SETUP_TOKEN" if ENV_SETUP_TOKEN else SETUP_TOKEN
-            print(f"Setup required. Open http://<host>:{port}/setup\nToken: {shown}", flush=True)
+            print(f"Setup required. Open http://<host>:{OWN_PORT}/setup\nToken: {shown}", flush=True)
     if not SECRET_KEY_FROM_ENV:
         print("CADDYMAN_SECRET_KEY is not set, using a generated key from the data directory.", flush=True)
     reset_https_only()
@@ -382,7 +396,7 @@ async def require_session(request: Request, call_next):
     # Switched on under Settings: nothing but HTTPS. What Caddy fetches itself and the root
     # certificate stay open, or the error pages and the way to trust the CA would be cut off.
     if request.url.scheme != "https" and path != "/healthz" and not path.startswith(("/static/", "/error/")) and path not in PUBLIC_PATHS and https_only():
-        _, current = pick_host()
+        current = pick_host()
         address = own_route_address(current)[1] if current else ""
         if address:
             return RedirectResponse(address + path, status_code=307)
@@ -548,7 +562,7 @@ def totp_step(secret: str, code: str) -> int | None:
 
 def totp_secret(user: dict, key: str) -> str | None:
     try:
-        return VAULT.decrypt(user.get(key, "").encode()).decode()
+        return unseal(user.get(key, ""))
     except (InvalidToken, ValueError):
         # Not set, or encrypted with another secret key. A recovery code or a reset by an admin gets around that.
         return None
@@ -656,8 +670,7 @@ def ca_problem(pem: str) -> str | None:
 
 def check_codes(pem: str) -> str:
     """The check codes of every certificate in a PEM text, as the Root CA page gives them."""
-    codes = [item["sha256"].replace(":", "")[:12] for item in fingerprints(pem)]
-    return ", ".join(" ".join(code[i : i + 4] for i in (0, 4, 8)) for code in codes)
+    return ", ".join(item["check_code"] for item in fingerprints(pem))
 
 
 def send_mail(to: str, subject: str, body: str) -> str | None:
@@ -672,7 +685,7 @@ def send_mail(to: str, subject: str, body: str) -> str | None:
     try:
         if mail["ca"]:
             context.load_verify_locations(cadata=mail["ca"])
-        password = VAULT.decrypt(mail["password_enc"].encode()).decode() if mail.get("password_enc") else ""
+        password = unseal(mail["password_enc"]) if mail.get("password_enc") else ""
         if mail["security"] == "ssl":
             server = smtplib.SMTP_SSL(mail["host"], int(mail["port"]), timeout=10, context=context)
         else:
@@ -686,7 +699,7 @@ def send_mail(to: str, subject: str, body: str) -> str | None:
     except InvalidToken:
         return "The stored mail password was encrypted with a different CADDYMAN_SECRET_KEY. Enter it again."
     except (OSError, smtplib.SMTPException) as error:
-        return str(error) or type(error).__name__
+        return said(error)
     return None
 
 
@@ -812,7 +825,7 @@ def profile_password(request: Request, current: str = Form(""), password: str = 
 @app.post("/profile/2fa/start")
 def profile_2fa_start(request: Request):
     secret = base64.b32encode(secrets.token_bytes(20)).decode()
-    update_user(request.state.user, totp_pending=VAULT.encrypt(secret.encode()).decode())
+    update_user(request.state.user, totp_pending=seal(secret))
     return RedirectResponse("/profile#two-factor", status_code=303)
 
 
@@ -910,7 +923,7 @@ async def mail_save(request: Request):
     if error := mail_problem(mail):
         return page(request, "mail_form.html", status_code=400, error=error, mail=mail, securities=MAIL_SECURITY)
     if password := str(form.get("password", "")):
-        mail["password_enc"] = VAULT.encrypt(password.encode()).decode()
+        mail["password_enc"] = seal(password)
     elif mail["user"] and mail["user"] == stored["user"] and stored.get("password_enc"):
         mail["password_enc"] = stored["password_enc"]  # an empty field keeps the password of the same login
     write_json(MAIL_FILE, mail)
@@ -1068,7 +1081,7 @@ def admin_auth(host: dict) -> tuple[str, str] | None:
     if not host.get("admin_user"):
         return None
     try:
-        return host["admin_user"], VAULT.decrypt(host.get("admin_password_enc", "").encode()).decode()
+        return host["admin_user"], unseal(host.get("admin_password_enc", ""))
     except (InvalidToken, ValueError):
         # Encrypted with another secret key. The status page says so.
         return None
@@ -1172,6 +1185,7 @@ def preflight(host: dict) -> list[dict]:
 
     if text is not None:
         import_line = f"import {sites}/*.caddy"
+        imported = None if managed else re.search(rf"^\s*{re.escape(import_line)}\s*$", text, re.MULTILINE)
         if managed:
             file_import = re.search(r"^\s*import\s+\S*[/*]\S*\s*$", text, re.MULTILINE)
             add(
@@ -1185,7 +1199,7 @@ def preflight(host: dict) -> list[dict]:
         else:
             add(
                 "Base Caddyfile imports the sites directory",
-                re.search(rf"^\s*{re.escape(import_line)}\s*$", text, re.MULTILINE),
+                imported,
                 import_line,
                 "Add this line at the end of the base Caddyfile:",
                 import_line,
@@ -1207,7 +1221,7 @@ def preflight(host: dict) -> list[dict]:
                     answer = httpx.get(ca_url, timeout=REACH_TIMEOUT, verify=False)
                     ca_ok, detail = answer.status_code == 200, f"HTTP {answer.status_code}"
                 except httpx.HTTPError as error:
-                    ca_ok, detail = False, str(error) or type(error).__name__
+                    ca_ok, detail = False, said(error)
                 add(
                     "ACME CA answers",
                     ca_ok,
@@ -1238,7 +1252,6 @@ def preflight(host: dict) -> list[dict]:
             )
         # Caddy reads from top to bottom: a snippet below the import is unknown to the routes
         # and every route that names it is rejected. Sent inline, the routes always come last.
-        imported = None if managed else re.search(rf"^\s*{re.escape(import_line)}\s*$", text, re.MULTILINE)
         for name in filter(None, dict.fromkeys((snippet, host["dns_snippet"], host["sso_snippet"]))):
             found = re.search(rf"^\({re.escape(name)}\)\s*\{{", text, re.MULTILINE)
             if imported and found:
@@ -1264,38 +1277,30 @@ def preflight(host: dict) -> list[dict]:
         admin_ok, detail = response.status_code == 200, f"HTTP {response.status_code}"
         running = response.content if admin_ok else None
     except httpx.HTTPError as error:
-        admin_ok, detail = False, str(error) or type(error).__name__
+        admin_ok, detail = False, said(error)
     if "CERTIFICATE_VERIFY_FAILED" in detail:
-        add(
-            "Admin API is reachable",
-            False,
-            f"{host['admin_url']} - {detail}",
+        hint, block = (
             "Caddyman does not know the CA behind this certificate. Open the Caddy settings and press "
-            '"Save and check": it then fetches the CA and remembers it for this address.',
-        )
+            '"Save and check": it then fetches the CA and remembers it for this address.'
+        ), ""
     elif managed:
-        add(
-            "Admin API is reachable",
-            admin_ok,
-            f"{host['admin_url']} - {detail}",
+        hint, block = (
             "Caddy's admin API has no login of its own: whoever reaches it controls Caddy. Expose it through a "
             "site with basic auth like the one below, keep that site in the base Caddyfile of this host (every "
-            "push replaces Caddy's whole configuration), and enter the login here. At the very least, firewall the port to this machine.",
+            "push replaces Caddy's whole configuration), and enter the login here. At the very least, firewall the port to this machine."
+        ), (
             "admin.home.example {\n\tbasic_auth {\n\t\tcaddyman <bcrypt hash from: caddy hash-password>\n\t}\n"
-            "\treverse_proxy localhost:2019 {\n\t\theader_up Host {upstream_hostport}\n\t}\n}",
+            "\treverse_proxy localhost:2019 {\n\t\theader_up Host {upstream_hostport}\n\t}\n}"
         )
+    elif detail == "HTTP 401":
+        hint, block = "The login was refused. Check username and password in the settings.", ADMIN_SITE_SNIPPET
     else:
-        add(
-            "Admin API is reachable",
-            admin_ok,
-            f"{host['admin_url']} - {detail}",
-            "The login was refused. Check username and password in the settings."
-            if detail == "HTTP 401"
-            else "Caddy's admin API only listens inside its own container and has no login of its own. Add this site "
+        hint, block = (
+            "Caddy's admin API only listens inside its own container and has no login of its own. Add this site "
             "to the base Caddyfile, restart Caddy, and enter the address (http://caddy:2020) and the login in the "
-            "settings. Create the hash with: docker exec -it caddy caddy hash-password",
-            ADMIN_SITE_SNIPPET,
-        )
+            "settings. Create the hash with: docker exec -it caddy caddy hash-password"
+        ), ADMIN_SITE_SNIPPET
+    add("Admin API is reachable", admin_ok, f"{host['admin_url']} - {detail}", hint, block)
     if admin_ok and text is not None and snippet_exists(text, host["dns_snippet"]):
         problem = dns_snippet_problem(host, text)
         add(
@@ -1432,6 +1437,7 @@ ROUTE_NAME_RE = re.compile(r"^[A-Za-z0-9]([A-Za-z0-9._-]*[A-Za-z0-9])?$")
 # file only keeps the names, so a group can exist before a route uses it.
 GROUPS_FILE = DATA_DIR / "groups.json"
 GROUP_RE = re.compile(r"\w[\w .-]{0,39}")
+GROUP_HINT = "A group name is up to 40 letters, digits, spaces, '.', '_' and '-'."
 # Where a route with an access log has Caddy write it: the directory of Caddy's own log, as
 # Caddy sees it, so the Logs page shows both. The file is named after the route file.
 ACCESS_LOG_DIR, ACCESS_LOG_PREFIX = "/var/log/caddy", "access-"
@@ -1542,7 +1548,7 @@ def dns_snippet_problem(host: dict, caddyfile_text: str) -> str:
             return ""
         return str(response.json().get("error", "")) or f"HTTP {response.status_code}"
     except (httpx.HTTPError, ValueError) as error:
-        return str(error) or type(error).__name__
+        return said(error)
 
 
 def has_snippet(host: dict, key: str) -> bool:
@@ -1551,10 +1557,6 @@ def has_snippet(host: dict, key: str) -> bool:
         return snippet_exists(Path(host["caddyfile"]).read_text(encoding="utf-8"), host[key])
     except (OSError, UnicodeDecodeError):
         return False
-
-
-def acme_ca_available(host: dict) -> bool:
-    return has_snippet(host, "tls_snippet")
 
 
 MAX_NETWORKS = 20
@@ -1625,6 +1627,8 @@ def route_from_form(form, host: dict, previous: dict | None = None) -> tuple[dic
     and always in the same order, so files written before a key existed stay ours.
     """
     get = lambda key: str(form.get(key, "")).strip()  # noqa: E731
+    # One field per entry from the form; a file that is taken over hands them in as one text.
+    many = lambda key: " ".join(map(str, form.getlist(key))) if hasattr(form, "getlist") else get(key)  # noqa: E731
 
     def full(name: str) -> str:
         name = name.lower().strip(".")
@@ -1639,20 +1643,16 @@ def route_from_form(form, host: dict, previous: dict | None = None) -> tuple[dic
     if group := get("group"):
         route["group"] = group
         if not GROUP_RE.fullmatch(group):
-            return route, "A group name is up to 40 letters, digits, spaces, '.', '_' and '-'."
+            return route, GROUP_HINT
     if get("log"):
         route["log"] = True
-    # One field per network from the form; a file that is taken over hands them in as one text.
-    typed = " ".join(map(str, form.getlist("allow"))) if hasattr(form, "getlist") else get("allow")
-    if typed.strip():
+    if typed := many("allow").strip():
         allow = allowed_networks(typed)
         if not allow:
             return route, f"Allowed networks are up to {MAX_NETWORKS} addresses or networks like 192.168.1.0/24, or the word 'private'."
         route["allow"] = allow
     # Further names for the same route. The first one stays the main name: it names the file.
-    # The form sends one field per name; a file that is taken over hands them in as one text.
-    typed = " ".join(map(str, form.getlist("aliases"))) if hasattr(form, "getlist") else get("aliases")
-    aliases = [alias for alias in dict.fromkeys(map(full, typed.replace(",", " ").split())) if alias != name]
+    aliases = [alias for alias in dict.fromkeys(map(full, many("aliases").replace(",", " ").split())) if alias != name]
     if aliases:
         route["aliases"] = aliases
         if len(aliases) > MAX_ALIASES or not all(map(usable, aliases)):
@@ -1674,7 +1674,7 @@ def route_from_form(form, host: dict, previous: dict | None = None) -> tuple[dic
         return route, "The port has to be a number between 1 and 65535."
     if route["tls"] not in TLS_MODES:
         return route, "Unknown TLS mode."
-    if route["tls"] == "acme_ca" and not acme_ca_available(host):
+    if route["tls"] == "acme_ca" and not has_snippet(host, "tls_snippet"):
         return route, "This host has no TLS snippet in its base Caddyfile, so 'Own ACME CA' is not available."
     if route["tls"] == "dns" and not has_snippet(host, "dns_snippet"):
         return route, "This host has no DNS snippet in its base Caddyfile, so the DNS challenge is not available."
@@ -1840,7 +1840,7 @@ def list_routes(host: dict) -> list[dict]:
         paths = sorted(Path(host["sites_dir"]).glob("*.caddy"))
     except OSError:
         return []
-    return [{"name": path.stem, "route": read_route(path, host)} for path in paths]
+    return [{"name": path.stem, "path": path, "route": read_route(path, host)} for path in paths]
 
 
 def route_group(route: dict | None) -> str:
@@ -1872,9 +1872,7 @@ def regroup(host: dict, old: str, new: str) -> str | None:
             rest = {key: value for key, value in route.items() if key != "group"}
             # Same place as in route_from_form, or the file would no longer count as ours.
             head = {key: rest[key] for key in ("type", "host", "port", "tls")}
-            changes[Path(host["sites_dir"]) / f"{item['name']}.caddy"] = render_route(
-                {**head, **({"group": new} if new else {}), **rest}, host
-            )
+            changes[item["path"]] = render_route({**head, **({"group": new} if new else {}), **rest}, host)
     # The files were read before the lock: an edit saved in that instant would be overwritten.
     # Fine for one admin at a time; pass the mtimes to apply_route if that ever bites.
     return apply_route(host, changes, "group", f"{old} -> {new or 'no group'}") if changes else None
@@ -1909,7 +1907,7 @@ def caddy_load(host: dict) -> str | None:
             verify=admin_verify(host),
         )
     except (OSError, httpx.HTTPError) as error:
-        return str(error) or type(error).__name__
+        return said(error)
     if response.status_code == 200:
         if host.get("storage") == "managed":
             # Remembered so the status page can tell when Caddy has fallen back to another config.
@@ -2269,38 +2267,34 @@ def no_host(request: Request, error: NoHost):
     return RedirectResponse("/hosts/new", status_code=303)
 
 
+def pick_host() -> dict | None:
+    """The Caddy in use. Caddyman manages one; the list in the file is how it has always looked."""
+    return next(iter(load_hosts()), None)
+
+
 def the_host() -> dict:
     """The Caddy this install manages, for a page that cannot do anything without one."""
-    hosts = load_hosts()
-    if not hosts:
-        raise NoHost
-    return hosts[0]
-
-
-def pick_host() -> tuple[list[dict], dict | None]:
-    """Every stored host and the one in use. Caddyman manages one Caddy; the list is how the file has always looked."""
-    hosts = load_hosts()
-    return hosts, hosts[0] if hosts else None
+    if host := pick_host():
+        return host
+    raise NoHost
 
 
 def route_form_page(request: Request, host: dict, route: dict, error: str | None = None, **context):
     context.setdefault("status_code", 400 if error else 200)
     context["groups"] = load_groups(host)
-    return page(request, "route_form.html", host=host, route=route, error=error, acme_ca=acme_ca_available(host), sso=has_snippet(host, "sso_snippet"), dns=has_snippet(host, "dns_snippet"), **context)
+    return page(request, "route_form.html", host=host, route=route, error=error, acme_ca=has_snippet(host, "tls_snippet"), sso=has_snippet(host, "sso_snippet"), dns=has_snippet(host, "dns_snippet"), **context)
 
 
 def existing_route(name: str) -> tuple[dict | None, Path | None]:
     """The host and the file of a route that is on disk, or a None for what is missing."""
-    _, current = pick_host()
+    current = pick_host()
     path = route_path(current, name) if current else None
     return current, path if path and path.is_file() else None
 
 
 @app.get("/")
 def index(request: Request):
-    hosts, current = pick_host()
-    if current is None:
-        return RedirectResponse("/hosts/new", status_code=303)
+    current = the_host()
     routes = list_routes(current)
     jobs = {}
     for item in routes:
@@ -2341,13 +2335,13 @@ def index(request: Request):
         item["own"] = own_route(item["route"], request)
     # Groups in order, what has none at the end.
     routes.sort(key=lambda item: (not item["group"], item["group"].lower()))
-    return page(request, "index.html", hosts=hosts, host=current, routes=routes, own_port=OWN_PORT)
+    return page(request, "index.html", host=current, routes=routes, own_port=OWN_PORT)
 
 
 @app.get("/routes/new")
 def route_new(request: Request, own: bool = False):
     current = the_host()
-    tls = "acme_ca" if acme_ca_available(current) else "default"
+    tls = "acme_ca" if has_snippet(current, "tls_snippet") else "default"
     route = {"type": "reverse_proxy", "tls": tls, "code": "308"}
     if own:
         # A Caddy next door reaches this container by name, one elsewhere by the address the browser used.
@@ -2404,22 +2398,20 @@ async def route_create(request: Request):
         return route_form_page(request, current, route, f"A route file {path.name} already exists.")
     if error := apply_route(current, {path: render_route(route, current)}, "create", path.stem):
         return route_form_page(request, current, route, f"Caddy rejected the route, nothing was changed: {error}")
-    url = "/"
     if route["type"] == "reverse_proxy" and not target_reachable(route["upstream"]):
-        return redirect(url, "warn", f"{route['host']} is saved, but {route['upstream']} does not answer yet.")
-    return redirect(url, "ok", f"{route['host']} is live.")
+        return redirect("/", "warn", f"{route['host']} is saved, but {route['upstream']} does not answer yet.")
+    return redirect("/", "ok", f"{route['host']} is live.")
 
 
 @app.post("/routes/{name}/delete")
 def route_delete(name: str):
-    _, current = pick_host()
+    current = pick_host()
     path = route_path(current, name) if current else None
     if path is None or not path.exists():
         return redirect("/", "error", "This route does not exist.")
-    url = "/"
     if error := apply_route(current, {path: None}, "delete", path.stem):
-        return redirect(url, "error", f"Caddy rejected the reload, {path.name} was kept: {error}")
-    return redirect(url, "ok", f"{path.name} was removed.")
+        return redirect("/", "error", f"Caddy rejected the reload, {path.name} was kept: {error}")
+    return redirect("/", "ok", f"{path.name} was removed.")
 
 
 def raw_page(request: Request, host: dict, name: str, content: str, mtime: int, **context):
@@ -2489,12 +2481,11 @@ async def route_update(request: Request, name: str):
         return again(conflict={"disk": disk, "yours": content}, mtime=file_mtime(path), status_code=409)
     if error:
         return again(error=f"Caddy rejected the change, nothing was changed: {error}", status_code=400)
-    url = "/"
     if route and route.get("off"):
-        return redirect(url, "ok", f"{new_path.name} is saved and stays switched off.")
+        return redirect("/", "ok", f"{new_path.name} is saved and stays switched off.")
     if route and route["type"] == "reverse_proxy" and not target_reachable(route["upstream"]):
-        return redirect(url, "warn", f"{new_path.name} is saved, but {route['upstream']} does not answer yet.")
-    return redirect(url, "ok", f"{new_path.name} is saved and live.")
+        return redirect("/", "warn", f"{new_path.name} is saved, but {route['upstream']} does not answer yet.")
+    return redirect("/", "ok", f"{new_path.name} is saved and live.")
 
 
 @app.post("/routes/{name}/toggle")
@@ -2524,13 +2515,12 @@ def route_adopt(name: str):
     current, path = existing_route(name)
     if path is None:
         return redirect("/", "error", "This route does not exist.")
-    url = "/"
     route, reason = adopt_route(path.read_text(encoding="utf-8", errors="replace"), current)
     if route is None:
-        return redirect(url, "warn", f"{path.name} was left as it is: {reason}.")
+        return redirect("/", "warn", f"{path.name} was left as it is: {reason}.")
     if error := apply_route(current, {path: render_route(route, current)}, "adopt", name):
-        return redirect(url, "error", f"Caddy rejected the reload, {path.name} was left as it is: {error}")
-    return redirect(url, "ok", f"{path.name} now opens in the form.")
+        return redirect("/", "error", f"Caddy rejected the reload, {path.name} was left as it is: {error}")
+    return redirect("/", "ok", f"{path.name} now opens in the form.")
 
 
 @app.get("/groups")
@@ -2546,10 +2536,10 @@ def taken(name: str, groups: list[str]) -> bool:
 
 @app.post("/groups")
 def group_add(name: str = Form("")):
-    _, current = pick_host()
+    current = pick_host()
     name = name.strip()
     if current is None or not GROUP_RE.fullmatch(name):
-        return redirect("/groups", "error", "A group name is up to 40 letters, digits, spaces, '.', '_' and '-'.")
+        return redirect("/groups", "error", GROUP_HINT)
     if taken(name, load_groups(current)):
         return redirect("/groups", "error", f"A group {name} already exists.")
     save_groups([*stored_groups(), name])
@@ -2558,13 +2548,13 @@ def group_add(name: str = Form("")):
 
 @app.post("/groups/rename")
 def group_rename(old: str = Form(""), new: str = Form("")):
-    _, current = pick_host()
+    current = pick_host()
     new = new.strip()
     groups = load_groups(current) if current else []
     if old not in groups:
         return redirect("/groups", "error", "This group does not exist.")
     if not GROUP_RE.fullmatch(new):
-        return redirect("/groups", "error", "A group name is up to 40 letters, digits, spaces, '.', '_' and '-'.")
+        return redirect("/groups", "error", GROUP_HINT)
     if taken(new, [group for group in groups if group != old]):
         return redirect("/groups", "error", f"A group {new} already exists.")
     if error := regroup(current, old, new):
@@ -2575,7 +2565,7 @@ def group_rename(old: str = Form(""), new: str = Form("")):
 
 @app.post("/groups/delete")
 def group_delete(name: str = Form("")):
-    _, current = pick_host()
+    current = pick_host()
     if current is None or name not in load_groups(current):
         return redirect("/groups", "error", "This group does not exist.")
     if error := regroup(current, name, ""):
@@ -2634,7 +2624,7 @@ def error_pages(request: Request):
 @app.post("/error-pages")
 def error_pages_save(upstream: str = Form("")):
     """Where Caddy finds Caddyman. The address stands in every route that shows error pages."""
-    _, current = pick_host()
+    current = pick_host()
     upstream = upstream.strip()
     if current is None or not valid_upstream(upstream):
         return redirect("/error-pages", "error", "The address has to look like host:port or http://host:port.")
@@ -2647,7 +2637,7 @@ def error_pages_save(upstream: str = Form("")):
             route = {**route, "errors": upstream}
         else:
             continue
-        changes[Path(current["sites_dir"]) / f"{item['name']}.caddy"] = render_route(route, current)
+        changes[item["path"]] = render_route(route, current)
     if changes and (error := apply_route(current, changes, "error pages", upstream)):
         return redirect("/error-pages", "error", f"Caddy rejected the reload, nothing was changed: {error}")
     write_json(ERRORS_FILE, {**load_errors(), "upstream": upstream})
@@ -2686,8 +2676,8 @@ def error_design_save(code: str, design: str = Form(""), everywhere: str = Form(
 
 def host_settings_url() -> str:
     """Caddyman manages one Caddy: its settings if it is set up, the setup dialog if not."""
-    hosts = load_hosts()
-    return f"/hosts/{hosts[0]['id']}/edit" if hosts else "/hosts/new"
+    host = pick_host()
+    return f"/hosts/{host['id']}/edit" if host else "/hosts/new"
 
 
 @app.get("/hosts")
@@ -2707,7 +2697,7 @@ def host_edit(request: Request, host_id: str):
     host = next((item for item in load_hosts() if item["id"] == host_id), None)
     if host is None:
         return RedirectResponse("/hosts", status_code=303)
-    host = {**HOST_DEFAULTS, "storage": "mounted", **host}
+    host = {"storage": "mounted", **host}
     if host["storage"] == "managed":
         try:
             host["form_base"] = Path(host["caddyfile"]).read_text(encoding="utf-8")
@@ -2736,7 +2726,7 @@ async def host_save(request: Request, host_id: str | None = None):
         error = "This layout needs the base Caddyfile: global options, snippets and the site that exposes the admin API."
     if not error and host["admin_user"]:
         if password:
-            host["admin_password_enc"] = VAULT.encrypt(password.encode()).decode()
+            host["admin_password_enc"] = seal(password)
         elif existing and existing.get("admin_user") == host["admin_user"] and existing.get("admin_password_enc"):
             host["admin_password_enc"] = existing["admin_password_enc"]
         else:
@@ -2805,7 +2795,7 @@ def fetch_root_ca(host: dict) -> tuple[str, str, bool]:
         response = httpx.get(source, timeout=ADMIN_TIMEOUT, verify=False, auth=admin_auth(host) if internal else None)
         text = response.json().get("root_certificate", "") if internal else response.text
     except (httpx.HTTPError, ValueError, AttributeError) as error:
-        raise ValueError(f"{source} did not answer with a certificate: {error or type(error).__name__}") from None
+        raise ValueError(f"{source} did not answer with a certificate: {said(error)}") from None
     certificates = PEM_RE.findall(text) if isinstance(text, str) else []
     if response.status_code != 200 or not certificates:
         raise ValueError(f"{source} did not answer with a certificate (HTTP {response.status_code}).")
@@ -2820,7 +2810,10 @@ def fingerprints(pem: str) -> list[dict]:
         except ValueError:
             raise ValueError("The source returned something that is not a certificate.") from None
         pairs = lambda digest: ":".join(digest[i : i + 2] for i in range(0, len(digest), 2)).upper()  # noqa: E731
-        entry = {"sha256": pairs(hashlib.sha256(der).hexdigest()), "sha1": pairs(hashlib.sha1(der).hexdigest())}
+        sha256 = hashlib.sha256(der).hexdigest()
+        entry = {"sha256": pairs(sha256), "sha1": pairs(hashlib.sha1(der).hexdigest())}
+        # 48 bits: short enough to say on the phone, too long to hit with a forged certificate by trying.
+        entry["check_code"] = " ".join(sha256[i : i + 4].upper() for i in (0, 4, 8))
         try:
             parsed = x509.load_der_x509_certificate(der)
             entry.update(subject=display_name(parsed.subject), expires=f"{parsed.not_valid_after_utc:%Y-%m-%d}")
@@ -2856,15 +2849,8 @@ def ca_context(host: dict, fetch=fetch_root_ca, cert: int = 1) -> dict:
         context["fingerprints"] = fingerprints(pem)
         certs = []
         for number, (one, print_) in enumerate(zip(PEM_RE.findall(pem), context["fingerprints"]), 1):
-            der = ssl.PEM_cert_to_DER_cert(one)
-            digest = hashlib.sha256(der).hexdigest().upper()
-            certs.append({
-                "number": number,
-                "subject": print_.get("subject", ""),
-                # 48 bits: short enough to say on the phone, too long to hit with a forged certificate by trying.
-                "check_code": " ".join(digest[i : i + 4] for i in (0, 4, 8)),
-                "der_base64": base64.b64encode(der).decode(),
-            })
+            der = base64.b64encode(ssl.PEM_cert_to_DER_cert(one)).decode()
+            certs.append({"number": number, "subject": print_.get("subject", ""), "check_code": print_["check_code"], "der_base64": der})
         # Windows, iPhone and Android take only the first certificate out of a file, so with several
         # each one gets its own download, check code and command. With one, nothing carries a number.
         many = len(certs) > 1
@@ -2883,16 +2869,14 @@ def ca_context(host: dict, fetch=fetch_root_ca, cert: int = 1) -> dict:
 
 @app.get("/ca")
 def ca_page(request: Request, cert: int = 1):
-    hosts, current = pick_host()
-    if current is None:
-        return RedirectResponse("/hosts/new", status_code=303)
+    current = the_host()
     # Whether /trust is open decides what the page tells the admin to pass on.
-    return page(request, "ca.html", hosts=hosts, open_page=flag("public_ca"), **ca_context(current, cert=cert))
+    return page(request, "ca.html", open_page=flag("public_ca"), **ca_context(current, cert=cert))
 
 
 @app.get("/trust")
 def trust_page(request: Request, cert: int = 1):
-    _, current = pick_host()
+    current = pick_host()
     if current is None:
         return Response(status_code=404)
     context = ca_context(current, public_root_ca, cert)
@@ -2914,7 +2898,7 @@ def certificate_download(pem: str, cert: int | None) -> Response:
 
 @app.get("/root-ca.crt")
 def root_ca_public(cert: int | None = None):
-    _, current = pick_host()
+    current = pick_host()
     if current is None:
         return Response(status_code=404)
     try:
@@ -3085,8 +3069,7 @@ def backup_plan(backup: dict, host: dict | None) -> list[dict]:
 
 @app.get("/backup")
 def backup_page(request: Request):
-    hosts, current = pick_host()
-    return page(request, "backup.html", hosts=hosts, host=current)
+    return page(request, "backup.html", host=pick_host())
 
 
 @app.get("/backup/download")
@@ -3099,7 +3082,11 @@ def backup_download():
 
 @app.post("/backup/import")
 async def backup_restore(request: Request):
-    hosts, current = pick_host()
+    current = pick_host()
+
+    def refuse(error: str, status_code: int = 400):
+        return page(request, "backup.html", status_code=status_code, host=current, error=error)
+
     # The context manager closes the uploaded temp file again.
     async with request.form() as form:
         confirmed = "payload" in form
@@ -3110,21 +3097,19 @@ async def backup_restore(request: Request):
         data = base64.b64decode(payload, validate=True) if confirmed else uploaded
         backup = read_backup(data)
     except (ValueError, binascii.Error) as error:
-        return page(request, "backup.html", status_code=400, hosts=hosts, host=current, error=str(error))
+        return refuse(str(error))
     # Into an empty install the hosts come back too; otherwise the routes go to the chosen host.
-    fresh = not hosts
+    fresh = current is None
     target = current
     if fresh and "settings" not in request.state.me["permissions"]:
         # The connection to Caddy, the switches and the mail settings decide who gets in and where
         # reset links go. The right to restore routes alone must not be enough to set them.
-        error = "No Caddy is set up yet. Importing its connection from an archive needs the right to change the settings."
-        return page(request, "backup.html", status_code=403, hosts=hosts, host=current, error=error)
+        return refuse("No Caddy is set up yet. Importing its connection from an archive needs the right to change the settings.", 403)
     if fresh:
         target = next((item for item in backup["hosts"] if item["id"] == backup["meta"].get("host_id")), None)
         target = target or (backup["hosts"][0] if backup["hosts"] else None)
     if target is None:
-        error = "Add a Caddy host first: this archive has no usable host settings to import the routes into."
-        return page(request, "backup.html", status_code=400, hosts=hosts, host=current, error=error)
+        return refuse("Add a Caddy host first: this archive has no usable host settings to import the routes into.")
     plan = backup_plan(backup, target)
     # The switches and the mail settings come back only into an empty install.
     with_settings = fresh
@@ -3138,9 +3123,9 @@ async def backup_restore(request: Request):
     if not confirmed:
         payload = base64.b64encode(data).decode()
         context = {"plan": plan, "target": target, "fresh": fresh, "ignored": backup["ignored"], "payload": payload, "also": also}
-        return page(request, "backup.html", hosts=hosts, host=current, **context)
+        return page(request, "backup.html", host=current, **context)
     if any(item["path"] is None for item in plan):
-        return page(request, "backup.html", status_code=400, hosts=hosts, host=current, error="A route name in the archive is not usable.")
+        return refuse("A route name in the archive is not usable.")
     if fresh and target["storage"] == "managed":
         # A managed host keeps its base Caddyfile here, so this copy is restored with it. The reload
         # below needs it; left behind after a rejected restore it is a file nobody reads.
@@ -3327,9 +3312,9 @@ def parse_log_line(line: str, zone: ZoneInfo | None = None) -> dict:
             message = f"{asked.get('method', '')} {asked.get('uri', '')} - {entry.get('status', '')}"
             took = entry.get("duration")
             parts = [str(asked.get("host", "")), f"from {asked.get('remote_ip', '')}", f"{entry.get('size', 0)} bytes"]
-            return {"time": str(stamp), "level": level, "logger": logger, "msg": message,
-                    "extra": ", ".join(parts) + (f", {took:.3f} s" if isinstance(took, (int, float)) else "")}
-        extra = json.dumps(entry, ensure_ascii=False) if entry else ""
+            extra = ", ".join(parts) + (f", {took:.3f} s" if isinstance(took, (int, float)) else "")
+        else:
+            extra = json.dumps(entry, ensure_ascii=False) if entry else ""
         return {"time": str(stamp), "level": level, "logger": logger, "msg": message, "extra": extra}
     except (ValueError, AttributeError, TypeError, OverflowError, OSError):
         return {"time": "", "level": "", "logger": "", "msg": line, "extra": ""}
