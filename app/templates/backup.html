@@ -6,8 +6,8 @@
 
 {% if plan is defined %}
 <section>
-	<h2>Restore these routes?</h2>
-	{% if fresh %}<p class="empty">No host is set up yet, so the host settings from the archive are restored as well.</p>{% endif %}
+	<h2>Import these routes?</h2>
+	{% if fresh %}<p class="empty">No host is set up yet, so the host settings from the archive are imported as well.</p>{% endif %}
 	<p class="empty">Nothing has been changed yet. Routes on disk that are not in the archive are kept.</p>
 	<table class="spaced">
 		<thead><tr><th>Route file</th><th>What happens</th></tr></thead>
@@ -22,11 +22,11 @@
 			{% endfor %}
 		</tbody>
 	</table>
-	{% if also %}<p class="empty">Restored as well: {{ also|join(", ") }}.</p>{% endif %}
+	{% if also %}<p class="empty">Imported as well: {{ also|join(", ") }}.</p>{% endif %}
 	{% if ignored %}<p class="empty">Ignored, not part of a backup: {{ ignored|join(", ") }}</p>{% endif %}
 	<form method="post" action="/backup/restore" class="row">
 		<input type="hidden" name="payload" value="{{ payload }}">
-		<button type="submit">Restore and reload Caddy</button>
+		<button type="submit">Import and reload Caddy</button>
 		<a href="/backup">Cancel</a>
 	</form>
 </section>
@@ -45,9 +45,9 @@
 {% endif %}
 
 <section>
-	<h2>Restore</h2>
+	<h2>Import</h2>
 	<p class="empty">Upload a backup to see what it would change. Nothing is written before you confirm.
-		{% if not host %}No host is set up yet: the host settings from the archive are restored too.{% endif %}</p>
+		{% if not host %}No host is set up yet: the host settings from the archive are imported too.{% endif %}</p>
 	<form method="post" action="/backup/restore" enctype="multipart/form-data" class="row">
 		<input type="file" name="archive" accept=".zip,application/zip" required>
 		<button type="submit">Show what it contains</button>

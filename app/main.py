@@ -113,7 +113,7 @@ LOGIN_FAILS: dict[str, list[float]] = {}  # address -> [fail count, locked until
 PERMISSIONS = {
     "routes": "Change routes and reload Caddy",
     "ca": "Root CA page",
-    "backup": "Backup and restore",
+    "backup": "Backup and import",
     "logs": "Logs",
     "settings": "Settings: Caddy, root CA, mail, security",
     "users": "Manage users",
@@ -1577,8 +1577,10 @@ def route_from_form(form, host: dict, previous: dict | None = None) -> tuple[dic
             return route, "A group name is up to 40 letters, digits, spaces, '.', '_' and '-'."
     if get("log"):
         route["log"] = True
-    if get("allow"):
-        allow = allowed_networks(get("allow"))
+    # One field per network from the form; a file that is taken over hands them in as one text.
+    typed = " ".join(map(str, form.getlist("allow"))) if hasattr(form, "getlist") else get("allow")
+    if typed.strip():
+        allow = allowed_networks(typed)
         if not allow:
             return route, f"Allowed networks are up to {MAX_NETWORKS} addresses or networks like 192.168.1.0/24, or the word 'private'."
         route["allow"] = allow
@@ -3039,13 +3041,13 @@ async def backup_restore(request: Request):
     if fresh and "settings" not in request.state.me["permissions"]:
         # The connection to Caddy, the switches and the mail settings decide who gets in and where
         # reset links go. The right to restore routes alone must not be enough to set them.
-        error = "No Caddy is set up yet. Restoring its connection from an archive needs the right to change the settings."
+        error = "No Caddy is set up yet. Importing its connection from an archive needs the right to change the settings."
         return page(request, "backup.html", status_code=403, hosts=hosts, host=current, error=error)
     if fresh:
         target = next((item for item in backup["hosts"] if item["id"] == backup["meta"].get("host_id")), None)
         target = target or (backup["hosts"][0] if backup["hosts"] else None)
     if target is None:
-        error = "Add a Caddy host first: this archive has no usable host settings to restore the routes into."
+        error = "Add a Caddy host first: this archive has no usable host settings to import the routes into."
         return page(request, "backup.html", status_code=400, hosts=hosts, host=current, error=error)
     plan = backup_plan(backup, target)
     # The switches and the mail settings come back only into an empty install.
@@ -3072,7 +3074,7 @@ async def backup_restore(request: Request):
     # One reload for all files: either the whole backup is live afterwards or none of it.
     if changes and (error := apply_route(target, changes, "restore", f"{len(changes)} routes")):
         back = "/backup" if fresh else "/"
-        return redirect(back, "error", f"Caddy rejected the restored routes, nothing was changed: {error}")
+        return redirect(back, "error", f"Caddy rejected the imported routes, nothing was changed: {error}")
     # Everything else only now, so a rejected restore leaves the install as it was.
     if fresh:
         save_hosts([target])
@@ -3086,7 +3088,7 @@ async def backup_restore(request: Request):
         save_groups([*stored_groups(), *new_groups])
     if not changes:
         return redirect("/", "ok", "Everything in the archive is already in place.")
-    return redirect("/", "ok", f"{len(changes)} routes restored and live.")
+    return redirect("/", "ok", f"{len(changes)} routes imported and live.")
 
 
 LOG_SNIPPET = (

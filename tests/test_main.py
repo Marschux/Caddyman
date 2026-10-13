@@ -1632,7 +1632,7 @@ class TestBackup(RouteTest):
         main.save_hosts([])
         for name in os.listdir(self.sites):
             os.remove(os.path.join(self.sites, name))
-        self.assertIn("host settings from the archive are restored", self.upload(self.archive).text)
+        self.assertIn("host settings from the archive are imported", self.upload(self.archive).text)
         self.assertEqual(main.load_hosts(), [])  # the preview restores nothing
         self.confirm(self.archive)
         self.assertEqual([(h["domain_suffix"], h["sites_dir"]) for h in main.load_hosts()], [("lab.test", self.sites)])
@@ -1849,7 +1849,9 @@ class TestEdit(RouteTest):
             "\t\treverse_proxy 10.0.0.5:9005\n\t}\n}\n",
             text,
         )
-        self.assertIn('name="allow" value="192.168.2.0/24 private 10.0.0.9"', self.client.get("/routes/pdf/edit").text)
+        form = self.client.get("/routes/pdf/edit").text
+        for network in ("192.168.2.0/24", "private", "10.0.0.9"):
+            self.assertIn(f'<input name="allow" value="{network}"', form)
         taken, reason = main.adopt_route(text, self.host)
         self.assertEqual(taken and taken["allow"], route["allow"], reason)
         # Nothing but addresses reaches the file.

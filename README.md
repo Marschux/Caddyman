@@ -19,7 +19,7 @@ A web interface for Caddy routes that works with your own ACME CA, such as
   for Windows, macOS, Debian, iPhone, Android, Chrome and Firefox; open without a login at `/trust`
 - **Logs:** Caddy's log, live and filterable, to see why a certificate did not arrive; rotated
   files too, and an access log per route for the routes that ask for one
-- **Backup:** all routes as a ZIP, with a preview before a restore writes anything
+- **Backup:** all routes as a ZIP, with a preview before an import writes anything
 
 Caddyman writes one file per route into the directory Caddy already reads, then reloads Caddy.
 There is no database that could drift from those files, your base Caddyfile is never written,

@@ -31,48 +31,10 @@
 	<small>{% if host.domain_suffix %}A short name gets <code>.{{ host.domain_suffix }}</code> appended. {% endif %}
 		<code>*.apps.example.com</code> stands for every name below it and needs the DNS challenge or Caddy's internal CA.</small>
 
-	{# One field per name, two side by side. The button adds a field; an empty one is dropped on saving. #}
-	<label>More hostnames <span class="optional">optional</span></label>
-	<div class="fields">{% for alias in route.aliases or [] %}<input name="aliases" value="{{ alias }}" aria-label="Further hostname" autocomplete="off">{% endfor %}</div>
-	<noscript><input name="aliases" aria-label="Further hostnames, separated by commas"></noscript>
-	<button type="button" class="secondary"
-		onclick="const field = document.createElement('input'); field.name = 'aliases'; field.autocomplete = 'off'; field.placeholder = 'Another hostname'; field.setAttribute('aria-label', 'Further hostname'); this.parentElement.querySelector('.fields').append(field); field.focus()">Add hostname</button>
-	<small>Further names that lead to the same place. Each gets a certificate of its own. Empty a field to remove the name.</small>
-
 	<div class="for-reverse_proxy">
 		<label for="upstream">Target</label>
 		<input id="upstream" name="upstream" value="{{ route.upstream or '' }}" placeholder="192.168.1.20:8080">
 		<small><code>host:port</code>, or <code>https://host:port</code> if the service itself speaks TLS. Without a port it is 80, or 443 for <code>https://</code>. WebSockets need no extra setting.</small>
-
-		<details {{ "open" if route.auth_user or route.host_header or route.skip_verify or route.paths }}>
-			<summary>More options</summary>
-
-			<label for="auth_user">Basic auth username <span class="optional">optional</span></label>
-			<input id="auth_user" name="auth_user" value="{{ route.auth_user or '' }}" autocomplete="off" maxlength="64">
-			<small>Puts a login in front of a service that has none. Leave empty for no login.</small>
-
-			<label for="auth_password">Basic auth password</label>
-			<input id="auth_password" name="auth_password" type="password" autocomplete="new-password"
-				placeholder="{{ 'Leave empty to keep the current password' if route.auth_hash }}">
-			<small>Only its bcrypt hash is written to the route file.</small>
-
-			<label class="check"><input type="checkbox" name="host_header" value="1" {{ "checked" if route.host_header }}>
-				Send the target's own hostname as Host header</label>
-			<small>For services that only answer under their own name. By default they see the hostname of this route.</small>
-
-			<label class="check"><input type="checkbox" name="skip_verify" value="1" {{ "checked" if route.skip_verify }}>
-				Do not check the target's certificate</label>
-			<small>For an <code>https://</code> target with a self-signed certificate, like Proxmox, UniFi or a NAS.
-				The connection stays encrypted, but Caddy no longer notices if something else answers in its place.</small>
-
-			{# One pair of fields per path: the path at the left, its target at the right. #}
-			<label>Paths to other targets <span class="optional">optional</span></label>
-			<div class="fields">{% for path, target in route.paths or [] %}<input name="path" value="{{ path }}" aria-label="Path" autocomplete="off"><input name="path_upstream" value="{{ target }}" aria-label="Target for this path" autocomplete="off">{% endfor %}</div>
-			<button type="button" class="secondary"
-				onclick="const fields = this.parentElement.querySelectorAll('.fields')[0]; [['path', 'Path, like /api/*'], ['path_upstream', 'Target for this path']].forEach(([name, hint]) => { const field = document.createElement('input'); field.name = name; field.autocomplete = 'off'; field.placeholder = hint; field.setAttribute('aria-label', hint); fields.append(field); }); fields.children[fields.children.length - 2].focus()">Add path</button>
-			<small>Requests below such a path go to its own target, everything else to the target above. <code>/api/*</code>
-				means everything below <code>/api/</code>. The path is passed on unchanged. Empty both fields to remove a path.</small>
-		</details>
 	</div>
 
 	<div class="for-redirect">
@@ -108,47 +70,106 @@
 	<small>With Caddy's internal CA the root certificate lives in Caddy's data directory and changes when that is lost.
 		Over DNS, a name gets a public certificate without being reachable from the internet.</small>
 
-	<label for="port">Port <span class="optional">optional</span></label>
-	<input id="port" name="port" value="{{ route.port or '' }}" inputmode="numeric" placeholder="443">
-	<small>Any other port has to be published on the Caddy container. Caddyman cannot check or change that.</small>
+	{# Everything below is optional. A block opens by itself when something in it is set. #}
+	<details {{ "open" if route.aliases or route.port }}>
+		<summary>More hostnames and port</summary>
 
-	<label for="allow">Allowed networks <span class="optional">optional</span></label>
-	<input id="allow" name="allow" value="{{ route.allow or '' }}" placeholder="192.168.1.0/24, 10.0.0.5" autocomplete="off">
-	<small>Everybody else gets a 403. Addresses or networks, separated by commas, or <code>private</code> for all
-		private networks. Empty means open to everybody who can reach Caddy.</small>
+		{# One field per name, two side by side. The button adds a field; an empty one is dropped on saving. #}
+		<label>More hostnames <span class="optional">optional</span></label>
+		<div class="fields">{% for alias in route.aliases or [] %}<input name="aliases" value="{{ alias }}" aria-label="Further hostname" autocomplete="off">{% endfor %}</div>
+		<noscript><input name="aliases" aria-label="Further hostnames, separated by commas"></noscript>
+		<button type="button" class="secondary"
+			onclick="const field = document.createElement('input'); field.name = 'aliases'; field.autocomplete = 'off'; field.placeholder = 'Another hostname'; field.setAttribute('aria-label', 'Further hostname'); this.parentElement.querySelector('.fields').append(field); field.focus()">Add hostname</button>
+		<small>Further names that lead to the same place. Each gets a certificate of its own. Empty a field to remove the name.</small>
 
-	<div class="not-redirect">
-		<label class="check"><input type="checkbox" name="sso" value="1" {{ "checked" if route.sso }} {{ "disabled" if not sso }}>
-			Ask for a single sign-on first</label>
-		<small>{% if sso %}Puts the login service from the snippet <code>{{ host.sso_snippet }}</code> in front of this route.
-			{% else %}Needs an SSO snippet in the base Caddyfile, named under <a href="/settings/caddy">Settings</a>.{% endif %}</small>
+		<label for="port">Port <span class="optional">optional</span></label>
+		<input id="port" name="port" value="{{ route.port or '' }}" inputmode="numeric" placeholder="443">
+		<small>Any other port has to be published on the Caddy container. Caddyman cannot check or change that.</small>
+	</details>
 
-		<label class="check"><input type="checkbox" name="errors" value="1" {{ "checked" if route.errors }}>
-			Show Caddyman's error pages</label>
-		<small>When Caddy cannot answer, for example because the target is down, the visitor gets a page from
-			<a href="/error-pages">Error pages</a> instead of an empty one. Errors the service itself sends stay as they are.</small>
-	</div>
+	<details {{ "open" if route.allow or route.sso or route.auth_user }}>
+		<summary>Access</summary>
 
-	<label class="check"><input type="checkbox" name="hsts" value="1" {{ "checked" if route.hsts }}>
-		Tell browsers to use HTTPS only (HSTS)</label>
-	<small>For a year, a browser that has seen this route refuses plain HTTP for its name and no longer lets anybody
-		click past a certificate error. Meant for public names; with a CA of your own, only if every client trusts it.
-		No effect with TLS "None".</small>
+		<div class="for-reverse_proxy">
+		<label for="auth_user">Basic auth username <span class="optional">optional</span></label>
+		<input id="auth_user" name="auth_user" value="{{ route.auth_user or '' }}" autocomplete="off" maxlength="64">
+		<small>Puts a login in front of a service that has none. Leave empty for no login.</small>
 
-	<label class="check"><input type="checkbox" name="log" value="1" {{ "checked" if route.log }}> Write an access log for this route</label>
-	<small>Every request goes into a file of its own, to be read on the <a href="/logs">Logs page</a>. It needs the log
-		directory that page explains; without it Caddy keeps the file to itself.</small>
+		<label for="auth_password">Basic auth password</label>
+		<input id="auth_password" name="auth_password" type="password" autocomplete="new-password"
+			placeholder="{{ 'Leave empty to keep the current password' if route.auth_hash }}">
+		<small>Only its bcrypt hash is written to the route file.</small>
+		</div>
 
-	{% if groups %}
-	<label for="group">Group <span class="optional">optional</span></label>
-	<select id="group" name="group">
-		<option value="">No group</option>
-		{% for group in groups %}
-		<option value="{{ group }}" {{ "selected" if route.group == group }}>{{ group }}</option>
-		{% endfor %}
-	</select>
-	<small>Only sorts the list of routes. <a href="/groups">Manage groups</a></small>
-	{% endif %}
+		{# One field per network, like the hostnames above. #}
+		<label>Allowed networks <span class="optional">optional</span></label>
+		<div class="fields">{% for network in (route.allow or "").split() %}<input name="allow" value="{{ network }}" aria-label="Allowed network" autocomplete="off">{% endfor %}</div>
+		<noscript><input name="allow" aria-label="Allowed networks, separated by commas"></noscript>
+		<button type="button" class="secondary"
+			onclick="const field = document.createElement('input'); field.name = 'allow'; field.autocomplete = 'off'; field.placeholder = '192.168.1.0/24'; field.setAttribute('aria-label', 'Allowed network'); this.previousElementSibling.previousElementSibling.append(field); field.focus()">Add network</button>
+		<small>Everybody else gets a 403. An address or a network per field, or <code>private</code> for all
+			private networks. None means open to everybody who can reach Caddy. Empty a field to remove it.</small>
+
+		<div class="not-redirect">
+			<label class="check"><input type="checkbox" name="sso" value="1" {{ "checked" if route.sso }} {{ "disabled" if not sso }}>
+				Ask for a single sign-on first</label>
+			<small>{% if sso %}Puts the login service from the snippet <code>{{ host.sso_snippet }}</code> in front of this route.
+				{% else %}Needs an SSO snippet in the base Caddyfile, named under <a href="/settings/caddy">Settings</a>.{% endif %}</small>
+		</div>
+	</details>
+
+	<details class="for-reverse_proxy" {{ "open" if route.host_header or route.skip_verify or route.paths }}>
+		<summary>Target options</summary>
+
+		<label class="check"><input type="checkbox" name="host_header" value="1" {{ "checked" if route.host_header }}>
+			Send the target's own hostname as Host header</label>
+		<small>For services that only answer under their own name. By default they see the hostname of this route.</small>
+
+		<label class="check"><input type="checkbox" name="skip_verify" value="1" {{ "checked" if route.skip_verify }}>
+			Do not check the target's certificate</label>
+		<small>For an <code>https://</code> target with a self-signed certificate, like Proxmox, UniFi or a NAS.
+			The connection stays encrypted, but Caddy no longer notices if something else answers in its place.</small>
+
+		{# One pair of fields per path: the path at the left, its target at the right. #}
+		<label>Paths to other targets <span class="optional">optional</span></label>
+		<div class="fields">{% for path, target in route.paths or [] %}<input name="path" value="{{ path }}" aria-label="Path" autocomplete="off"><input name="path_upstream" value="{{ target }}" aria-label="Target for this path" autocomplete="off">{% endfor %}</div>
+		<button type="button" class="secondary"
+			onclick="const fields = this.parentElement.querySelectorAll('.fields')[0]; [['path', 'Path, like /api/*'], ['path_upstream', 'Target for this path']].forEach(([name, hint]) => { const field = document.createElement('input'); field.name = name; field.autocomplete = 'off'; field.placeholder = hint; field.setAttribute('aria-label', hint); fields.append(field); }); fields.children[fields.children.length - 2].focus()">Add path</button>
+		<small>Requests below such a path go to its own target, everything else to the target above. <code>/api/*</code>
+			means everything below <code>/api/</code>. The path is passed on unchanged. Empty both fields to remove a path.</small>
+	</details>
+
+	<details {{ "open" if route.errors or route.hsts or route.log or route.group }}>
+		<summary>Error pages, HSTS, log and group</summary>
+
+		<div class="not-redirect">
+			<label class="check"><input type="checkbox" name="errors" value="1" {{ "checked" if route.errors }}>
+				Show Caddyman's error pages</label>
+			<small>When Caddy cannot answer, for example because the target is down, the visitor gets a page from
+				<a href="/error-pages">Error pages</a> instead of an empty one. Errors the service itself sends stay as they are.</small>
+		</div>
+
+		<label class="check"><input type="checkbox" name="hsts" value="1" {{ "checked" if route.hsts }}>
+			Tell browsers to use HTTPS only (HSTS)</label>
+		<small>For a year, a browser that has seen this route refuses plain HTTP for its name and no longer lets anybody
+			click past a certificate error. Meant for public names; with a CA of your own, only if every client trusts it.
+			No effect with TLS "None".</small>
+
+		<label class="check"><input type="checkbox" name="log" value="1" {{ "checked" if route.log }}> Write an access log for this route</label>
+		<small>Every request goes into a file of its own, to be read on the <a href="/logs">Logs page</a>. It needs the log
+			directory that page explains; without it Caddy keeps the file to itself.</small>
+
+		{% if groups %}
+		<label for="group">Group <span class="optional">optional</span></label>
+		<select id="group" name="group">
+			<option value="">No group</option>
+			{% for group in groups %}
+			<option value="{{ group }}" {{ "selected" if route.group == group }}>{{ group }}</option>
+			{% endfor %}
+		</select>
+		<small>Only sorts the list of routes. <a href="/groups">Manage groups</a></small>
+		{% endif %}
+	</details>
 
 	<button type="submit">{{ "Overwrite and reload Caddy" if conflict else "Save and reload Caddy" }}</button>
 	{% if name %}
