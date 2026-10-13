@@ -2522,9 +2522,11 @@ def error_pages_view(request: Request, code: str = ""):
     if not code:
         routes = [item["route"] for item in list_routes(current) if item["route"]]
         context.update(catch_all=catch_all_state(current), users=sum(1 for route in routes if route.get("errors")))
-        # Caddy next door shares the machine: where the browser reached Caddyman by number, that is its address too.
-        there = request.url.hostname or ""
-        context["caddy_ip"] = there if current.get("storage") != "managed" and re.fullmatch(r"[0-9.]+", there) else ""
+        # The address to hand to a DNS blocker. A page that came through Caddy was asked for under a
+        # name that leads to Caddy; one that came straight to this port only tells where Caddyman
+        # is, which is Caddy's machine when the two sit next to each other.
+        if request.url.port != int(OWN_PORT) or current.get("storage") != "managed":
+            context["caddy_ip"] = next((address for address in sorted(resolve_addresses(request.url.hostname or "")) if re.fullmatch(r"[0-9.]+", address) and not address.startswith("127.")), "")
     return page(request, "error_pages.html", **context)
 
 
