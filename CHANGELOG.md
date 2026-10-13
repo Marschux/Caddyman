@@ -1,5 +1,14 @@
 # Changelog
 
+## 2026-10-14 01:59
+- chore: version 0.17.0
+- fix: the lock on a second factor grows, the own password and the last account that manages users are guarded, groups and error pages no longer overwrite a change made meanwhile, and smaller hardening from the audit
+- fix: wrong passwords count against the account name as well as the address, and downloading a backup takes the right for routes too
+- fix: setting up two-factor login takes the password, a mailed link ends with a corrected address, the admin login is kept only for the same address and sent checked against the remembered CA, a route keeps its single sign-on when the snippet is missing
+- fix: the route for unknown names is no longer in the route list, it is switched on and off under Error pages
+- docs: an example for the base Caddyfile
+
+
 ## 2026-10-13 22:38
 - chore: version 0.16.1
 - docs: the README is shorter: one line per feature, six variables, six things to know, and no word on user management being left out
