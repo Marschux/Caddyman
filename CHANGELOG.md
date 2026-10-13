@@ -1,5 +1,22 @@
 # Changelog
 
+## 2026-10-13 18:29
+- chore: version 0.14.3
+- feat: the time zone chosen under Settings is part of the backup
+- feat: General and Security are one block in the settings, Mail is called SMTP
+- chore: the time zone is set in the .env, the reset variable reads true or false
+- feat: time zone under Settings, an HTTPS-only switch, an x to remove a hostname, network or path, the group always in sight, import in address and change log
+- feat: the route form folds its options into blocks, allowed networks get a field each, restore is called import
+- feat: avatars in the user list and the profile wear the product colour, like the one in the header
+- feat: time zone for the times in the logs, and the change log as a page of its own under System
+- feat: four more designs for the error pages: unicorn, space, gaming and forest
+- feat: the designs of the error pages are part of the backup
+- fix: the address for a DNS blocker also shows when Caddyman is opened under a name
+- feat: the address for a DNS blocker can be copied from the error pages
+- fix: error pages say what the address is for and show that the catch-all is on
+- feat: error pages in a design per error, for routes and as a catch-all for a DNS blocker
+
+
 ## 2026-10-13 02:09
 - chore: version 0.13.3
 - feat: a new hidden game, Cert Runner, started from the search of the route list
