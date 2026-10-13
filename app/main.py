@@ -28,6 +28,7 @@ from email.message import EmailMessage
 from functools import lru_cache
 from pathlib import Path
 from urllib.parse import quote, urlsplit
+from zoneinfo import ZoneInfo
 
 import bcrypt
 import httpx
@@ -54,6 +55,11 @@ SECRET_FILE = DATA_DIR / "secret.key"
 HOSTS_FILE = DATA_DIR / "hosts.json"
 AUDIT_FILE = DATA_DIR / "audit.log"
 AUDIT_SHOWN = 100
+# The zone the times in the logs and the change log are shown in. What is stored stays UTC.
+try:
+    TIME_ZONE = ZoneInfo(os.getenv("TZ") or "UTC")
+except (KeyError, ValueError, OSError):
+    TIME_ZONE = ZoneInfo("UTC")
 FLASH_COOKIE = "caddyman_flash"
 # For installs where nobody gets to read the container log.
 ENV_SETUP_TOKEN = os.getenv("CADDYMAN_SETUP_TOKEN", "").strip()
@@ -268,7 +274,10 @@ app = FastAPI(title="Caddyman", version=VERSION, lifespan=lifespan, docs_url=Non
 app.mount("/static", StaticFiles(directory=BASE_DIR / "static"), name="static")
 templates = Jinja2Templates(directory=BASE_DIR / "templates")
 templates.env.filters["initials"] = initials
+# Defined further down, next to the change log it belongs to.
+templates.env.filters["local_time"] = lambda stamp: local_time(stamp)
 templates.env.globals["PERMISSIONS"] = PERMISSIONS
+templates.env.globals["time_zone"] = TIME_ZONE.key
 # The settings page calls it by name: defined further down, with the rest about Caddy.
 templates.env.globals["dns_guides"] = lambda snippet: dns_guides(snippet)
 
@@ -1874,6 +1883,15 @@ def read_audit() -> list[dict]:
     return [json.loads(line) for line in reversed(lines[-AUDIT_SHOWN:])]
 
 
+def local_time(stamp: str) -> str:
+    """A time from the change log, which is kept in UTC, in the zone that is shown."""
+    try:
+        moment = datetime.strptime(stamp, "%Y-%m-%d %H:%M:%S").replace(tzinfo=timezone.utc)
+    except ValueError:
+        return stamp
+    return moment.astimezone(TIME_ZONE).strftime("%Y-%m-%d %H:%M:%S")
+
+
 class Conflict(Exception):
     """The file changed on disk after it was loaded into the editor."""
 
@@ -3234,7 +3252,7 @@ def parse_log_line(line: str) -> dict:
         entry = json.loads(line)
         stamp = entry.pop("ts", "")
         if isinstance(stamp, (int, float)):
-            stamp = datetime.fromtimestamp(stamp, timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
+            stamp = datetime.fromtimestamp(stamp, TIME_ZONE).strftime("%Y-%m-%d %H:%M:%S")
         level = str(entry.pop("level", "")).lower()
         logger, message = str(entry.pop("logger", "")), str(entry.pop("msg", ""))
         asked = entry.get("request")
@@ -3300,7 +3318,13 @@ def status(request: Request):
             "block": f"CADDYMAN_FORWARDED_ALLOW_IPS={caddy}",
         })
     context = {"no_https": bool(hosts) and way == "plain", "has_own_route": has_route, "own_address": address}
-    return page(request, "status.html", hosts=hosts, audit=read_audit(), **context)
+    return page(request, "status.html", hosts=hosts, **context)
+
+
+@app.get("/changes")
+def changes(request: Request):
+    """Who changed which route, and what Caddy said to it. Open to every account, like the status."""
+    return page(request, "changes.html", audit=read_audit())
 
 
 # What comes through the Caddy this tool manages is believed without further setup: that it

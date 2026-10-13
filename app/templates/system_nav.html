@@ -5,6 +5,7 @@
 <h1>System</h1>
 <aside class="side">
 	<a href="/status" {% if here.startswith("/status") %}aria-current="page"{% endif %}>Status</a>
+	<a href="/changes" {% if here.startswith("/changes") %}aria-current="page"{% endif %}>Changes</a>
 	{% if "logs" in rights %}<a href="/logs" {% if here.startswith("/logs") %}aria-current="page"{% endif %}>Logs</a>{% endif %}
 	{% if "backup" in rights %}<a href="/backup" {% if here.startswith("/backup") %}aria-current="page"{% endif %}>Backup</a>{% endif %}
 </aside>

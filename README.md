@@ -204,6 +204,7 @@ status page shows its check code, the same one the Root CA page gives.
 | `CADDYMAN_SETUP_TOKEN` | random, in the log | Your own token for the setup page, at least 12 characters |
 | `CADDYMAN_FORWARDED_ALLOW_IPS` | `127.0.0.1` | Whose `X-Forwarded-*` headers are trusted besides the managed Caddy, which is trusted by itself |
 | `CADDYMAN_LOG_DIR` | `/var/log/caddy` | Where Caddy's log directory is mounted |
+| `TZ` | `UTC` | The time zone the Logs and Changes pages show their times in, like `Europe/Berlin`; set in `docker/compose.yml` |
 | `CADDYMAN_DATA_DIR` | `/data` | Account, settings, change log |
 | `CADDYMAN_HOST` / `CADDYMAN_PORT` | `0.0.0.0` / `5052` | |
 | `CADDYMAN_SOURCE_URL` | this repository | Where the version number in the footer links to. Point it at your own source if you run a modified copy |

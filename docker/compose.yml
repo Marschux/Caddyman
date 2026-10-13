@@ -14,6 +14,9 @@ services:
     # back in if that route is ever broken or deleted.
     ports:
       - "5052:5052"
+    # The time zone for the times on the Logs and Changes pages, like Europe/Berlin.
+    environment:
+      TZ: UTC
     volumes:
       - data:/data
       # Caddy's own files, at the same paths the Caddy container uses. Adjust the

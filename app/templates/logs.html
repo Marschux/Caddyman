@@ -50,7 +50,7 @@
 </form>
 <p class="empty live">
 	<label class="check"><input type="checkbox" id="live" checked> <span>Live: new entries appear by themselves every {{ 20 if host.storage == "managed" else 5 }} seconds.</span></label>
-	Newest first, at most {{ shown }} entries from {{ "an older part" if end else "the end" }} of <code>{{ chosen }}</code>. Times are UTC.
+	Newest first, at most {{ shown }} entries from {{ "an older part" if end else "the end" }} of <code>{{ chosen }}</code>. Times are {{ time_zone }}.
 	{# One piece of the file at a time: the link leads to the piece before this one. #}
 	{% set here = "file=" ~ chosen|urlencode ~ "&level=" ~ level|urlencode ~ "&q=" ~ q|urlencode ~ ("&quiet=1" if quiet else "") %}
 	{% if end %}<a href="/logs?{{ here }}">Back to the newest</a>{% endif %}

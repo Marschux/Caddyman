@@ -1386,6 +1386,12 @@ class TestLogs(RouteTest):
         self.write("caddy.log", ["FIRST LINE OF THE FILE", *filler, '{"level":"info","ts":3,"logger":"x","msg":"the last one"}'])
         lines, older = main.read_log_tail(main.Path(self.logs) / "caddy.log")
         self.assertEqual(main.parse_log_line(lines[-1])["msg"], "the last one")
+        # Times are shown in the zone from TZ; the change log keeps UTC and is converted for the page.
+        with mock.patch.object(main, "TIME_ZONE", main.ZoneInfo("Europe/Berlin")):
+            self.assertEqual(main.parse_log_line('{"ts":0}')["time"], "1970-01-01 01:00:00")
+            self.assertEqual(main.local_time("2026-07-01 12:00:00"), "2026-07-01 14:00:00")
+        self.assertIn("Recent changes", self.client.get("/changes").text)
+        self.assertNotIn("Recent changes", self.client.get("/status").text)
         self.assertLess(len(lines), 5)
         self.assertTrue(all(line.startswith("{") for line in lines))  # no half line at the start
         # Piece by piece backwards through the file: every line comes up exactly once, none cut in two.
