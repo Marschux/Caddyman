@@ -55,12 +55,8 @@ SECRET_FILE = DATA_DIR / "secret.key"
 HOSTS_FILE = DATA_DIR / "hosts.json"
 AUDIT_FILE = DATA_DIR / "audit.log"
 AUDIT_SHOWN = 100
-# The zone the times in the logs and the change log are shown in unless one is chosen under
-# Settings. What is stored stays UTC.
-try:
-    TIME_ZONE = ZoneInfo(os.getenv("TZ") or "UTC")
-except (KeyError, ValueError, OSError):
-    TIME_ZONE = ZoneInfo("UTC")
+# How a moment is written, in the change log and wherever one is shown.
+STAMP = "%Y-%m-%d %H:%M:%S"
 FLASH_COOKIE = "caddyman_flash"
 # For installs where nobody gets to read the container log.
 ENV_SETUP_TOKEN = os.getenv("CADDYMAN_SETUP_TOKEN", "").strip()
@@ -77,6 +73,31 @@ LOCK_SECONDS = 30
 # bcrypt reads 72 bytes and no further; a longer password would be cut silently.
 MAX_PASSWORD_BYTES = 72
 MIN_PASSWORD_CHARS = 8
+
+
+def find_zone(name) -> ZoneInfo | None:
+    """The time zone of that name, or None when there is none."""
+    try:
+        return ZoneInfo(name) if isinstance(name, str) and name else None
+    except (KeyError, ValueError, OSError):
+        return None
+
+
+# The zone the times in the logs and the change log are shown in unless one is chosen under
+# Settings. What is stored stays UTC.
+TIME_ZONE = find_zone(os.getenv("TZ")) or ZoneInfo("UTC")
+
+
+def read_json(path: Path, default):
+    """What a file in the data directory holds, or the default as long as it does not exist."""
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        return default
+
+
+def write_json(path: Path, data) -> None:
+    write_private(path, json.dumps(data, indent=2))
 
 
 def write_private(path: Path, text: str) -> None:
@@ -128,10 +149,7 @@ CURRENT_USER: contextvars.ContextVar[str] = contextvars.ContextVar("user", defau
 
 
 def load_users() -> list[dict]:
-    try:
-        data = json.loads(AUTH_FILE.read_text(encoding="utf-8"))
-    except FileNotFoundError:
-        return []
+    data = read_json(AUTH_FILE, [])
     if isinstance(data, dict):
         # The file of the single admin from before there were users: that account keeps every right.
         return [{**data, "permissions": list(PERMISSIONS)}]
@@ -139,7 +157,7 @@ def load_users() -> list[dict]:
 
 
 def save_users(users: list[dict]) -> None:
-    write_private(AUTH_FILE, json.dumps(users, indent=2))
+    write_json(AUTH_FILE, users)
 
 
 def find_user(users: list[dict], username: str) -> dict | None:
@@ -296,19 +314,15 @@ SETTING_DEFAULTS = {"public_ca": "1", "login_ca_hint": "1", "require_2fa": ""}
 
 
 def load_settings() -> dict:
-    try:
-        stored = json.loads(SETTINGS_FILE.read_text(encoding="utf-8"))
-    except FileNotFoundError:
-        stored = {}
     # Up to 0.9.0 the two root CA switches were part of the Caddy settings. What somebody
     # chose there still counts until it is saved here.
     hosts = load_hosts()
     old = {key: hosts[0][key] for key in ("public_ca", "login_ca_hint") if hosts and key in hosts[0]}
-    return {**SETTING_DEFAULTS, **old, **stored}
+    return {**SETTING_DEFAULTS, **old, **read_json(SETTINGS_FILE, {})}
 
 
 def save_settings(**changes) -> None:
-    write_private(SETTINGS_FILE, json.dumps({**load_settings(), **changes}, indent=2))
+    write_json(SETTINGS_FILE, {**load_settings(), **changes})
 
 
 def flag(key: str) -> bool:
@@ -317,11 +331,7 @@ def flag(key: str) -> bool:
 
 def time_zone() -> ZoneInfo:
     """The zone times are shown in: the one chosen under Settings, else the TZ variable, else UTC."""
-    chosen = load_settings().get("time_zone")
-    try:
-        return ZoneInfo(chosen) if chosen else TIME_ZONE
-    except (KeyError, ValueError, OSError):
-        return TIME_ZONE
+    return find_zone(load_settings().get("time_zone")) or TIME_ZONE
 
 
 def https_only() -> bool:
@@ -603,10 +613,7 @@ INVITES = URLSafeTimedSerializer(SECRET_KEY, salt="invite")
 
 
 def load_mail() -> dict:
-    try:
-        return {**MAIL_DEFAULTS, **json.loads(MAIL_FILE.read_text(encoding="utf-8"))}
-    except FileNotFoundError:
-        return dict(MAIL_DEFAULTS)
+    return {**MAIL_DEFAULTS, **read_json(MAIL_FILE, {})}
 
 
 def mail_ready(mail: dict | None = None) -> bool:
@@ -867,10 +874,7 @@ def settings_general():
 @app.post("/settings/general")
 def settings_general_save(zone: str = Form("")):
     zone = zone.strip()
-    try:
-        if zone:
-            ZoneInfo(zone)
-    except (KeyError, ValueError, OSError):
+    if zone and not find_zone(zone):
         return redirect("/settings/security", "error", "Unknown time zone. Pick one from the list, like Europe/Berlin.")
     save_settings(time_zone=zone)
     return redirect("/settings/security", "ok", "Saved.")
@@ -901,7 +905,7 @@ async def mail_save(request: Request):
         mail["password_enc"] = VAULT.encrypt(password.encode()).decode()
     elif mail["user"] and mail["user"] == stored["user"] and stored.get("password_enc"):
         mail["password_enc"] = stored["password_enc"]  # an empty field keeps the password of the same login
-    write_private(MAIL_FILE, json.dumps(mail, indent=2))
+    write_json(MAIL_FILE, mail)
     if not mail["host"]:
         return redirect("/settings/mail", "ok", 'Mail is switched off. The login page no longer offers "Forgot password?".')
     return redirect("/settings/mail", "ok", "The mail settings are saved. Send a test mail to check them.")
@@ -1047,11 +1051,8 @@ def with_paths(host: dict) -> dict:
 
 
 def load_hosts() -> list[dict]:
-    try:
-        # The defaults fill in what a file from an older version does not know yet.
-        return [with_paths({**HOST_DEFAULTS, **host}) for host in json.loads(HOSTS_FILE.read_text(encoding="utf-8"))]
-    except FileNotFoundError:
-        return []
+    # The defaults fill in what a file from an older version does not know yet.
+    return [with_paths({**HOST_DEFAULTS, **host}) for host in read_json(HOSTS_FILE, [])]
 
 
 def admin_auth(host: dict) -> tuple[str, str] | None:
@@ -1100,7 +1101,7 @@ def remember_admin_ca(host: dict, previous: str = "") -> str:
 
 
 def save_hosts(hosts: list[dict]) -> None:
-    write_private(HOSTS_FILE, json.dumps(hosts, indent=2))
+    write_json(HOSTS_FILE, hosts)
     CADDY_ADDRESSES["until"] = 0.0  # the admin URL may have changed: look its addresses up again
 
 
@@ -1252,7 +1253,7 @@ def preflight(host: dict) -> list[dict]:
         )
     running = None
     try:
-        response = httpx.get(f"{host['admin_url']}/config/", timeout=ADMIN_TIMEOUT, auth=admin_auth(host), verify=admin_verify(host))
+        response = admin_get(host, "/config/")
         admin_ok, detail = response.status_code == 200, f"HTTP {response.status_code}"
         running = response.content if admin_ok else None
     except httpx.HTTPError as error:
@@ -1435,6 +1436,12 @@ REACH_TIMEOUT = 2
 WRITE_LOCK = threading.Lock()
 
 
+def valid_upstream(value) -> bool:
+    """host, host:port or http(s)://host:port, with a port that exists."""
+    match = UPSTREAM_RE.match(value) if isinstance(value, str) else None
+    return bool(match) and (not match.group(4) or valid_port(match.group(4)))
+
+
 def valid_port(value: str) -> bool:
     return value.isdigit() and 1 <= int(value) <= 65535
 
@@ -1576,10 +1583,7 @@ CATCH_ALL = "catch-all"
 
 def load_errors() -> dict:
     """Where Caddy finds Caddyman, and the design chosen for each error."""
-    try:
-        stored = json.loads(ERRORS_FILE.read_text(encoding="utf-8"))
-    except FileNotFoundError:
-        stored = {}
+    stored = read_json(ERRORS_FILE, {})
     # A Caddy next door reaches this container by name. One elsewhere needs the address typed in.
     return {"upstream": stored.get("upstream") or f"caddyman:{OWN_PORT}", "designs": stored.get("designs", {})}
 
@@ -1674,8 +1678,7 @@ def route_from_form(form, host: dict, previous: dict | None = None) -> tuple[dic
         return route, "A wildcard name needs the DNS challenge or Caddy's internal CA. A certificate for it cannot be obtained over HTTP."
     if route["type"] == "reverse_proxy":
         route["upstream"] = get("upstream")
-        match = UPSTREAM_RE.match(route["upstream"])
-        if not match or (match.group(4) and not valid_port(match.group(4))):
+        if not valid_upstream(route["upstream"]):
             return route, "The target has to look like host, host:port or http://host:port."
         if auth_user := get("auth_user"):
             if not AUTH_USER_RE.match(auth_user):
@@ -1708,10 +1711,9 @@ def route_from_form(form, host: dict, previous: dict | None = None) -> tuple[dic
             if len(paths) > MAX_PATHS or len({pair[0] for pair in paths}) < len(paths):
                 return route, f"Paths to other targets are up to {MAX_PATHS}, each path once."
             for path, target in paths:
-                match = UPSTREAM_RE.match(target)
                 if not PATH_RE.match(path) or ".." in path:
                     return route, "A path starts with '/' and may end in '*', like /api/*. Letters, digits, '.', '_', '~', '-' and '/' only."
-                if not match or (match.group(4) and not valid_port(match.group(4))):
+                if not valid_upstream(target):
                     return route, f"The target for {path} has to look like host, host:port or http://host:port."
     elif route["type"] == "redirect":
         route["target"], route["code"] = get("target").rstrip("/"), get("code")
@@ -1843,14 +1845,11 @@ def route_group(route: dict | None) -> str:
 
 
 def stored_groups() -> list[str]:
-    try:
-        return json.loads(GROUPS_FILE.read_text(encoding="utf-8"))
-    except FileNotFoundError:
-        return []
+    return read_json(GROUPS_FILE, [])
 
 
 def save_groups(names) -> None:
-    write_private(GROUPS_FILE, json.dumps(sorted(set(names), key=str.lower), indent=2))
+    write_json(GROUPS_FILE, sorted(set(names), key=str.lower))
 
 
 def load_groups(host: dict) -> list[str]:
@@ -1876,6 +1875,11 @@ def regroup(host: dict, old: str, new: str) -> str | None:
     return apply_route(host, changes, "group", f"{old} -> {new or 'no group'}") if changes else None
 
 
+def admin_get(host: dict, path: str, **more) -> httpx.Response:
+    """Ask the admin API, with the login and the CA this host needs."""
+    return httpx.get(f"{host['admin_url']}{path}", timeout=ADMIN_TIMEOUT, auth=admin_auth(host), verify=admin_verify(host), **more)
+
+
 def caddy_body(host: dict) -> bytes:
     """The complete Caddyfile for a host, as text. Never JSON: Caddy adapts it itself."""
     base = Path(host["caddyfile"]).read_bytes()
@@ -1890,14 +1894,13 @@ def caddy_body(host: dict) -> bytes:
 
 def caddy_load(host: dict) -> str | None:
     """Push the configuration as it is on disk. Returns Caddy's error, or None on success."""
-    auth = admin_auth(host)
     try:
         response = httpx.post(
             f"{host['admin_url']}/load",
             content=caddy_body(host),
             headers={"Content-Type": "text/caddyfile"},
             timeout=LOAD_TIMEOUT,
-            auth=auth,
+            auth=admin_auth(host),
             verify=admin_verify(host),
         )
     except (OSError, httpx.HTTPError) as error:
@@ -1906,7 +1909,7 @@ def caddy_load(host: dict) -> str | None:
         if host.get("storage") == "managed":
             # Remembered so the status page can tell when Caddy has fallen back to another config.
             try:
-                running = httpx.get(f"{host['admin_url']}/config/", timeout=ADMIN_TIMEOUT, auth=auth, verify=admin_verify(host))
+                running = admin_get(host, "/config/")
                 pushed_file(host).write_text(hashlib.sha256(running.content).hexdigest(), encoding="utf-8")
             except (OSError, httpx.HTTPError):
                 pass
@@ -1921,7 +1924,7 @@ def caddy_load(host: dict) -> str | None:
 
 def audit(host: dict, route: str, action: str, error: str | None) -> None:
     entry = {
-        "time": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S"),
+        "time": datetime.now(timezone.utc).strftime(STAMP),
         "user": CURRENT_USER.get(),
         "route": route,
         "action": action,
@@ -1944,10 +1947,10 @@ def read_audit() -> list[dict]:
 def local_time(stamp: str, zone: ZoneInfo) -> str:
     """A time from the change log, which is kept in UTC, in the zone that is shown."""
     try:
-        moment = datetime.strptime(stamp, "%Y-%m-%d %H:%M:%S").replace(tzinfo=timezone.utc)
+        moment = datetime.strptime(stamp, STAMP).replace(tzinfo=timezone.utc)
     except ValueError:
         return stamp
-    return moment.astimezone(zone).strftime("%Y-%m-%d %H:%M:%S")
+    return moment.astimezone(zone).strftime(STAMP)
 
 
 class Conflict(Exception):
@@ -2252,6 +2255,23 @@ def own_route(route: dict | None, request: Request) -> str:
     return "used" if request.url.hostname in (route["host"], *route.get("aliases", [])) else "own"
 
 
+class NoHost(Exception):
+    """No Caddy is set up yet. The page that needs one sends to the form for it."""
+
+
+@app.exception_handler(NoHost)
+def no_host(request: Request, error: NoHost):
+    return RedirectResponse("/hosts/new", status_code=303)
+
+
+def the_host() -> dict:
+    """The Caddy this install manages, for a page that cannot do anything without one."""
+    hosts = load_hosts()
+    if not hosts:
+        raise NoHost
+    return hosts[0]
+
+
 def pick_host() -> tuple[list[dict], dict | None]:
     """Every stored host and the one in use. Caddyman manages one Caddy; the list is how the file has always looked."""
     hosts = load_hosts()
@@ -2321,9 +2341,7 @@ def index(request: Request):
 
 @app.get("/routes/new")
 def route_new(request: Request, own: bool = False):
-    _, current = pick_host()
-    if current is None:
-        return RedirectResponse("/hosts/new", status_code=303)
+    current = the_host()
     tls = "acme_ca" if acme_ca_available(current) else "default"
     route = {"type": "reverse_proxy", "tls": tls, "code": "308"}
     if own:
@@ -2370,9 +2388,7 @@ def own_route_address(host: dict) -> tuple[bool, str]:
 
 @app.post("/routes/new")
 async def route_create(request: Request):
-    _, current = pick_host()
-    if current is None:
-        return RedirectResponse("/hosts/new", status_code=303)
+    current = the_host()
     route, error = route_from_form(await request.form(), current)
     if error:
         return route_form_page(request, current, route, error)
@@ -2514,9 +2530,7 @@ def route_adopt(name: str):
 
 @app.get("/groups")
 def groups_page(request: Request):
-    _, current = pick_host()
-    if current is None:
-        return RedirectResponse("/hosts/new", status_code=303)
+    current = the_host()
     members = [route_group(item["route"]) for item in list_routes(current)]
     return page(request, "groups.html", groups=[(name, members.count(name)) for name in load_groups(current)])
 
@@ -2593,9 +2607,7 @@ def catch_all_state(host: dict) -> str:
 
 
 def error_pages_view(request: Request, code: str = ""):
-    _, current = pick_host()
-    if current is None:
-        return RedirectResponse("/hosts/new", status_code=303)
+    current = the_host()
     stored = load_errors()
     context = {"code": code, "pages": ERROR_PAGES, "designs": ERROR_DESIGNS, "chosen": stored["designs"], "upstream": stored["upstream"]}
     if not code:
@@ -2619,8 +2631,7 @@ def error_pages_save(upstream: str = Form("")):
     """Where Caddy finds Caddyman. The address stands in every route that shows error pages."""
     _, current = pick_host()
     upstream = upstream.strip()
-    match = UPSTREAM_RE.match(upstream)
-    if current is None or not match or (match.group(4) and not valid_port(match.group(4))):
+    if current is None or not valid_upstream(upstream):
         return redirect("/error-pages", "error", "The address has to look like host:port or http://host:port.")
     changes = {}
     for item in list_routes(current):
@@ -2634,16 +2645,14 @@ def error_pages_save(upstream: str = Form("")):
         changes[Path(current["sites_dir"]) / f"{item['name']}.caddy"] = render_route(route, current)
     if changes and (error := apply_route(current, changes, "error pages", upstream)):
         return redirect("/error-pages", "error", f"Caddy rejected the reload, nothing was changed: {error}")
-    write_private(ERRORS_FILE, json.dumps({**load_errors(), "upstream": upstream}, indent=2))
+    write_json(ERRORS_FILE, {**load_errors(), "upstream": upstream})
     return redirect("/error-pages", "ok", "The address is saved." + (f" {len(changes)} route files were rewritten." if changes else ""))
 
 
 @app.post("/error-pages/catch-all")
 def error_pages_catch_all(on: str = Form("")):
     """The route for every name no other route knows. A file like the others, so the list shows it."""
-    _, current = pick_host()
-    if current is None:
-        return RedirectResponse("/hosts/new", status_code=303)
+    current = the_host()
     path, state = route_path(current, CATCH_ALL), catch_all_state(current)
     if state == "taken":
         return redirect("/error-pages", "error", f"{path.name} exists and was not written here. Rename or delete it first.")
@@ -2666,7 +2675,7 @@ def error_design_save(code: str, design: str = Form(""), everywhere: str = Form(
         return redirect("/error-pages", "error", "Unknown error or design.")
     stored = load_errors()
     designs = dict.fromkeys(ERROR_PAGES, design) if everywhere else {**stored["designs"], code: design}
-    write_private(ERRORS_FILE, json.dumps({**stored, "designs": designs}, indent=2))
+    write_json(ERRORS_FILE, {**stored, "designs": designs})
     return redirect(f"/error-pages/{code}", "ok", f"Every error now shows {ERROR_DESIGNS[design]}." if everywhere else f"{ERROR_PAGES[code][0]} now shows {ERROR_DESIGNS[design]}.")
 
 
@@ -2914,9 +2923,7 @@ def root_ca_public(cert: int | None = None):
 
 @app.get("/ca/root-ca.crt")
 def ca_download(cert: int | None = None):
-    _, current = pick_host()
-    if current is None:
-        return RedirectResponse("/hosts/new", status_code=303)
+    current = the_host()
     try:
         pem, _, _ = fetch_root_ca(current)
         fingerprints(pem)
@@ -2957,7 +2964,7 @@ to lock away. To keep those too, back up the data volume of Caddyman (/data).
 
 def build_backup(host: dict) -> bytes:
     buffer = io.BytesIO()
-    created = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
+    created = datetime.now(timezone.utc).strftime(STAMP)
     # Field by field, so nothing that is ever added to a host ends up in a backup by accident.
     # The remembered CA of the admin API is a public certificate; logins and passwords stay out.
     keys = ("id", *HOST_DEFAULTS, "storage", "admin_ca", "admin_ca_pasted")
@@ -3033,11 +3040,8 @@ def read_backup(data: bytes) -> dict:
     settings = extra.get("settings.json")
     zone = settings.get("time_zone") if isinstance(settings, dict) else None
     settings = {key: "1" if settings.get(key) else "" for key in SETTING_DEFAULTS if key in settings} if isinstance(settings, dict) else {}
-    try:
-        if isinstance(zone, str) and zone and ZoneInfo(zone):
-            settings["time_zone"] = zone
-    except (KeyError, ValueError, OSError):
-        pass
+    if find_zone(zone):
+        settings["time_zone"] = zone
     mail = extra.get("mail.json")
     mail = {key: str(mail.get(key, default)) for key, default in MAIL_DEFAULTS.items()} if isinstance(mail, dict) else {}
     groups = extra.get("groups.json")
@@ -3046,8 +3050,7 @@ def read_backup(data: bytes) -> dict:
     designs = errors.get("designs") if isinstance(errors, dict) else None
     designs = {code: design for code, design in designs.items() if code in ERROR_PAGES and design in ERROR_DESIGNS} if isinstance(designs, dict) else {}
     there = errors.get("upstream") if isinstance(errors, dict) else None
-    match = UPSTREAM_RE.match(there) if isinstance(there, str) else None
-    there = {"upstream": there} if match and (not match.group(4) or valid_port(match.group(4))) else {}
+    there = {"upstream": there} if valid_upstream(there) else {}
     return {
         "routes": routes,
         "hosts": hosts,
@@ -3083,9 +3086,7 @@ def backup_page(request: Request):
 
 @app.get("/backup/download")
 def backup_download():
-    _, current = pick_host()
-    if current is None:
-        return RedirectResponse("/hosts/new", status_code=303)
+    current = the_host()
     stamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M")
     headers = {"Content-Disposition": f'attachment; filename="caddyman-{stamp}.zip"'}
     return Response(build_backup(current), media_type="application/zip", headers=headers)
@@ -3151,9 +3152,9 @@ async def backup_restore(request: Request):
     if with_settings and backup["settings"]:
         save_settings(**backup["settings"])
     if with_settings and backup["mail"]:
-        write_private(MAIL_FILE, json.dumps(backup["mail"], indent=2))
+        write_json(MAIL_FILE, backup["mail"])
     if with_settings and backup["errors"]:
-        write_private(ERRORS_FILE, json.dumps(backup["errors"], indent=2))
+        write_json(ERRORS_FILE, backup["errors"])
     if new_groups:
         save_groups([*stored_groups(), *new_groups])
     if not changes:
@@ -3245,13 +3246,7 @@ def read_log_tail(path: Path, end: int = 0) -> tuple[list[str], int]:
 def remote_log_names(host: dict) -> list[str]:
     """The logs a Caddy elsewhere offers, newest first. Without a listing there is only the current one."""
     try:
-        response = httpx.get(
-            f"{host['admin_url']}{LOG_REMOTE_DIR}/",
-            headers={"Accept": "application/json"},
-            timeout=ADMIN_TIMEOUT,
-            auth=admin_auth(host),
-            verify=admin_verify(host),
-        )
+        response = admin_get(host, f"{LOG_REMOTE_DIR}/", headers={"Accept": "application/json"})
         listed = response.json() if response.status_code == 200 else []
         files = [item for item in listed if not item.get("is_dir") and log_name(str(item.get("name", "")))]
         names = [str(item["name"]) for item in sorted(files, key=lambda item: str(item.get("mod_time", "")), reverse=True)]
@@ -3272,13 +3267,7 @@ def read_remote_log(host: dict, name: str, end: int) -> tuple[list[str], int] | 
     else:
         wanted = f"bytes=-{LOG_TAIL_BYTES}"
     try:
-        response = httpx.get(
-            f"{host['admin_url']}{LOG_REMOTE_DIR}/{quote(name)}",
-            headers={"Range": wanted},
-            timeout=ADMIN_TIMEOUT,
-            auth=admin_auth(host),
-            verify=admin_verify(host),
-        )
+        response = admin_get(host, f"{LOG_REMOTE_DIR}/{quote(name)}", headers={"Range": wanted})
     except httpx.HTTPError:
         return None
     if response.status_code not in (200, 206):
@@ -3324,7 +3313,7 @@ def parse_log_line(line: str, zone: ZoneInfo | None = None) -> dict:
         entry = json.loads(line)
         stamp = entry.pop("ts", "")
         if isinstance(stamp, (int, float)):
-            stamp = datetime.fromtimestamp(stamp, zone or time_zone()).strftime("%Y-%m-%d %H:%M:%S")
+            stamp = datetime.fromtimestamp(stamp, zone or time_zone()).strftime(STAMP)
         level = str(entry.pop("level", "")).lower()
         logger, message = str(entry.pop("logger", "")), str(entry.pop("msg", ""))
         asked = entry.get("request")
@@ -3343,9 +3332,7 @@ def parse_log_line(line: str, zone: ZoneInfo | None = None) -> dict:
 
 @app.get("/logs")
 def logs_page(request: Request, file: str = "", level: str = "", q: str = "", quiet: str = "", end: int = 0):
-    _, current = pick_host()
-    if current is None:
-        return RedirectResponse("/hosts/new", status_code=303)
+    current = the_host()
     names, chosen, lines, older = load_log(current, file, max(0, end))
     entries = []
     needle = q.strip().lower()
