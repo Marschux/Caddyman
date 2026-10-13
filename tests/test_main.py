@@ -2128,7 +2128,8 @@ class TestEdit(RouteTest):
         blocked = self.client.get("/error/blocked", headers={"host": "<b>x"})
         self.assertEqual(blocked.status_code, 403)
         self.assertNotIn("<b>x", blocked.text)
-        self.assertEqual(self.client.get("/error/nonsense").status_code, 403)
+        self.assertEqual(self.client.get("/error/nonsense").status_code, 404)
+        self.assertEqual(self.client.get("/error/599").status_code, 404)
         self.assertEqual(self.client.get("/error-pages").status_code, 303)
 
     def test_catch_all_route_for_a_dns_blocker(self):

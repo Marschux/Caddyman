@@ -2656,8 +2656,11 @@ def group_delete(name: str = Form("")):
 def error_page(request: Request, code: str, design: str = ""):
     """The page for an error, sent with its status code. Open to everybody, and to every
     method: Caddy passes the failed request on as it came."""
-    title, text = ERROR_PAGES.get(code, ("Error", "This request could not be answered."))
-    status = int(code) if re.fullmatch(r"[45][0-9]{2}", code) else 403
+    # Only the errors Caddy is told to hand over, not any status somebody asks for by address.
+    if code not in ERROR_PAGES:
+        return Response(status_code=404)
+    title, text = ERROR_PAGES[code]
+    status = int(code) if code.isdigit() else 403
     # Only an account that is logged in picks the design in the address: that is the preview.
     chosen = design if request.state.me and design else load_errors()["designs"].get(code)
     if chosen not in ERROR_DESIGNS:
