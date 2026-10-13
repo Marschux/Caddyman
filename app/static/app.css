@@ -390,6 +390,18 @@ fieldset.choice input { position: absolute; opacity: 0; pointer-events: none; }
 .route:has([value="static"]:checked) .for-static { display: block; }
 .route:has([value="redirect"]:checked) .not-redirect { display: none; }
 
+/* The designs of an error page: each a small picture of the real page, the chosen one framed. */
+.designs { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 16px; }
+.designs label { margin: 0; padding: 12px; background: var(--surface-1); border: 1px solid var(--hairline); border-radius: 12px; font-weight: 500; cursor: pointer; }
+.designs label:hover { background: var(--surface-2); }
+.designs label:has(:checked) { border-color: var(--product); }
+.designs input { margin-right: 6px; }
+.designs .frame { display: block; height: 170px; margin-top: 12px; overflow: hidden; border-radius: 8px; }
+/* Drawn twice as large and shrunk, so the page looks as it does in a window. */
+.designs iframe { display: block; width: 200%; height: 340px; border: 0; transform: scale(0.5); transform-origin: 0 0; pointer-events: none; }
+div.row { display: flex; margin-top: 16px; }
+div.row button { width: auto; margin: 0; }
+
 .game { position: fixed; inset: 0; z-index: 10; display: flex; flex-direction: column; background: var(--canvas); }
 .game header { position: static; gap: 16px; }
 .game-score { margin-right: auto; color: var(--ink-muted); }

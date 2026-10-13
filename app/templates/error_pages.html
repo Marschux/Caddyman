@@ -1,0 +1,79 @@
+{% extends "base.html" %}
+{% block title %}Error pages - Caddyman{% endblock %}
+{% block content %}
+{# One entry per error at the left edge, like the blocks of the settings. #}
+<h1>Error pages</h1>
+<aside class="side">
+	<a href="/error-pages" {% if not code %}aria-current="page"{% endif %}>Setup</a>
+	{% for key, item in pages.items() %}
+	<a href="/error-pages/{{ key }}" {% if code == key %}aria-current="page"{% endif %}>{{ key ~ " " if key != "blocked" }}{{ item[0] }}</a>
+	{% endfor %}
+</aside>
+{% if code %}
+<div class="heading">
+	<h2>{{ code ~ " " if code != "blocked" }}{{ pages[code][0] }}</h2>
+	<a class="button secondary" href="/error/{{ code }}" target="_blank" rel="noopener">Open the page</a>
+</div>
+<form method="post" action="/error-pages/{{ code }}">
+	<div class="designs">
+		{% for key, name in designs.items() %}
+		<label>
+			<span><input type="radio" name="design" value="{{ key }}" {{ "checked" if chosen.get(code, "caddyman") == key }}> {{ name }}</span>
+			<span class="frame"><iframe src="/error/{{ code }}?design={{ key }}" title="{{ name }}, preview" loading="lazy" tabindex="-1"></iframe></span>
+		</label>
+		{% endfor %}
+	</div>
+	<label class="check"><input type="checkbox" name="everywhere" value="1"> Use this design for every error</label>
+	<div class="row"><button type="submit">Save</button></div>
+</form>
+{% else %}
+<section>
+	<h2>On a route</h2>
+	<p class="empty">Tick "Show Caddyman's error pages" in the form of a route. When Caddy cannot answer for that
+		route - the target is down, the visitor is outside the allowed networks, a file is missing - it fetches the
+		page from Caddyman and sends it with the same status code. Errors a service sends itself are passed on
+		untouched, and so is the login question of basic auth.
+		{% if users %}Switched on for {{ users }} route{{ "s" if users != 1 }}.{% else %}No route uses them yet.{% endif %}</p>
+	<form method="post" action="/error-pages" class="row">
+		<input name="upstream" value="{{ upstream }}" required aria-label="Where Caddy reaches Caddyman" autocomplete="off">
+		<button type="submit">Save and reload Caddy</button>
+	</form>
+	<small>Where Caddy reaches Caddyman. Next to Caddy in the same Docker network that is the container name and
+		port; from another machine, the address of this one. It is written into every route that shows error pages.</small>
+</section>
+
+<section>
+	<h2>For a DNS blocker</h2>
+	<p class="empty">Answers every name that no route knows with the Blocked page, over plain HTTP. In Technitium,
+		choose the blocking type "Custom Address" and enter the IP address of the machine Caddy runs on. A blocked
+		name then shows the page instead of a connection error. That only works for <code>http://</code>: for
+		<code>https://</code> Caddy has no certificate in the name of a blocked site, and the browser shows its own error.</p>
+	{% if catch_all == "taken" %}
+	<p class="empty">A file <code>catch-all.caddy</code> exists and was not written here. Rename or delete it first.</p>
+	{% else %}
+	{% if catch_all == "off" %}<p class="empty">The route exists, but is switched off in the route list.</p>{% endif %}
+	<form method="post" action="/error-pages/catch-all" class="row">
+		{% if not catch_all %}<input type="hidden" name="on" value="1">{% endif %}
+		<button type="submit" {% if catch_all %}class="secondary"{% endif %}>{{ "Remove the route and reload Caddy" if catch_all else "Answer unknown names and reload Caddy" }}</button>
+	</form>
+	{% endif %}
+</section>
+
+<section>
+	<h2>Designs</h2>
+	<table class="spaced">
+		<thead><tr><th>Error</th><th>Shown when</th><th>Design</th><th></th></tr></thead>
+		<tbody>
+			{% for key, item in pages.items() %}
+			<tr>
+				<td class="nowrap"><strong>{{ key ~ " " if key != "blocked" }}{{ item[0] }}</strong></td>
+				<td>{{ item[1] }}</td>
+				<td>{{ designs[chosen.get(key, "caddyman")] or "Caddyman" }}</td>
+				<td class="actions"><a class="button" href="/error-pages/{{ key }}">Change</a></td>
+			</tr>
+			{% endfor %}
+		</tbody>
+	</table>
+</section>
+{% endif %}
+{% endblock %}

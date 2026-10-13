@@ -312,6 +312,7 @@ AREAS = (
     ("/hosts", "settings"),
     ("/routes", "routes"),
     ("/groups", "routes"),
+    ("/error-pages", "routes"),
     ("/backup", "backup"),
     ("/logs", "logs"),
     ("/ca", "ca"),
@@ -341,7 +342,8 @@ async def require_session(request: Request, call_next):
     elif path == "/setup":
         return RedirectResponse("/", status_code=303)
     elif not me:
-        if path not in LOGIN_PATHS and not (path in PUBLIC_PATHS and flag("public_ca")):
+        # An error page is fetched by Caddy on behalf of a visitor, who has no account here.
+        if path not in LOGIN_PATHS and not path.startswith("/error/") and not (path in PUBLIC_PATHS and flag("public_ca")):
             return RedirectResponse("/login", status_code=303)
     else:
         CURRENT_USER.set(me["username"])
@@ -1482,6 +1484,38 @@ MAX_NETWORKS = 20
 MAX_ALIASES = 20
 HSTS_LINE = 'header Strict-Transport-Security "max-age=31536000"'
 MAX_PATHS = 20
+
+# Error pages: Caddy hands a request it could not answer to Caddyman, which sends a page in the
+# chosen design with the same status code. 'blocked' is for the route that catches every name
+# no other route knows, where a DNS blocker points blocked names.
+ERROR_PAGES = {
+    "400": ("Bad request", "The server could not make sense of this request."),
+    "403": ("Forbidden", "You are not allowed to open this address."),
+    "404": ("Not found", "There is nothing at this address."),
+    "405": ("Method not allowed", "This address does not accept that kind of request."),
+    "500": ("Internal server error", "Something went wrong on the server."),
+    "502": ("Bad gateway", "The service behind this address does not answer."),
+    "503": ("Service unavailable", "The service behind this address is not available right now."),
+    "504": ("Gateway timeout", "The service behind this address took too long to answer."),
+    "blocked": ("Blocked", "This address is blocked on this network."),
+}
+ERROR_DESIGNS = {"caddyman": "Caddyman", "ghost": "Ghost", "terminal": "Terminal", "connection": "Connection", "minimal": "Minimal"}
+# Never 401: the answer to it has to carry the question for the login, which gets lost on the way.
+ERRORS_HANDLED = " ".join(code for code in ERROR_PAGES if code.isdigit())
+ERRORS_FILE = DATA_DIR / "errors.json"
+CATCH_ALL = "catch-all"
+
+
+def load_errors() -> dict:
+    """Where Caddy finds Caddyman, and the design chosen for each error."""
+    try:
+        stored = json.loads(ERRORS_FILE.read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        stored = {}
+    # A Caddy next door reaches this container by name. One elsewhere needs the address typed in.
+    return {"upstream": stored.get("upstream") or f"caddyman:{OWN_PORT}", "designs": stored.get("designs", {})}
+
+
 # A path that goes to a target of its own. Never '/' alone: that is what the main target is for.
 PATH_RE = re.compile(r"^/[A-Za-z0-9._~-][A-Za-z0-9._~/-]*\*?$")
 
@@ -1552,6 +1586,9 @@ def route_from_form(form, host: dict, previous: dict | None = None) -> tuple[dic
     # HSTS only means something where the route speaks TLS.
     if get("hsts") and get("tls") != "none":
         route["hsts"] = True
+    # Caddy's own errors as a page from Caddyman. A redirect has no error to show.
+    if get("errors") and get("type") != "redirect":
+        route["errors"] = load_errors()["upstream"]
     if not usable(name):
         return route, "The hostname may only contain lowercase letters, digits, '-' and '.'."
     if route["port"] and not valid_port(route["port"]):
@@ -1629,6 +1666,9 @@ def render_route(route: dict, host: dict) -> str:
     # Caddy has no directive that turns TLS off; an http:// address does.
     scheme, port = "http://" if route["tls"] == "none" else "", f":{route['port']}" if route["port"] else ""
     address = ", ".join(f"{scheme}{name}{port}" for name in (route["host"], *route.get("aliases", [])))
+    if route["type"] == "error_page":
+        # No name at all: every request over plain HTTP that no other route claims.
+        address = "http://"
     lines = []
     if route["tls"] == "acme_ca":
         lines.append(f"import {host['tls_snippet']}")
@@ -1657,6 +1697,8 @@ def render_route(route: dict, host: dict) -> str:
             lines += [f"{proxy} {{", *options, "}"] if options else [proxy]
     elif route["type"] == "redirect":
         lines.append(f"redir {route['target']}{{uri}} {route['code']}")
+    elif route["type"] == "error_page":
+        lines += [f"rewrite * /error/{route['page']}", f"reverse_proxy {route['upstream']}"]
     else:
         lines += [f"root * {route['root']}", "file_server"]
     if route.get("allow"):
@@ -1664,7 +1706,11 @@ def render_route(route: dict, host: dict) -> str:
         # redirect or a login would come before the refusal.
         networks = route["allow"].replace("private", "private_ranges")
         inside = [f"\t{line}" for line in lines[handlers:]]
-        lines[handlers:] = [f"@outside not client_ip {networks}", "route {", "\trespond @outside 403", *inside, "}"]
+        # 'error' instead of 'respond' where error pages are on: only an error reaches handle_errors.
+        refusal = "\terror @outside 403" if route.get("errors") else "\trespond @outside 403"
+        lines[handlers:] = [f"@outside not client_ip {networks}", "route {", refusal, *inside, "}"]
+    if route.get("errors"):
+        lines += [f"handle_errors {ERRORS_HANDLED} {{", "\trewrite * /error/{err.status_code}", f"\treverse_proxy {route['errors']}", "}"]
     if route.get("log"):
         # Every request to this route, in a file of its own next to Caddy's log, where the Logs page finds it.
         file = f"{ACCESS_LOG_DIR}/{ACCESS_LOG_PREFIX}{route_file_name(route, host)}.log"
@@ -1679,6 +1725,8 @@ def render_route(route: dict, host: dict) -> str:
 
 def route_file_name(route: dict, host: dict) -> str:
     """File name without extension: the hostname without the host's suffix."""
+    if route["type"] == "error_page":
+        return CATCH_ALL
     name = route["host"].removesuffix(f".{host['domain_suffix']}") if host["domain_suffix"] else route["host"]
     # A star cannot stand in a file name.
     name = "wildcard" + name[1:] if name.startswith("*") else name
@@ -1912,7 +1960,11 @@ def adopt_route(content: str, host: dict) -> tuple[dict | None, str]:
             form["tls"] = "internal"
         elif tokens[:3] == ["@outside", "not", "client_ip"]:
             form["allow"] = " ".join(tokens[3:]).replace("private_ranges", "private")
-        elif tokens in (["route", "{"], ["respond", "@outside", "403"], ["}"]):
+        elif tokens == ["handle_errors", *ERRORS_HANDLED.split(), "{"] and len(inner) >= index + 3:
+            # Its three lines are skipped: the reverse_proxy in there is not the target of the route.
+            form["errors"] = "1"
+            index += 3
+        elif tokens in (["route", "{"], ["respond", "@outside", "403"], ["error", "@outside", "403"], ["}"]):
             # The wrapper around a route with allowed networks. Whether it sits where
             # Caddyman would put it shows in the comparison at the end.
             continue
@@ -2218,14 +2270,14 @@ def own_route_address(host: dict) -> tuple[bool, str]:
     Any route file naming this port counts, hand-written ones too; the address is only known
     for a route from the form. Another service on the same port counts as well, which is harmless.
     """
+    def leads_here(path: Path) -> bool:
+        # Comments do not count: a route that is switched off leads nowhere. Neither does the
+        # line after a rewrite to /error/, which only fetches an error page.
+        lines = [line for line in path.read_bytes().splitlines() if not line.startswith(b"#")]
+        return any(f":{OWN_PORT}".encode() in line and b"/error/" not in before for before, line in zip([b"", *lines], lines))
+
     try:
-        # Comments do not count: a route that is switched off leads nowhere.
-        exists = any(
-            f":{OWN_PORT}".encode() in line
-            for path in Path(host["sites_dir"]).glob("*.caddy")
-            for line in path.read_bytes().splitlines()
-            if not line.startswith(b"#")
-        )
+        exists = any(map(leads_here, Path(host["sites_dir"]).glob("*.caddy")))
     except OSError:
         exists = False
     for item in list_routes(host):
@@ -2281,6 +2333,9 @@ def route_edit(request: Request, name: str, raw: bool = False):
     # Read the time first: a change between the two reads then shows up as a conflict on save.
     mtime = file_mtime(path)
     route = None if raw else read_route(path, current)
+    if route and route["type"] == "error_page":
+        # Not a route from the form: it is switched on and off where the error pages are.
+        return RedirectResponse("/error-pages", status_code=303)
     if route:
         return route_form_page(request, current, route, name=name, mtime=mtime)
     try:
@@ -2427,6 +2482,106 @@ def group_delete(name: str = Form("")):
         return redirect("/groups", "error", f"Caddy rejected the reload, nothing was changed: {error}")
     save_groups(group for group in stored_groups() if group != name)
     return redirect("/groups", "ok", f"{name} was removed. Its routes are kept, without a group.")
+
+
+@app.api_route("/error/{code}", methods=["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"])
+def error_page(request: Request, code: str, design: str = ""):
+    """The page for an error, sent with its status code. Open to everybody, and to every
+    method: Caddy passes the failed request on as it came."""
+    title, text = ERROR_PAGES.get(code, ("Error", "This request could not be answered."))
+    status = int(code) if re.fullmatch(r"[45][0-9]{2}", code) else 403
+    # Only an account that is logged in picks the design in the address: that is the preview.
+    chosen = design if request.state.me and design else load_errors()["designs"].get(code)
+    if chosen not in ERROR_DESIGNS:
+        chosen = "caddyman"
+    # Caddy keeps the name the visitor asked for. It is shown, so it has to look like a name.
+    name = request.headers.get("host", "").split(":")[0].lower()
+    context = {"code": str(status), "title": title, "text": text, "host": name if HOSTNAME_RE.match(name) else ""}
+    return templates.TemplateResponse(request, f"errors/{chosen}.html", context, status_code=status, headers={"Cache-Control": "no-store"})
+
+
+def catch_all_state(host: dict) -> str:
+    """'on', 'off' when it is switched off in the route list, 'taken' when the file is somebody else's, else ''."""
+    path = route_path(host, CATCH_ALL)
+    if not path.exists():
+        return ""
+    route = read_route(path, host)
+    if not route or route["type"] != "error_page":
+        return "taken"
+    return "off" if route.get("off") else "on"
+
+
+def error_pages_view(request: Request, code: str = ""):
+    _, current = pick_host()
+    if current is None:
+        return RedirectResponse("/hosts/new", status_code=303)
+    stored = load_errors()
+    context = {"code": code, "pages": ERROR_PAGES, "designs": ERROR_DESIGNS, "chosen": stored["designs"], "upstream": stored["upstream"]}
+    if not code:
+        routes = [item["route"] for item in list_routes(current) if item["route"]]
+        context.update(catch_all=catch_all_state(current), users=sum(1 for route in routes if route.get("errors")))
+    return page(request, "error_pages.html", **context)
+
+
+@app.get("/error-pages")
+def error_pages(request: Request):
+    return error_pages_view(request)
+
+
+@app.post("/error-pages")
+def error_pages_save(upstream: str = Form("")):
+    """Where Caddy finds Caddyman. The address stands in every route that shows error pages."""
+    _, current = pick_host()
+    upstream = upstream.strip()
+    match = UPSTREAM_RE.match(upstream)
+    if current is None or not match or (match.group(4) and not valid_port(match.group(4))):
+        return redirect("/error-pages", "error", "The address has to look like host:port or http://host:port.")
+    changes = {}
+    for item in list_routes(current):
+        route = item["route"]
+        if route and route["type"] == "error_page":
+            route = {**route, "upstream": upstream}
+        elif route and route.get("errors"):
+            route = {**route, "errors": upstream}
+        else:
+            continue
+        changes[Path(current["sites_dir"]) / f"{item['name']}.caddy"] = render_route(route, current)
+    if changes and (error := apply_route(current, changes, "error pages", upstream)):
+        return redirect("/error-pages", "error", f"Caddy rejected the reload, nothing was changed: {error}")
+    write_private(ERRORS_FILE, json.dumps({**load_errors(), "upstream": upstream}, indent=2))
+    return redirect("/error-pages", "ok", "The address is saved." + (f" {len(changes)} route files were rewritten." if changes else ""))
+
+
+@app.post("/error-pages/catch-all")
+def error_pages_catch_all(on: str = Form("")):
+    """The route for every name no other route knows. A file like the others, so the list shows it."""
+    _, current = pick_host()
+    if current is None:
+        return RedirectResponse("/hosts/new", status_code=303)
+    path, state = route_path(current, CATCH_ALL), catch_all_state(current)
+    if state == "taken":
+        return redirect("/error-pages", "error", f"{path.name} exists and was not written here. Rename or delete it first.")
+    route = {"type": "error_page", "host": "*", "port": "", "tls": "none", "upstream": load_errors()["upstream"], "page": "blocked"}
+    if (on or state) and (error := apply_route(current, {path: render_route(route, current) if on else None}, "create" if on else "delete", CATCH_ALL)):
+        return redirect("/error-pages", "error", f"Caddy rejected the reload, nothing was changed: {error}")
+    return redirect("/error-pages", "ok", "Every unknown name now gets the Blocked page." if on else "Unknown names are no longer answered.")
+
+
+@app.get("/error-pages/{code}")
+def error_design(request: Request, code: str):
+    if code not in ERROR_PAGES:
+        return redirect("/error-pages", "error", "There is no page for this error.")
+    return error_pages_view(request, code)
+
+
+@app.post("/error-pages/{code}")
+def error_design_save(code: str, design: str = Form(""), everywhere: str = Form("")):
+    if code not in ERROR_PAGES or design not in ERROR_DESIGNS:
+        return redirect("/error-pages", "error", "Unknown error or design.")
+    stored = load_errors()
+    designs = dict.fromkeys(ERROR_PAGES, design) if everywhere else {**stored["designs"], code: design}
+    write_private(ERRORS_FILE, json.dumps({**stored, "designs": designs}, indent=2))
+    return redirect(f"/error-pages/{code}", "ok", f"Every error now shows {ERROR_DESIGNS[design]}." if everywhere else f"{ERROR_PAGES[code][0]} now shows {ERROR_DESIGNS[design]}.")
 
 
 def host_settings_url() -> str:

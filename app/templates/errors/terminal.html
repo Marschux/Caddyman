@@ -1,0 +1,16 @@
+{% extends "errors/base.html" %}
+{% block style %}
+		body { color: #33ff66; background: #050805; font: 16px/1.7 ui-monospace, "Cascadia Code", Consolas, monospace; text-shadow: 0 0 6px rgba(51, 255, 102, 0.45); }
+		pre { width: 100%; max-width: 640px; margin: 0; font: inherit; text-align: left; white-space: pre-wrap; overflow-wrap: anywhere; }
+		.dim { opacity: 0.6; }
+		.cursor { display: inline-block; width: 0.6em; height: 1.1em; vertical-align: text-bottom; background: currentColor; animation: blink 1s steps(1) infinite; }
+		@keyframes blink { 50% { opacity: 0; } }
+		@media (prefers-reduced-motion: reduce) { .cursor { animation: none; } }
+{% endblock %}
+{% block body %}
+	<pre><span class="dim">$</span> curl -I {{ host or "this address" }}
+HTTP/1.1 {{ code }} {{ title }}
+
+<span class="dim">#</span> {{ text }}
+<span class="dim">$</span> <span class="cursor"></span></pre>
+{% endblock %}

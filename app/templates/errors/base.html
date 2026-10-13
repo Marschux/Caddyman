@@ -1,0 +1,20 @@
+<!doctype html>
+{# Stands alone: the page is shown under the name of another site, where no file of Caddyman can be fetched. #}
+<html lang="en">
+<head>
+	<meta charset="utf-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1">
+	<meta name="robots" content="noindex">
+	<title>{{ code }} {{ title }}</title>
+	<style>
+		* { box-sizing: border-box; }
+		html, body { height: 100%; margin: 0; }
+		body { display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 24px; text-align: center; font: 16px/1.5 system-ui, -apple-system, "Segoe UI", Helvetica, Arial, sans-serif; }
+		h1, p { margin: 0; }
+		{% block style %}{% endblock %}
+	</style>
+</head>
+<body>
+	{% block body %}{% endblock %}
+</body>
+</html>

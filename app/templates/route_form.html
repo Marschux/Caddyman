@@ -122,6 +122,11 @@
 			Ask for a single sign-on first</label>
 		<small>{% if sso %}Puts the login service from the snippet <code>{{ host.sso_snippet }}</code> in front of this route.
 			{% else %}Needs an SSO snippet in the base Caddyfile, named under <a href="/settings/caddy">Settings</a>.{% endif %}</small>
+
+		<label class="check"><input type="checkbox" name="errors" value="1" {{ "checked" if route.errors }}>
+			Show Caddyman's error pages</label>
+		<small>When Caddy cannot answer, for example because the target is down, the visitor gets a page from
+			<a href="/error-pages">Error pages</a> instead of an empty one. Errors the service itself sends stay as they are.</small>
 	</div>
 
 	<label class="check"><input type="checkbox" name="hsts" value="1" {{ "checked" if route.hsts }}>

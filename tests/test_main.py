@@ -32,6 +32,7 @@ class AppTest(unittest.TestCase):
         main.MAIL_FILE.unlink(missing_ok=True)
         main.SETTINGS_FILE.unlink(missing_ok=True)
         main.GROUPS_FILE.unlink(missing_ok=True)
+        main.ERRORS_FILE.unlink(missing_ok=True)
         main.LOGIN_FAILS.clear()
         # No name is looked up from a test: where "Caddy" sits is said by each test that needs it.
         self.caddy_at = mock.patch.object(main, "resolve_addresses", mock.Mock(return_value=set()))
@@ -1920,6 +1921,65 @@ class TestEdit(RouteTest):
         # Without TLS there is nothing to insist on.
         self.edit(hsts="1", tls="none")
         self.assertNotIn("Strict-Transport-Security", self.read("pdf.caddy"))
+
+    def test_error_pages_on_a_route(self):
+        self.edit(errors="1", allow="private")
+        text = self.read("pdf.caddy")
+        # An error instead of a plain answer, or the refusal by address would never reach the page.
+        self.assertIn(
+            "\t\terror @outside 403\n\t\treverse_proxy 10.0.0.5:9005\n\t}\n"
+            "\thandle_errors 400 403 404 405 500 502 503 504 {\n\t\trewrite * /error/{err.status_code}\n"
+            f"\t\treverse_proxy caddyman:{main.OWN_PORT}\n\t}}\n}}\n",
+            text,
+        )
+        self.assertIn('name="errors" value="1" checked', self.client.get("/routes/pdf/edit").text)
+        self.assertIn(">Errors<", self.client.get("/").text)
+        taken, reason = main.adopt_route(text, self.host)
+        self.assertEqual(taken and taken.get("errors"), f"caddyman:{main.OWN_PORT}", reason)
+        # Fetching a page is not a route that leads to Caddyman.
+        self.assertFalse(main.own_route_address(self.host)[0])
+        # A new address goes into the routes that use it, and they stay files of Caddyman.
+        self.client.post("/error-pages", data={"upstream": "bad {"})
+        self.assertEqual(self.read("pdf.caddy"), text)
+        self.client.post("/error-pages", data={"upstream": "192.168.1.9:5052"})
+        self.assertIn("\t\treverse_proxy 192.168.1.9:5052\n\t}\n}\n", self.read("pdf.caddy"))
+        self.assertEqual(main.read_route(main.Path(self.sites) / "pdf.caddy", self.host)["errors"], "192.168.1.9:5052")
+        # A redirect has no error to show.
+        self.edit(type="redirect", target="https://b.lab.test", code="302", errors="1")
+        self.assertNotIn("handle_errors", self.read("pdf.caddy"))
+
+    def test_error_page_is_open_and_carries_its_code(self):
+        for design in main.ERROR_DESIGNS:
+            self.assertEqual(self.client.get(f"/error/504?design={design}").status_code, 504, design)
+        self.assertIn("/error/502?design=ghost", self.client.get("/error-pages/502").text)
+        self.client.post("/error-pages/502", data={"design": "ghost"})
+        self.assertEqual(main.load_errors()["designs"], {"502": "ghost"})
+        self.client.post("/logout")
+        # Any method, as Caddy passes the request on. The design in the address is the preview of an account.
+        answer = self.client.post("/error/502?design=terminal", headers={"host": "pdf.lab.test"})
+        self.assertEqual(answer.status_code, 502)
+        self.assertIn("<svg", answer.text)
+        self.assertIn("pdf.lab.test", answer.text)
+        blocked = self.client.get("/error/blocked", headers={"host": "<b>x"})
+        self.assertEqual(blocked.status_code, 403)
+        self.assertNotIn("<b>x", blocked.text)
+        self.assertEqual(self.client.get("/error/nonsense").status_code, 403)
+        self.assertEqual(self.client.get("/error-pages").status_code, 303)
+
+    def test_catch_all_route_for_a_dns_blocker(self):
+        self.client.post("/error-pages/catch-all", data={"on": "1"})
+        written = f"http:// {{\n\trewrite * /error/blocked\n\treverse_proxy caddyman:{main.OWN_PORT}\n}}\n"
+        self.assertEqual(self.read("catch-all.caddy").split("\n", 1)[1], written)
+        self.assertIn(">Error page<", self.client.get("/").text)
+        self.assertIn("Remove the route", self.client.get("/error-pages").text)
+        # It has no form of its own.
+        self.assertEqual(self.client.get("/routes/catch-all/edit").headers["location"], "/error-pages")
+        self.client.post("/error-pages/catch-all")
+        self.assertFalse(os.path.exists(os.path.join(self.sites, "catch-all.caddy")))
+        # A file somebody else put there is left alone.
+        self.write("catch-all.caddy", "http:// {\n\trespond 200\n}\n")
+        self.client.post("/error-pages/catch-all", data={"on": "1"})
+        self.assertEqual(self.read("catch-all.caddy"), "http:// {\n\trespond 200\n}\n")
 
     def test_dns_challenge_imports_the_snippet(self):
         self.assertEqual(self.edit(tls="dns").status_code, 400)  # no snippet yet

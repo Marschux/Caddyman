@@ -1,0 +1,24 @@
+{% extends "errors/base.html" %}
+{% block style %}
+		body { color: #a9b4d0; background: #1b2038; }
+		svg { width: 140px; animation: float 3s ease-in-out infinite; }
+		.shadow { width: 110px; height: 14px; margin: 18px 0 32px; background: #12162a; border-radius: 50%; animation: shrink 3s ease-in-out infinite; }
+		h1 { color: #fff; font-size: 32px; font-weight: 700; }
+		h1 span { color: #7f8cff; }
+		p { margin-top: 8px; }
+		small { margin-top: 24px; color: #6d789a; font-size: 13px; }
+		@keyframes float { 50% { transform: translateY(-16px); } }
+		@keyframes shrink { 50% { transform: scale(0.8); opacity: 0.6; } }
+		@media (prefers-reduced-motion: reduce) { svg, .shadow { animation: none; } }
+{% endblock %}
+{% block body %}
+	<svg viewBox="0 0 120 140" aria-hidden="true">
+		<path d="M10 130V60a50 50 0 0 1 100 0v70l-17-14-16 14-17-14-17 14-16-14z" fill="#fff"/>
+		<circle cx="45" cy="60" r="7" fill="#1b2038"/><circle cx="78" cy="60" r="7" fill="#1b2038"/>
+		<ellipse cx="61" cy="84" rx="7" ry="9" fill="#1b2038"/>
+	</svg>
+	<div class="shadow"></div>
+	<h1><span>{{ code }}</span> {{ title }}</h1>
+	<p>{{ text }}</p>
+	{% if host %}<small>{{ host }}</small>{% endif %}
+{% endblock %}

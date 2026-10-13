@@ -1,0 +1,30 @@
+{% extends "errors/base.html" %}
+{# Where it broke: with 502, 503 and 504 the proxy was fine and the service behind it was not.
+   Everything else the proxy answered itself. #}
+{% set far = code in ("502", "503", "504") %}
+{% block style %}
+		body { color: #4a5568; background: #f7f8fa; }
+		h1 { color: #1a202c; font-size: 30px; font-weight: 700; }
+		h1 span { color: #a0aec0; font-weight: 400; }
+		p { margin-top: 8px; }
+		ol { display: flex; width: 100%; max-width: 620px; margin: 48px 0 0; padding: 0; list-style: none; }
+		li { flex: 1; position: relative; font-size: 14px; }
+		li + li::before { content: ""; position: absolute; top: 27px; right: calc(50% + 36px); width: calc(100% - 72px); height: 2px; background: #cbd5e0; }
+		li b { display: block; margin-top: 10px; color: #1a202c; }
+		.dot { display: grid; place-items: center; width: 56px; height: 56px; margin: 0 auto; color: #fff; font-size: 24px; font-weight: 700; border-radius: 50%; }
+		.ok .dot { background: #38a169; }
+		.ok small { color: #38a169; }
+		.bad .dot { background: #e53e3e; }
+		.bad small { color: #e53e3e; }
+		.idle .dot { background: #cbd5e0; }
+		small { font-size: 13px; }
+{% endblock %}
+{% block body %}
+	<h1>{{ title }} <span>{{ code }}</span></h1>
+	<p>{{ text }}</p>
+	<ol>
+		<li class="ok"><div class="dot">&#10003;</div><b>You</b><small>Browser works</small></li>
+		<li class="{{ 'ok' if far else 'bad' }}"><div class="dot">{{ "&#10003;"|safe if far else "&#10005;"|safe }}</div><b>Proxy</b><small>{{ "Works" if far else title }}</small></li>
+		<li class="{{ 'bad' if far else 'idle' }}"><div class="dot">{{ "&#10005;"|safe if far else "&ndash;"|safe }}</div><b>{{ host or "Service" }}</b><small>{{ title if far else "Not asked" }}</small></li>
+	</ol>
+{% endblock %}
