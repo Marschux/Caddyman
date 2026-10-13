@@ -1,5 +1,18 @@
 # Changelog
 
+## 2026-10-13 21:11
+- chore: version 0.15.7
+- fix: changing the mail settings takes the right to manage users as well, and the paths of Caddy's files cannot point into Caddyman's own data
+- fix: forms from another site are refused, the login limit survives another login and counts codes per account, mailed tokens are hidden on the Logs page, the admin login only goes to a server that shows the remembered CA
+- fix: login and rights go by the path the router uses, not by one rebuilt from the Host header
+- chore: version 0.15.6
+- refactor: the tests share one helper each for patching, a second browser and writing a route file
+- refactor: one host instead of a list, one place each for encrypting, the check code and the admin API check
+- refactor: the list of time zones is collected once, the keys of a second factor are named once
+- refactor: the status checks leave out the empty last argument
+- refactor: one helper each for the data files, the admin API, a target and a missing Caddy
+
+
 ## 2026-10-13 18:47
 - docs: tidy the changelog
 
