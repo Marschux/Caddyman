@@ -1888,6 +1888,21 @@ class TestEdit(RouteTest):
         data = {"mode": "form", "mtime": mtime or self.mtime(f"{name}.caddy"), **self.form(**overrides)}
         return self.client.post(f"/routes/{name}/edit", data=data)
 
+    def test_a_save_that_breaks_off_leaves_the_file_whole(self):
+        real, calls = main.os.replace, []
+
+        def fail_once(*paths):
+            calls.append(paths)
+            if len(calls) == 1:
+                raise OSError("No space left on device")
+            return real(*paths)
+
+        with mock.patch.object(main.os, "replace", fail_once):
+            self.assertEqual(self.edit(upstream="10.0.0.9:1").status_code, 400)
+        # Never cut short on the way, and nothing left lying next to it.
+        self.assertEqual(self.read("pdf.caddy"), self.original)
+        self.assertEqual(os.listdir(self.sites), ["pdf.caddy"])
+
     def test_own_route_opens_in_the_form_and_saves(self):
         page = self.client.get("/routes/pdf/edit").text
         self.assertIn('name="mode" value="form"', page)

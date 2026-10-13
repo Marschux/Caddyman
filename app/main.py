@@ -109,12 +109,29 @@ def write_json(path: Path, data) -> None:
     write_private(path, json.dumps(data, indent=2))
 
 
+def write_whole(path: Path, data: bytes, mode: int | None = None) -> None:
+    """Put a file in place in one step: written next to it first, so a crash never leaves half of it.
+
+    Without a mode, a file that is replaced keeps the one it had.
+    """
+    # Not a name the import of the sites directory would pick up.
+    draft = path.with_name(f".{path.name}.tmp")
+    draft.unlink(missing_ok=True)
+    try:
+        fd = os.open(draft, os.O_WRONLY | os.O_CREAT | os.O_EXCL, mode or 0o666)
+        with os.fdopen(fd, "wb") as handle:
+            handle.write(data)
+        if mode is None and path.exists():
+            shutil.copymode(path, draft)
+        os.replace(draft, path)
+    finally:
+        draft.unlink(missing_ok=True)
+
+
 def write_private(path: Path, text: str) -> None:
     """Write a file only the owner can read."""
     path.parent.mkdir(parents=True, exist_ok=True)
-    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-    with os.fdopen(fd, "w", encoding="utf-8") as handle:
-        handle.write(text)
+    write_whole(path, text.encode("utf-8"), 0o600)
 
 
 def load_secret_key() -> tuple[str, bool]:
@@ -2068,7 +2085,7 @@ def apply_route(
                 if content is None:
                     path.unlink()
                 else:
-                    path.write_bytes(content.encode())
+                    write_whole(path, content.encode())
             error = caddy_load(host)
         except OSError as os_error:
             error = str(os_error)
@@ -2078,7 +2095,7 @@ def apply_route(
                 if content is None:
                     path.unlink(missing_ok=True)
                 else:
-                    path.write_bytes(content)
+                    write_whole(path, content)
             # If the reload only timed out, Caddy may hold the new config: bring it back in line.
             caddy_load(host)
         # What the route list knew about certificates and targets is from before this change.
