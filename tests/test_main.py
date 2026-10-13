@@ -35,14 +35,21 @@ class AppTest(unittest.TestCase):
         main.ERRORS_FILE.unlink(missing_ok=True)
         main.LOGIN_FAILS.clear()
         # No name is looked up from a test: where "Caddy" sits is said by each test that needs it.
-        self.caddy_at = mock.patch.object(main, "resolve_addresses", mock.Mock(return_value=set()))
-        self.caddy_at.start()
-        self.addCleanup(self.caddy_at.stop)
+        self.patch(main, "resolve_addresses", mock.Mock(return_value=set()))
         main.CADDY_ADDRESSES.update(until=0.0, found=frozenset(), busy=False)
         # Entering the client runs the startup that creates the setup token.
-        self.client = TestClient(main.app, follow_redirects=False)
+        self.client = self.guest()
         self.client.__enter__()
         self.addCleanup(self.client.__exit__, None, None, None)
+
+    def patch(self, target, name, value):
+        patcher = mock.patch.object(target, name, value)
+        self.addCleanup(patcher.stop)
+        return patcher.start()
+
+    def guest(self):
+        """A browser of its own, with no session."""
+        return TestClient(main.app, follow_redirects=False)
 
     def setup_admin(self, **overrides):
         form = {"token": main.SETUP_TOKEN, "username": "admin", "password": PASSWORD, "repeat": PASSWORD}
@@ -76,7 +83,7 @@ class TestAuth(AppTest):
 
     def test_setup_token_can_come_from_the_environment(self):
         with mock.patch.object(main, "ENV_SETUP_TOKEN", "my own token"), mock.patch("builtins.print") as log:
-            with TestClient(main.app, follow_redirects=False) as client:
+            with self.guest() as client:
                 self.assertNotIn("my own token", str(log.call_args_list))  # not repeated in the log
                 self.assertIn("CADDYMAN_SETUP_TOKEN", client.get("/setup").text)
                 form = {"username": "admin", "password": PASSWORD, "repeat": PASSWORD}
@@ -85,7 +92,7 @@ class TestAuth(AppTest):
 
     def test_short_setup_token_blocks_the_setup(self):
         with mock.patch.object(main, "ENV_SETUP_TOKEN", "short"), mock.patch("builtins.print"):
-            with TestClient(main.app, follow_redirects=False) as client:
+            with self.guest() as client:
                 self.assertIn("too short", client.get("/setup").text)
                 form = {"token": "short", "username": "admin", "password": PASSWORD, "repeat": PASSWORD}
                 self.assertEqual(client.post("/setup", data=form).status_code, 400)
@@ -354,11 +361,6 @@ class RouteTest(AppTest):
         self.patch(main, "target_reachable", mock.Mock(return_value=True))
         self.served = self.patch(main, "served_certificate", mock.Mock(side_effect=OSError("offline")))
 
-    def patch(self, target, name, value):
-        patcher = mock.patch.object(target, name, value)
-        self.addCleanup(patcher.stop)
-        return patcher.start()
-
     def form(self, **overrides):
         return {"type": "reverse_proxy", "host": "pdf", "upstream": "10.0.0.5:9005", "tls": "acme_ca", **overrides}
 
@@ -368,6 +370,10 @@ class RouteTest(AppTest):
     def read(self, name):
         with open(os.path.join(self.sites, name), encoding="utf-8") as handle:
             return handle.read()
+
+    def put(self, name, text, mode="w"):
+        with open(os.path.join(self.sites, name), mode, encoding="utf-8", newline="\n") as handle:
+            handle.write(text)
 
     def reject(self):
         self.load.return_value = mock.Mock(status_code=400, json=lambda: {"error": "unknown directive"})
@@ -426,7 +432,7 @@ class TestRoutes(RouteTest):
         self.assertNotIn("CADDYMAN_FORWARDED_ALLOW_IPS=", trusted)
         self.assertIn("HTTPS in front of Caddyman is recognised", trusted)
         # Then the session cookie is marked Secure, and the login limit counts the visitor, not Caddy.
-        guest = TestClient(main.app, follow_redirects=False)
+        guest = self.guest()
         answer = guest.post("/login", data={"username": "admin", "password": "wrong"}, headers=through)
         self.assertEqual(list(main.LOGIN_FAILS), ["203.0.113.9"])
         answer = guest.post("/login", data={"username": "admin", "password": PASSWORD}, headers=through)
@@ -581,11 +587,9 @@ class TestRoutes(RouteTest):
         self.create()
         path = main.Path(self.sites) / "pdf.caddy"
         self.assertEqual(main.read_route(path, self.host)["upstream"], "10.0.0.5:9005")
-        with open(path, "a", encoding="utf-8") as handle:
-            handle.write("# tweaked\n")
+        self.put("pdf.caddy", "# tweaked\n", "a")
         self.assertIsNone(main.read_route(path, self.host))
-        with open(os.path.join(self.sites, "legacy.caddy"), "w", encoding="utf-8") as handle:
-            handle.write("legacy.lab.test {\n\trespond 200\n}\n")
+        self.put("legacy.caddy", "legacy.lab.test {\n\trespond 200\n}\n")
         self.assertIn("legacy.caddy", self.client.get("/").text)
 
     def test_route_list_carries_the_hidden_game(self):
@@ -684,7 +688,7 @@ class TestUsers(RouteTest):
         return self.client.post("/settings/users/new", data=form)
 
     def log_in(self, name, password=PASSWORD):
-        client = TestClient(main.app, follow_redirects=False)
+        client = self.guest()
         response = client.post("/login", data={"username": name, "password": password})
         return client, response
 
@@ -711,7 +715,7 @@ class TestUsers(RouteTest):
         self.assertEqual(mail.call_count, 2)
         # Until the link is used nobody gets in, and there is no page to sign up on one's own.
         self.assertEqual(self.log_in("eve", "")[1].status_code, 401)
-        guest = TestClient(main.app, follow_redirects=False)
+        guest = self.guest()
         self.assertEqual(guest.get("/register").headers["location"], "/login")
         with mock.patch.object(main, "INVITE_SECONDS", -1):
             self.assertEqual(guest.get(link).status_code, 400)  # too old
@@ -851,7 +855,7 @@ class TestUsers(RouteTest):
             client, _ = self.log_in("admin")
             self.assertEqual(client.post("/login/code", data={"code": codes[0].upper()}).status_code, expected)
         # Without having passed the password there is no second step.
-        self.assertEqual(TestClient(main.app, follow_redirects=False).post("/login/code", data={"code": codes[1]}).headers["location"], "/login")
+        self.assertEqual(self.guest().post("/login/code", data={"code": codes[1]}).headers["location"], "/login")
 
         self.assertEqual(self.client.post("/profile/2fa/disable", data={"current": "wrong"}).status_code, 400)
         self.client.post("/profile/2fa/disable", data={"current": PASSWORD})
@@ -874,7 +878,7 @@ class TestUsers(RouteTest):
         # Another account and the pages before the login keep the dark one.
         self.add_user()
         self.assertNotIn("data-theme", self.log_in("viewer")[0].get("/").text)
-        self.assertNotIn("data-theme", TestClient(main.app, follow_redirects=False).get("/login").text)
+        self.assertNotIn("data-theme", self.guest().get("/login").text)
         # Dark again is simply not stored, and the way back never leaves this site.
         for elsewhere in ("https://evil.example", "//evil.example", ""):  # three presses: dark, light, dark
             self.assertEqual(self.client.post("/profile/theme", data={"back": elsewhere}).headers["location"], "/")
@@ -884,7 +888,7 @@ class TestUsers(RouteTest):
     def test_forgotten_password_by_mail(self):
         self.client.post("/profile", data={"realname": "Ada Admin", "email": "ada@lab.test"})
         self.assertIn(">AA<", self.client.get("/profile").text)  # initials stand in for a picture
-        guest = TestClient(main.app, follow_redirects=False)
+        guest = self.guest()
         self.assertEqual(guest.get("/forgot").status_code, 404)  # no mail server, no offer
         self.assertNotIn("/forgot", guest.get("/login").text)
         settings = {"public_url": "https://caddyman.lab.test/", "host": "smtp.lab.test", "port": "587", "security": "starttls",
@@ -1040,7 +1044,7 @@ class TestCa(RouteTest):
 
     def test_open_page_and_login_hint_can_be_switched_off(self):
         self.answer(json={"root_certificate": self.PEM})
-        guest = TestClient(main.app, follow_redirects=False)
+        guest = self.guest()
         self.assertIn('href="/trust"', guest.get("/login").text)
         self.client.post("/settings/security", data={"public_ca": "1"})
         self.assertNotIn('href="/trust"', guest.get("/login").text)
@@ -1060,7 +1064,7 @@ class TestCa(RouteTest):
         # Up to 0.9.0 the two switches were stored with the host. Saving the Caddy form must not open the page again.
         self.answer(json={"root_certificate": self.PEM})
         main.save_hosts([{**self.host, "public_ca": "", "login_ca_hint": "1"}])
-        guest = TestClient(main.app, follow_redirects=False)
+        guest = self.guest()
         self.assertEqual(guest.get("/trust").headers["location"], "/login")
         self.assertEqual(self.client.post("/hosts/h1/edit", data=self.host).headers["location"], "/status")
         self.assertNotIn("public_ca", main.load_hosts()[0])
@@ -1078,11 +1082,6 @@ class TestManaged(AppTest):
         self.get = self.patch(main.httpx, "get", mock.Mock(return_value=mock.Mock(status_code=200, content=b"running")))
         self.patch(main, "target_reachable", mock.Mock(return_value=True))
         self.patch(main, "served_certificate", mock.Mock(side_effect=OSError("offline")))
-
-    def patch(self, target, name, value):
-        patcher = mock.patch.object(target, name, value)
-        self.addCleanup(patcher.stop)
-        return patcher.start()
 
     def form(self, **overrides):
         return {
@@ -1332,8 +1331,7 @@ class TestCertificates(RouteTest):
             "far.caddy": "far.lab.test:99999 {\n\trespond 200\n}\n",
         }
         for name, text in files.items():
-            with open(os.path.join(self.sites, name), "w", encoding="utf-8") as handle:
-                handle.write(text)
+            self.put(name, text)
         self.served.side_effect = None
         self.served.return_value = make_certificate("Caddy Local Authority - ECC Intermediate")
         page = self.client.get("/").text
@@ -1606,10 +1604,8 @@ class TestBackup(RouteTest):
 
     def test_preview_changes_nothing_and_confirm_restores(self):
         os.remove(os.path.join(self.sites, "wiki.caddy"))
-        with open(os.path.join(self.sites, "pdf.caddy"), "a", encoding="utf-8") as handle:
-            handle.write("# edited\n")
-        with open(os.path.join(self.sites, "extra.caddy"), "w", encoding="utf-8") as handle:
-            handle.write("extra.lab.test {\n}\n")
+        self.put("pdf.caddy", "# edited\n", "a")
+        self.put("extra.caddy", "extra.lab.test {\n}\n")
         self.load.reset_mock()
         preview = self.upload(self.archive)
         self.assertIn("Overwritten", preview.text)
@@ -1624,8 +1620,7 @@ class TestBackup(RouteTest):
 
     def test_rejected_restore_undoes_every_file(self):
         os.remove(os.path.join(self.sites, "wiki.caddy"))
-        with open(os.path.join(self.sites, "pdf.caddy"), "w", encoding="utf-8") as handle:
-            handle.write("changed\n")
+        self.put("pdf.caddy", "changed\n")
         self.reject()
         self.confirm(self.archive)
         self.assertEqual(os.listdir(self.sites), ["pdf.caddy"])
@@ -1726,7 +1721,7 @@ class TestBackup(RouteTest):
                                  "settings.json": '{"public_ca": ""}', "groups.json": '["ok", "bad\\nname", 7]'})
         self.client.post("/settings/security", data={"public_ca": "1", "login_ca_hint": "1"})
         self.client.post("/settings/users/new", data={"username": "keeper", "password": PASSWORD, "repeat": PASSWORD, "right_backup": "1"})
-        keeper = TestClient(main.app, follow_redirects=False)
+        keeper = self.guest()
         keeper.post("/login", data={"username": "keeper", "password": PASSWORD})
         main.save_hosts([])
         payload = {"payload": base64.b64encode(archive).decode()}
@@ -1757,10 +1752,6 @@ class TestEdit(RouteTest):
         data = {"mode": "form", "mtime": mtime or self.mtime(f"{name}.caddy"), **self.form(**overrides)}
         return self.client.post(f"/routes/{name}/edit", data=data)
 
-    def write(self, name, text):
-        with open(os.path.join(self.sites, name), "w", encoding="utf-8", newline="\n") as handle:
-            handle.write(text)
-
     def test_own_route_opens_in_the_form_and_saves(self):
         page = self.client.get("/routes/pdf/edit").text
         self.assertIn('name="mode" value="form"', page)
@@ -1788,7 +1779,7 @@ class TestEdit(RouteTest):
 
     def test_change_on_disk_is_shown_instead_of_overwritten(self):
         stale = self.mtime()
-        self.write("pdf.caddy", "pdf.lab.test {\n\trespond 418\n}\n")
+        self.put("pdf.caddy", "pdf.lab.test {\n\trespond 418\n}\n")
         os.utime(os.path.join(self.sites, "pdf.caddy"), ns=(1, 1))
         response = self.edit(mtime=stale, upstream="10.0.0.6:80")
         self.assertEqual(response.status_code, 409)
@@ -1801,7 +1792,7 @@ class TestEdit(RouteTest):
         self.assertIn("10.0.0.6:80", self.read("pdf.caddy"))
 
     def test_foreign_file_opens_as_text_and_saves(self):
-        self.write("legacy.caddy", "legacy.lab.test {\n\trespond 200\n}\n")
+        self.put("legacy.caddy", "legacy.lab.test {\n\trespond 200\n}\n")
         page = self.client.get("/routes/legacy/edit").text
         self.assertIn("<textarea", page)
         self.assertNotIn("Adopt this route", page)
@@ -1811,7 +1802,7 @@ class TestEdit(RouteTest):
 
     def test_rejected_text_is_put_back(self):
         before = "legacy.lab.test {\n\trespond 200\n}\n"
-        self.write("legacy.caddy", before)
+        self.put("legacy.caddy", before)
         self.reject()
         data = {"mode": "raw", "mtime": self.mtime("legacy.caddy"), "content": "legacy.lab.test {\n\tnonsense\n}\n"}
         response = self.client.post("/routes/legacy/edit", data=data)
@@ -1870,7 +1861,7 @@ class TestEdit(RouteTest):
         self.client.post("/routes/pdf/toggle")
         self.assertEqual(self.read("pdf.caddy"), self.original)
         # A file written by hand is left alone.
-        self.write("hand.caddy", "hand.lab.test {\n\trespond 200\n}\n")
+        self.put("hand.caddy", "hand.lab.test {\n\trespond 200\n}\n")
         self.client.post("/routes/hand/toggle")
         self.assertEqual(self.read("hand.caddy"), "hand.lab.test {\n\trespond 200\n}\n")
 
@@ -2025,7 +2016,7 @@ class TestEdit(RouteTest):
         self.client.post("/error-pages/catch-all")
         self.assertFalse(os.path.exists(os.path.join(self.sites, "catch-all.caddy")))
         # A file somebody else put there is left alone.
-        self.write("catch-all.caddy", "http:// {\n\trespond 200\n}\n")
+        self.put("catch-all.caddy", "http:// {\n\trespond 200\n}\n")
         self.client.post("/error-pages/catch-all", data={"on": "1"})
         self.assertEqual(self.read("catch-all.caddy"), "http:// {\n\trespond 200\n}\n")
 
@@ -2093,7 +2084,7 @@ class TestEdit(RouteTest):
         self.assertEqual(self.read("pdf.caddy"), self.original)
 
     def test_adopt_a_newsite_file(self):
-        self.write("wiki.caddy", "wiki.lab.test {\n    reverse_proxy 10.0.0.7:3000\n    import stepca\n}\n")
+        self.put("wiki.caddy", "wiki.lab.test {\n    reverse_proxy 10.0.0.7:3000\n    import stepca\n}\n")
         self.assertIn("Adopt this route", self.client.get("/routes/wiki/edit").text)
         self.client.post("/routes/wiki/adopt")
         route = main.read_route(main.Path(self.sites) / "wiki.caddy", self.host)
@@ -2119,7 +2110,7 @@ class TestEdit(RouteTest):
         route, reason = main.adopt_route(text, self.host)
         self.assertEqual((route["auth_user"], route["auth_hash"], route["host_header"]), ("ada", bcrypt_hash, True), reason)
         # What it writes back is the same block, hash untouched, and it opens in the form.
-        self.write("a.caddy", text)
+        self.put("a.caddy", text)
         self.client.post("/routes/a/adopt")
         self.assertEqual(self.read("a.caddy").split("\n", 1)[1], text)
         self.assertIn('name="auth_user" value="ada"', self.client.get("/routes/a/edit").text)
@@ -2142,7 +2133,7 @@ class TestEdit(RouteTest):
         for text in refused:
             with self.subTest(text):
                 self.assertIsNone(main.adopt_route(text, self.host)[0])
-        self.write("odd.caddy", refused[0])
+        self.put("odd.caddy", refused[0])
         self.client.post("/routes/odd/adopt")
         self.assertEqual(self.read("odd.caddy"), refused[0])
         self.assertIn("left as it is", self.client.get("/").text)
