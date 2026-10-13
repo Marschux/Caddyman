@@ -140,6 +140,8 @@ The account from the setup page may do everything. Under "Settings", "Users" it 
 accounts and ticks what each of them may do: change routes and reload Caddy, the Root CA page,
 backup and restore, logs, the settings, managing users. An account without any right still sees
 the route list and the status page. The change log on the status page names who did what.
+Changing the mail settings takes two of them, the settings and managing users: the reset
+links of all accounts travel through that mail server.
 
 Every account can switch on two-factor login in its profile: scan the QR code with an
 authenticator app, keep the recovery codes. Whoever manages users can switch it off again for

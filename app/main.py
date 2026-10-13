@@ -442,6 +442,10 @@ async def require_session(request: Request, call_next):
     else:
         CURRENT_USER.set(me["username"])
         right = needed_permission(path)
+        # The mail server carries the reset link of every account, so changing it takes the
+        # right to manage users on top of the one for the settings.
+        if path == "/settings/mail" and request.method == "POST" and "settings" in me["permissions"]:
+            right = "users"
         if right and right not in me["permissions"]:
             return page(request, "forbidden.html", status_code=403, right=PERMISSIONS[right])
         # Where the second factor is required, an account without one gets as far as its profile.
@@ -1163,11 +1167,23 @@ def is_clean_path(value: str) -> bool:
     return value.startswith("/") and ".." not in value.split("/") and value.isprintable()
 
 
+def is_own_ground(value: str) -> bool:
+    """Whether a path leads to where Caddyman keeps its own things: the data directory and /proc.
+
+    The base Caddyfile travels in the backup and to Caddy. Pointed at the secret key or the
+    accounts, it would carry those along.
+    """
+    path = Path(value).resolve()
+    return any(path.is_relative_to(ground) for ground in (DATA_DIR.resolve(), Path("/proc")))
+
+
 def host_problem(host: dict) -> str | None:
     if not is_http_url(host["admin_url"]) or urlsplit(host["admin_url"]).path:
         return "The admin API has to look like http://caddy:2020."
     if host.get("storage") != "managed" and not (is_clean_path(host["caddyfile"]) and is_clean_path(host["sites_dir"])):
         return "Caddyfile and sites directory have to be absolute paths without '..'."
+    if host.get("storage") != "managed" and (is_own_ground(host["caddyfile"]) or is_own_ground(host["sites_dir"])):
+        return "Caddyfile and sites directory have to be those of Caddy, not a place in Caddyman's own data directory."
     if host.get("admin_user") and not AUTH_USER_RE.match(host["admin_user"]):
         return "The admin API username may only contain letters, digits, '.', '_', '@' and '-'."
     snippets = [host[key] for key in ("tls_snippet", "sso_snippet", "dns_snippet") if host[key]]
@@ -3140,11 +3156,13 @@ async def backup_restore(request: Request):
     plan = backup_plan(backup, target)
     # The switches and the mail settings come back only into an empty install.
     with_settings = fresh
+    # Like on the page for it: the mail settings take the right to manage users as well.
+    with_mail = fresh and "users" in request.state.me["permissions"]
     new_groups = [name for name in backup["groups"] if not taken(name, stored_groups())]
     also = [
         *([f"{len(new_groups)} route groups"] if new_groups else []),
         *(["the switches under Settings, General"] if with_settings and backup["settings"] else []),
-        *(["the mail settings, without the password"] if with_settings and backup["mail"] else []),
+        *(["the mail settings, without the password"] if with_mail and backup["mail"] else []),
         *(["the designs of the error pages"] if with_settings and backup["errors"] else []),
     ]
     if not confirmed:
@@ -3168,7 +3186,7 @@ async def backup_restore(request: Request):
         save_hosts([target])
     if with_settings and backup["settings"]:
         save_settings(**backup["settings"])
-    if with_settings and backup["mail"]:
+    if with_mail and backup["mail"]:
         write_json(MAIL_FILE, backup["mail"])
     if with_settings and backup["errors"]:
         write_json(ERRORS_FILE, backup["errors"])

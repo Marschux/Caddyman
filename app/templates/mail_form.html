@@ -47,6 +47,10 @@
 	<label for="sender">Sender</label>
 	<input id="sender" name="sender" type="email" value="{{ mail.sender }}" placeholder="caddyman@example.com">
 
+	{% if "users" in request.state.me.permissions %}
 	<button type="submit">Save</button>
+	{% else %}
+	<p class="empty">Changing these takes the right to manage users as well: the reset links of all accounts travel through this server.</p>
+	{% endif %}
 </form>
 {% endblock %}

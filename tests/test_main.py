@@ -250,6 +250,10 @@ class TestHosts(AppTest):
             {"admin_url": "http://caddy:2019/config"},
             {"caddyfile": "relative/Caddyfile"},
             {"sites_dir": "/etc/caddy/../../root"},
+            # Never Caddyman's own files: the base Caddyfile travels in the backup and to Caddy.
+            {"caddyfile": f"{main.DATA_DIR}/secret.key"},
+            {"sites_dir": str(main.DATA_DIR)},
+            {"caddyfile": "/proc/self/environ"},
             {"tls_snippet": "step ca"},
             {"tls_snippet": "x) {\nevil"},
             {"root_ca_url": "file:///etc/passwd"},
@@ -937,6 +941,19 @@ class TestUsers(RouteTest):
             self.assertEqual(self.client.post("/profile/theme", data={"back": elsewhere}).headers["location"], "/")
         self.assertNotIn("theme", main.load_users()[0])
         self.assertNotIn("data-theme", self.client.get("/").text)
+
+    def test_mail_settings_take_the_right_to_manage_users_too(self):
+        # The reset links of all accounts travel through the mail server.
+        mail = {"host": "smtp.lab.test", "port": "25", "sender": "c@lab.test", "security": "none", "public_url": "https://caddyman.lab.test"}
+        self.add_user("ops", right_settings="1")
+        ops, _ = self.log_in("ops")
+        self.assertEqual(ops.get("/settings/mail").status_code, 200)
+        self.assertEqual(ops.post("/settings/mail", data=mail).status_code, 403)
+        self.assertEqual(main.load_mail()["host"], "")
+        self.add_user("both", right_settings="1", right_users="1")
+        both, _ = self.log_in("both")
+        self.assertEqual(both.post("/settings/mail", data=mail).headers["location"], "/settings/mail")
+        self.assertEqual(main.load_mail()["host"], "smtp.lab.test")
 
     def test_forgotten_password_by_mail(self):
         self.client.post("/profile", data={"realname": "Ada Admin", "email": "ada@lab.test"})
