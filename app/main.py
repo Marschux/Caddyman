@@ -608,14 +608,21 @@ def second_factor_ok(user: dict, code: str) -> bool:
     """Check an app code or a recovery code. Either one works exactly once."""
     secret = totp_secret(user, "totp")
     step = totp_step(secret, code) if secret else None
-    if step is not None and step > user.get("totp_last", 0):
-        update_user(user["username"], totp_last=step)
+    digest = recovery_digest(code)
+    # Looked at and used up under one lock: the same code sent twice at once passes once.
+    with USERS_LOCK:
+        users = load_users()
+        account = find_user(users, user["username"])
+        if account is None:
+            return False
+        if step is not None and step > account.get("totp_last", 0):
+            account["totp_last"] = step
+        elif digest in account.get("recovery", []):
+            account["recovery"].remove(digest)
+        else:
+            return False
+        save_users(users)
         return True
-    left = [digest for digest in user.get("recovery", []) if digest != recovery_digest(code)]
-    if len(left) < len(user.get("recovery", [])):
-        update_user(user["username"], recovery=left)
-        return True
-    return False
 
 
 def pending_user(request: Request) -> dict | None:

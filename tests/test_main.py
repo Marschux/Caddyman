@@ -936,6 +936,10 @@ class TestUsers(RouteTest):
         main.LOGIN_FAILS.pop("testclient")
         self.assertEqual(client.post("/login/code", data={"code": codes[1]}).status_code, 429)
         main.LOGIN_FAILS.clear()
+        # A code is used up where it is checked: an account read a moment earlier does not pass it twice.
+        stale = main.find_user(main.load_users(), "admin")
+        self.assertTrue(main.second_factor_ok(stale, codes[2]))
+        self.assertFalse(main.second_factor_ok(stale, codes[2]))
 
         self.assertEqual(self.client.post("/profile/2fa/disable", data={"current": "wrong"}).status_code, 400)
         self.client.post("/profile/2fa/disable", data={"current": PASSWORD})
