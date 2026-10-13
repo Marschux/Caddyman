@@ -154,8 +154,8 @@ def said(error: Exception) -> str:
 # Set at startup while no admin exists, cleared once setup is done.
 SETUP_TOKEN: str | None = None
 
-# In memory and never pruned, one entry per failing address. Fine for a
-# LAN tool with one worker; move to a bounded store if it is ever exposed publicly.
+# In memory, one entry per failing address or account, dropped once it is neither locked nor
+# recent. Fine for a LAN tool with one worker; move to a shared store if there are ever several.
 LOGIN_FAILS: dict[str, list[float]] = {}  # address or account -> [fail count, locked until, last fail]
 
 
@@ -263,6 +263,9 @@ def locked_seconds(*keys: str) -> int:
 
 def record_fail(*keys: str) -> None:
     now = time.monotonic()
+    for key, entry in list(LOGIN_FAILS.items()):
+        if entry[1] < now and now - entry[2] > FAIL_SECONDS:
+            LOGIN_FAILS.pop(key, None)
     for key in keys:
         entry = LOGIN_FAILS.setdefault(key, [0, 0.0, now])
         if now - entry[2] > FAIL_SECONDS:

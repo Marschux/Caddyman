@@ -174,8 +174,10 @@ class TestAuth(AppTest):
         main.LOGIN_FAILS.clear()
         guest.post("/login", data={"username": "admin", "password": "nope"})
         main.LOGIN_FAILS["testclient"][2] -= main.FAIL_SECONDS + 1
+        main.LOGIN_FAILS["192.0.2.7"] = [3, 0.0, main.time.monotonic() - main.FAIL_SECONDS - 1]
         guest.post("/login", data={"username": "admin", "password": "nope"})
         self.assertEqual(main.LOGIN_FAILS["testclient"][0], 1)
+        self.assertNotIn("192.0.2.7", main.LOGIN_FAILS)  # and is then cleared away
 
     def test_login_locks_after_five_failures(self):
         self.setup_admin()
