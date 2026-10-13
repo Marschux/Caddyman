@@ -2127,9 +2127,6 @@ def pick_host() -> tuple[list[dict], dict | None]:
 
 def route_form_page(request: Request, host: dict, route: dict, error: str | None = None, **context):
     context.setdefault("status_code", 400 if error else 200)
-    # Hostnames and targets of the real routes, for the game hidden in this form.
-    proxied = [item["route"] for item in list_routes(host) if item["route"] and item["route"]["type"] == "reverse_proxy"]
-    context["game_routes"] = [[item["host"], item["upstream"]] for item in proxied]
     context["groups"] = load_groups(host)
     return page(request, "route_form.html", host=host, route=route, error=error, acme_ca=acme_ca_available(host), sso=has_snippet(host, "sso_snippet"), dns=has_snippet(host, "dns_snippet"), **context)
 

@@ -564,12 +564,10 @@ class TestRoutes(RouteTest):
             handle.write("legacy.lab.test {\n\trespond 200\n}\n")
         self.assertIn("legacy.caddy", self.client.get("/").text)
 
-    def test_form_hands_the_real_routes_to_the_game(self):
+    def test_route_list_carries_the_hidden_game(self):
         self.create()
-        self.create(type="static", host="docs", root="/srv/www", tls="none")
-        page = self.client.get("/routes/new").text
-        self.assertIn("""data-game='[["pdf.lab.test", "10.0.0.5:9005"]]'""", page)  # reverse proxies only
-        self.assertIn('<script src="/static/game.js" defer>', page)
+        self.assertIn('<script src="/static/game.js" defer>', self.client.get("/").text)
+        self.assertNotIn("game.js", self.client.get("/routes/new").text)
         self.assertEqual(self.client.get("/static/game.js").status_code, 200)
         # The name itself stays an ordinary hostname for the server: the game lives in the browser.
         self.assertEqual(self.create(host="candyman").headers["location"], "/")

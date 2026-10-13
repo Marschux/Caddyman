@@ -394,14 +394,9 @@ fieldset.choice input { position: absolute; opacity: 0; pointer-events: none; }
 .game header { position: static; gap: 16px; }
 .game-score { margin-right: auto; color: var(--ink-muted); }
 .game-field { position: relative; flex: 1; overflow: hidden; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; }
-.game-request { position: absolute; top: 0; left: 50%; transform: translate(-50%, -100%); padding: 8px 14px; white-space: nowrap; color: var(--ink); background: var(--surface-1); border: 1px solid var(--product); border-radius: 8px; font-family: var(--mono); }
-.game-request.expired { border-color: var(--error); color: var(--error); }
-.game-say { margin: 0; font-size: 22px; font-weight: 600; color: var(--ok); text-align: center; }
-.game-say.bad { color: var(--error); }
-.game-field button { width: auto; margin: 0; }
-.game-backends { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; padding: 0 8px; }
-.game-backends button { margin: 0; padding: 16px; color: var(--ink); background: var(--surface-1); border: 1px solid var(--hairline); border-radius: 12px; font-family: var(--mono); font-weight: 500; }
-.game-backends button:hover { background: var(--surface-2); border-color: var(--hairline-strong); }
+/* Drawn in its own units and scaled to the window. */
+.game-canvas { width: min(100% - 32px, 960px); height: auto; }
+.game-say { min-height: 27px; margin: 0; font-size: 22px; font-weight: 600; color: var(--ink); text-align: center; }
 .game-help { margin: 12px; color: var(--ink-subtle); font-size: 13px; text-align: center; }
 
 @media (max-width: 768px) {
