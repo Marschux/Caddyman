@@ -1,9 +1,11 @@
-// "Cert Runner" - a hidden game. Type the name into the search of the route list and press Enter.
+// "Cert Runner" - a hidden game. Type the name into the search of the route list and press Enter
+// five times: the one it is named after only comes when he is called five times.
 (() => {
 	const search = document.querySelector('#route-filter input[name="q"]');
 	if (!search) return;
 
 	const NAME = "candyman";
+	const CALLS = 5;
 	const BEST = "caddyman-runner-best";
 	// The field in its own units; the canvas is scaled to the window by CSS.
 	const WIDTH = 800, HEIGHT = 240, GROUND = 200;
@@ -22,9 +24,14 @@
 	];
 	const KEYS = [" ", "ArrowUp", "w"];
 
+	// How often Enter was pressed on the name. Typing anything starts the count again.
+	let called = 0;
+	search.addEventListener("input", () => { called = 0; });
 	search.addEventListener("keydown", (event) => {
 		if (event.key !== "Enter" || search.value.trim().toLowerCase() !== NAME) return;
 		event.preventDefault();
+		called += 1;
+		if (called < CALLS) return;
 		search.value = "";
 		search.dispatchEvent(new Event("input", { bubbles: true }));
 		play();
@@ -55,17 +62,19 @@
 		const box = element("div", "game");
 		box.setAttribute("role", "dialog");
 		box.setAttribute("aria-label", "Cert Runner");
-		const score = element("span", "game-score");
+		const score = element("p", "game-score");
+		const top = element("p", "game-best");
 		const close = element("button", "link", "Close");
 		close.type = "button";
 		const header = element("header", "");
-		header.append(element("strong", "", "Cert Runner"), score, close);
+		header.append(element("strong", "", "Cert Runner"), close);
 		const canvas = element("canvas", "game-canvas");
 		canvas.width = WIDTH;
 		canvas.height = HEIGHT;
 		const say = element("p", "game-say");
 		const field = element("div", "game-field");
-		field.append(canvas, say);
+		// The score stands in the middle, above the field, where the eyes are anyway.
+		field.append(score, top, canvas, say);
 		box.append(header, field, element("p", "game-help", "Space, arrow up or a click: jump. Hold for a higher jump. Esc: close."));
 		document.body.append(box);
 
@@ -132,12 +141,14 @@
 			draw();
 			const points = Math.floor(distance / 10);
 			if (!hit) {
-				score.textContent = `Score ${points} - best ${Math.max(record, points)}`;
+				score.textContent = points;
+				top.textContent = `Best ${Math.max(record, points)}`;
 				frame = requestAnimationFrame(step);
 				return;
 			}
 			over = true;
-			score.textContent = `Score ${points} - best ${best(points)}`;
+			score.textContent = points;
+			top.textContent = `Best ${best(points)}`;
 			say.textContent = `${hit.end}. Space to run again.`;
 		}
 
