@@ -83,6 +83,12 @@ def find_zone(name) -> ZoneInfo | None:
         return None
 
 
+@lru_cache
+def zone_names() -> list[str]:
+    """Every time zone this system knows. Collected once: gathering them walks a directory tree."""
+    return sorted(available_timezones())
+
+
 # The zone the times in the logs and the change log are shown in unless one is chosen under
 # Settings. What is stored stays UTC.
 TIME_ZONE = find_zone(os.getenv("TZ")) or ZoneInfo("UTC")
@@ -520,6 +526,8 @@ PENDING_COOKIE = "caddyman_2fa"
 PENDING_SECONDS = 300
 PENDING = URLSafeTimedSerializer(SECRET_KEY, salt="2fa")
 TOTP_SECONDS = 30
+# Everything a second factor leaves on an account.
+TOTP_KEYS = ("totp", "totp_pending", "totp_last", "recovery")
 RECOVERY_CODES = 8
 
 
@@ -826,7 +834,7 @@ def profile_2fa_disable(request: Request, current: str = Form("")):
     me = request.state.me
     if not check_password(current, me["password_hash"]):
         return profile_page(request, status_code=400, totp_error="The password is wrong.")
-    update_user(me["username"], **{key: None for key in ("totp", "totp_pending", "totp_last", "recovery") if key in me})
+    update_user(me["username"], **{key: None for key in TOTP_KEYS if key in me})
     return redirect("/profile", "ok", "Two-factor login is switched off.")
 
 
@@ -849,7 +857,7 @@ def settings_caddy():
 def settings_security(request: Request):
     without = [user["username"] for user in load_users() if not user.get("totp")]
     settings = load_settings()
-    zones = {"chosen": settings.get("time_zone", ""), "fallback": TIME_ZONE.key, "zones": sorted(available_timezones())}
+    zones = {"chosen": settings.get("time_zone", ""), "fallback": TIME_ZONE.key, "zones": zone_names()}
     return page(request, "settings_security.html", settings=settings, without=without, **zones)
 
 
@@ -974,7 +982,7 @@ async def user_save(request: Request, name: str | None = None):
             # Shown in the list until the account has a password of its own.
             user["invited"] = True
         if existing and form.get("reset_totp"):
-            for key in ("totp", "totp_pending", "totp_last", "recovery"):
+            for key in TOTP_KEYS:
                 user.pop(key, None)
         save_users([user if other is existing else other for other in users] if existing else [*users, user])
     if existing and existing["username"] == request.state.user and password:
