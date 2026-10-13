@@ -1,5 +1,13 @@
 # Changelog
 
+## 2026-10-13 22:38
+- chore: version 0.16.1
+- docs: the README is shorter: one line per feature, six variables, six things to know, and no word on user management being left out
+- docs: the README drops the section on users
+- docs: the README drops the Logs screenshot, the note on optional blocks and the section on the admin API
+- docs: the installation is five short steps, the optional blocks are left to the pages that show them
+
+
 ## 2026-10-13 22:24
 - chore: version 0.16.0
 - feat: logging out ends every session of the account, the email address changes only with the password, an import takes the right for routes, and what Caddy said to a rejected reload is shown only to who may change routes
