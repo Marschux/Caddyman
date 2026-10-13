@@ -76,6 +76,9 @@ FAIL_SECONDS = 600
 # bcrypt reads 72 bytes and no further; a longer password would be cut silently.
 MAX_PASSWORD_BYTES = 72
 MIN_PASSWORD_CHARS = 8
+# No form of Caddyman comes near this. The largest is an import, which carries its archive of
+# up to 512 KiB as text.
+MAX_BODY_BYTES = 2 * 1024 * 1024
 
 
 def find_zone(name) -> ZoneInfo | None:
@@ -450,8 +453,13 @@ async def require_session(request: Request, call_next):
         return Response("Caddyman only answers over HTTPS. Open it under the name of its route.", status_code=403, media_type="text/plain")
     # A form sent from a page elsewhere would come with the visitor's session. What Caddy passes
     # on to an error page is somebody else's request and changes nothing here.
-    if request.method not in ("GET", "HEAD", "OPTIONS") and not path.startswith("/error/") and foreign_origin(request):
-        return Response("This request was sent from another site. Open Caddyman and try again from there.", status_code=403, media_type="text/plain")
+    if request.method not in ("GET", "HEAD", "OPTIONS") and not path.startswith("/error/"):
+        if foreign_origin(request):
+            return Response("This request was sent from another site. Open Caddyman and try again from there.", status_code=403, media_type="text/plain")
+        # Refused before a byte of it is read. A body that does not say how long it is could be any size.
+        length = request.headers.get("content-length", "0")
+        if "transfer-encoding" in request.headers or not length.isdigit() or int(length) > MAX_BODY_BYTES:
+            return Response("This request is larger than anything Caddyman takes.", status_code=413, media_type="text/plain")
     users = load_users()
     me = request.state.me = session_user(request, users)
     request.state.user = me["username"] if me else None

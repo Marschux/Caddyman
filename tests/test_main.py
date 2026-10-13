@@ -161,6 +161,15 @@ class TestAuth(AppTest):
         # A failed request that Caddy hands to an error page keeps the headers of its visitor.
         self.assertEqual(self.client.post("/error/502", headers={"sec-fetch-site": "cross-site"}).status_code, 502)
 
+    def test_a_request_larger_than_any_form_is_refused(self):
+        self.setup_admin()
+        large = "x" * (main.MAX_BODY_BYTES + 1)
+        self.assertEqual(self.client.post("/login", data={"username": large}).status_code, 413)
+        self.assertEqual(self.client.post("/login", content=iter([b"username=x"])).status_code, 413)  # no length given
+        self.assertEqual(self.client.post("/logout").headers["location"], "/login")
+        # What Caddy hands to an error page is somebody else's request and is never read.
+        self.assertEqual(self.guest().post("/error/502", content=large.encode()).status_code, 502)
+
     def test_another_login_does_not_reset_the_limit(self):
         self.setup_admin()
         self.client.post("/settings/users/new", data={"username": "bob", "password": PASSWORD, "repeat": PASSWORD})
