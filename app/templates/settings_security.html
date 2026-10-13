@@ -22,8 +22,8 @@
 		Only answer over HTTPS</label>
 	<small>Caddyman then refuses plain HTTP, also on its own port, and sends a browser to its route where it
 		knows one. Can only be switched on from a page that came in over HTTPS. If the route to Caddyman is ever
-		lost: put <code>CADDYMAN_RESET_HTTPS_ONLY=1</code> into the <code>.env</code> file, start the container
-		again, and take the line out afterwards. The root CA page and the error pages stay reachable either way.</small>
+		lost: put <code>CADDYMAN_RESET_HTTPS_ONLY=true</code> into the <code>.env</code> file, start the container
+		again, and set it back to <code>false</code> afterwards. The root CA page and the error pages stay reachable either way.</small>
 
 	<button type="submit">Save</button>
 </form>

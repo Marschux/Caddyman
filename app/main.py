@@ -332,7 +332,7 @@ def https_only() -> bool:
 def reset_https_only() -> None:
     if RESET_HTTPS_ONLY and https_only():
         save_settings(https_only="")
-        print("CADDYMAN_RESET_HTTPS_ONLY is set: plain HTTP is answered again. Remove the variable now.", flush=True)
+        print("CADDYMAN_RESET_HTTPS_ONLY is true: plain HTTP is answered again. Set it back to false now.", flush=True)
 
 
 # The way in: logging in, the second factor and a forgotten password.
