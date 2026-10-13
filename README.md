@@ -27,24 +27,10 @@ and a change Caddy rejects is undone on the spot.
 
 ## Installation
 
-**1. Prepare the base Caddyfile.** The status page checks each of these and shows what is missing.
+**1. Add two blocks to Caddy's base Caddyfile** and restart Caddy. Create the hash with
+`docker exec -it caddy caddy hash-password`, and do not publish port 2020.
 
 ```
-{
-	log caddyman {
-		output file /var/log/caddy/caddy.log
-		format json
-		exclude http.log.access
-	}
-}
-
-(stepca) {
-	tls {
-		ca https://ca.home.example/acme/acme/directory
-		ca_root /etc/caddy/root_ca.crt
-	}
-}
-
 :2020 {
 	basic_auth {
 		caddyman <hash>
@@ -57,70 +43,22 @@ and a change Caddy rejects is undone on the spot.
 import /etc/caddy/sites/*.caddy
 ```
 
-| Block | Needed for |
-|---|---|
-| `:2020` site | Caddyman reaching Caddy's admin API, behind a login. Required. Create the hash with `docker exec -it caddy caddy hash-password` |
-| `import` | The routes. Required |
-| `(stepca)` snippet | The TLS mode "Own ACME CA". Optional; the name is up to you |
-| a DNS snippet | The TLS mode "Let's Encrypt over DNS", see below. Optional |
-| an SSO snippet | Putting a route behind your single sign-on with one tick: a snippet holding the `forward_auth` of Authelia, Authentik or the like. Optional |
-| `log caddyman` | The Logs page. Optional; `docker logs` keeps working next to it |
+**2. Start Caddyman** with [`docker/compose.yml`](docker/compose.yml). Adjust the host paths and
+the Docker network `proxy-net` to your setup.
 
-Do not publish port 2020. Restart Caddy after editing the file.
+**3. Create the account** at `http://<host>:5052/setup` with the token from
+`docker logs caddyman`, or set `CADDYMAN_SETUP_TOKEN` before the first start.
 
-**2. Start Caddyman** with [`docker/compose.yml`](docker/compose.yml). It mounts Caddy's
-Caddyfile, sites directory and log directory at the paths the Caddy container uses and joins the
-Docker network `proxy-net`. Adjust the host paths and the network to your setup.
+**4. Enter the login of the `:2020` site** when Caddyman asks where Caddy runs. The other
+defaults fit the compose file.
 
-**3. Create the account.** Open `http://<host>:5052/setup` and enter the token from
-`docker logs caddyman`. No way to read the log? Set `CADDYMAN_SETUP_TOKEN` to a token of your
-own before the first start.
+**5. Put Caddyman behind HTTPS** with one click on the status page. Until then your login
+crosses the network in the clear.
 
-**4. Tell Caddyman where Caddy runs.** The defaults fit the compose file; add the username and
-password of the `:2020` site.
-
-**5. Put Caddyman itself behind HTTPS.** Until then your login crosses the network in the clear.
-The status page offers the route with one click. Caddyman believes the Caddy it manages when
-that says a request came in over HTTPS, so nothing has to be set for it. Only another proxy in
-front needs `CADDYMAN_FORWARDED_ALLOW_IPS`; the status page says so if that is the case.
-
-To have even the setup page behind HTTPS, put the route into the sites directory by hand, restart
-Caddy, and open Caddyman under that name for step 3. It shows up in the route list later and can be adopted
-there:
-
-```
-caddyman.home.example {
-	import stepca
-	reverse_proxy caddyman:5052
-}
-```
-
-**Let's Encrypt over DNS.** A name that is not reachable from the internet can still get a public
-certificate when Caddy proves the name through your DNS provider. That needs a
-Caddy built with the provider's plugin, for instance:
-
-```dockerfile
-FROM caddy:2-builder AS builder
-RUN xcaddy build --with github.com/caddy-dns/cloudflare
-
-FROM caddy:2-alpine
-COPY --from=builder /usr/bin/caddy /usr/bin/caddy
-```
-
-The Caddy settings show this Dockerfile, the variables and the snippet for a dozen providers, ready to
-copy. Give that Caddy the token in its environment, add a snippet to the base Caddyfile above the `import`
-line, and name it in the Caddy settings as "DNS snippet". The token never reaches Caddyman; the status
-page asks Caddy whether it can read the snippet.
-
-```
-(dns) {
-	tls {
-		dns cloudflare {env.CLOUDFLARE_API_TOKEN}
-	}
-}
-```
-
-Settings are optional and go into a `.env`, see [`docker/.env.example`](docker/.env.example).
+Everything else is optional, and Caddyman shows the block to copy where it is used: the status
+page and the Caddy settings for your own ACME CA, for Let's Encrypt over DNS (which needs a Caddy
+built with your provider's plugin) and for single sign-on, the Logs page for Caddy's log.
+Settings go into a `.env`, see [`docker/.env.example`](docker/.env.example).
 
 ![Logs page](assets/screenshot-logs.png)
 
