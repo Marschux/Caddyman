@@ -3065,14 +3065,14 @@ def read_backup(data: bytes) -> dict:
                 extra["Caddyfile"] = archive.read(item).decode("utf-8")
             elif item.filename != "README.txt":
                 ignored.append(item.filename)
-    except (zipfile.BadZipFile, UnicodeDecodeError, json.JSONDecodeError, RuntimeError, NotImplementedError):
+    except (zipfile.BadZipFile, zlib.error, UnicodeDecodeError, json.JSONDecodeError, RuntimeError, NotImplementedError):
         raise ValueError("This is not a readable Caddyman backup.") from None
     hosts = []
     saved = extra.get("hosts.json")
     for item in saved if isinstance(saved, list) else []:
         if not isinstance(item, dict):
             continue
-        host = {key: str(item.get(key, default)) for key, default in HOST_DEFAULTS.items()}
+        host = {key: str(item.get(key, default)).strip() for key, default in HOST_DEFAULTS.items()}
         host["storage"] = item.get("storage") if item.get("storage") in STORAGES else "mounted"
         if host_problem(host) is None:
             host_id = str(item.get("id", ""))

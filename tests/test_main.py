@@ -1723,6 +1723,11 @@ class TestBackup(RouteTest):
         self.assertEqual(os.listdir(self.sites), ["pdf.caddy"])
         self.assertEqual(self.read("pdf.caddy"), "changed\n")
 
+    def test_an_archive_that_does_not_unpack_is_refused(self):
+        data = self.make_zip({"sites/pdf.caddy": "x"})
+        with mock.patch.object(zipfile.ZipFile, "read", side_effect=main.zlib.error("invalid stored block lengths")):
+            self.assertEqual(self.upload(data).status_code, 400)
+
     def test_archive_cannot_write_outside_the_sites_directory(self):
         evil = self.make_zip(
             {
