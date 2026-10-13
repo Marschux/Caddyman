@@ -1,7 +1,7 @@
 {# The blocks of the Settings tab, as a list at the left edge. Shown by right, like the main
    tabs; the server checks again. The layout comes from app.css: whatever follows sits beside it. #}
 {% set rights = request.state.me.permissions %}
-{% set here = request.url.path %}
+{% set here = request.scope["path"] %}
 <h1>Settings</h1>
 <aside class="side">
 	{% if "settings" in rights %}

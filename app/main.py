@@ -392,7 +392,9 @@ def needed_permission(path: str) -> str | None:
 
 @app.middleware("http")
 async def require_session(request: Request, call_next):
-    path = request.url.path
+    # The path the router goes by. request.url is put together from the Host header, which the
+    # client writes: "Host: x/login?" would turn every address into /login there.
+    path = request.scope["path"]
     # Switched on under Settings: nothing but HTTPS. What Caddy fetches itself and the root
     # certificate stay open, or the error pages and the way to trust the CA would be cut off.
     if request.url.scheme != "https" and path != "/healthz" and not path.startswith(("/static/", "/error/")) and path not in PUBLIC_PATHS and https_only():

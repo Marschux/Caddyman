@@ -132,6 +132,21 @@ class TestAuth(AppTest):
         self.client.cookies.set(main.SESSION_COOKIE, "admin.forged")
         self.assertEqual(self.client.get("/").headers["location"], "/login")
 
+    def test_host_header_cannot_move_the_path(self):
+        # The rights go by the path the router uses, not by a URL rebuilt from the Host header.
+        self.setup_admin()
+        new = {"username": "eve", "password": PASSWORD, "repeat": PASSWORD, "right_users": "1"}
+        guest, bent = self.guest(), {"host": "x/login?"}
+        self.assertEqual(guest.get("/settings/users", headers=bent).headers["location"], "/login")
+        self.assertEqual(guest.post("/settings/users/new", data=new, headers=bent).headers["location"], "/login")
+        self.assertIsNone(main.find_user(main.load_users(), "eve"))
+        # An account without rights gets no further with it either.
+        self.client.post("/settings/users/new", data={"username": "viewer", "password": PASSWORD, "repeat": PASSWORD})
+        guest.post("/login", data={"username": "viewer", "password": PASSWORD})
+        self.assertEqual(guest.get("/settings/users", headers={"host": "x/profile?"}).status_code, 403)
+        self.assertEqual(guest.post("/settings/users/new", data=new, headers={"host": "x/profile?"}).status_code, 403)
+        self.assertIsNone(main.find_user(main.load_users(), "eve"))
+
     def test_login_locks_after_five_failures(self):
         self.setup_admin()
         self.client.post("/logout")
