@@ -1,0 +1,31 @@
+{% extends "errors/base.html" %}
+{% block style %}
+		/* Stars: a few dots per tile, three tiles of different size so the pattern does not show. */
+		body { color: #9aa7d6; background-color: #070b1f; overflow: hidden;
+			background-image: radial-gradient(1.5px 1.5px at 20px 30px, #fff, transparent), radial-gradient(1px 1px at 90px 120px, #cfd8ff, transparent), radial-gradient(1.5px 1.5px at 160px 60px, #fff, transparent),
+				radial-gradient(1px 1px at 60px 200px, #fff, transparent), radial-gradient(2px 2px at 240px 150px, #b9c6ff, transparent), radial-gradient(1px 1px at 130px 260px, #fff, transparent);
+			background-size: 200px 200px, 200px 200px, 200px 200px, 310px 310px, 310px 310px, 430px 430px; }
+		svg { width: 220px; animation: drift 6s ease-in-out infinite; }
+		.code { margin-top: 8px; color: #fff; font-size: 72px; font-weight: 800; line-height: 1; letter-spacing: 6px; text-shadow: 0 0 24px #5b7cff; }
+		h1 { margin-top: 12px; color: #dfe5ff; font-size: 24px; font-weight: 600; }
+		p { margin-top: 8px; }
+		small { margin-top: 20px; color: #5f6da3; font-size: 13px; font-family: ui-monospace, Consolas, monospace; }
+		@keyframes drift { 50% { transform: translateY(-12px) rotate(3deg); } }
+		@media (prefers-reduced-motion: reduce) { svg { animation: none; } }
+{% endblock %}
+{% block body %}
+	<svg viewBox="0 0 220 140" aria-hidden="true">
+		<path d="M24 92C40 112 180 60 196 44" fill="none" stroke="#8ea2ff" stroke-width="6" stroke-linecap="round" opacity="0.5"/>
+		<circle cx="110" cy="70" r="46" fill="#5b7cff"/>
+		<path d="M68 52c22 8 58 6 84-6M66 80c28 10 62 8 88-4M78 104c20 6 44 5 62-2" fill="none" stroke="#3f5be0" stroke-width="7" stroke-linecap="round"/>
+		<circle cx="92" cy="50" r="7" fill="#7f99ff"/>
+		<path d="M24 92C40 112 180 60 196 44" fill="none" stroke="#c9d3ff" stroke-width="6" stroke-linecap="round" stroke-dasharray="70 400"/>
+		<path d="M196 44C190 52 160 68 152 72" fill="none" stroke="#c9d3ff" stroke-width="6" stroke-linecap="round"/>
+		<circle cx="190" cy="108" r="6" fill="#ffd27a"/>
+		<circle cx="34" cy="30" r="4" fill="#ff9fb2"/>
+	</svg>
+	<div class="code">{{ code }}</div>
+	<h1>{{ title }}</h1>
+	<p>{{ text }}</p>
+	{% if host %}<small>{{ host }}</small>{% endif %}
+{% endblock %}

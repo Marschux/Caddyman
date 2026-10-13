@@ -1,0 +1,42 @@
+{% extends "errors/base.html" %}
+{% block style %}
+		body { color: #7a5a9a; background: #fbf0ff; overflow: hidden; }
+		/* The rainbow the unicorn stands in front of: rings of one colour each, cut off by the page. */
+		body::before { content: ""; position: fixed; left: 50%; bottom: -55vmin; width: 150vmin; height: 150vmin; transform: translateX(-50%); border-radius: 50%; opacity: 0.55;
+			background: radial-gradient(closest-side, #fbf0ff 62%, #c9a7ff 62% 68%, #9fd0ff 68% 74%, #a8f0c6 74% 80%, #fff3a3 80% 86%, #ffc9a3 86% 92%, #ffa9c6 92% 98%, transparent 98%); }
+		body > * { position: relative; }
+		svg { width: 170px; animation: bob 3.5s ease-in-out infinite; }
+		h1 { margin-top: 12px; color: #5b2a86; font-size: 32px; font-weight: 800; }
+		h1 span { color: #ff6fa5; }
+		p { margin-top: 8px; }
+		small { margin-top: 20px; font-size: 13px; opacity: 0.8; }
+		.spark { position: fixed; color: #ffb703; font-size: 22px; animation: twinkle 2s ease-in-out infinite; }
+		@keyframes bob { 50% { transform: translateY(-10px) rotate(-2deg); } }
+		@keyframes twinkle { 50% { opacity: 0.2; transform: scale(0.6); } }
+		@media (prefers-reduced-motion: reduce) { svg, .spark { animation: none; } }
+{% endblock %}
+{% block body %}
+	<span class="spark" style="top: 16%; left: 22%">&#10022;</span>
+	<span class="spark" style="top: 24%; right: 20%; animation-delay: 0.7s">&#10022;</span>
+	<span class="spark" style="top: 58%; left: 14%; animation-delay: 1.2s">&#10022;</span>
+	<span class="spark" style="top: 50%; right: 13%; animation-delay: 0.3s">&#10022;</span>
+	<svg viewBox="0 0 200 200" aria-hidden="true">
+		<g fill="none" stroke-width="13" stroke-linecap="round">
+			<path d="M98 62C58 74 34 118 40 190" stroke="#ff8fb8"/>
+			<path d="M92 76C64 92 50 128 54 190" stroke="#b58cff"/>
+			<path d="M90 92C74 110 66 140 68 190" stroke="#7cc4ff"/>
+		</g>
+		<path d="M128 60 152 6 146 68z" fill="#ffc94a"/>
+		<path d="M133 46l12 5M137 34l10 4M141 22l7 3" stroke="#e79a1c" stroke-width="3" stroke-linecap="round"/>
+		<path d="M98 68 100 34 122 60z" fill="#fff" stroke="#e6d3f5" stroke-width="2"/>
+		<path d="M104 60 104 44 114 58z" fill="#ffc0d9"/>
+		<path d="M66 192C60 142 64 100 88 76c16-16 40-22 56-10l30 44c7 11 0 24-14 22l-34-6c-8 16-6 40-1 66z" fill="#fff" stroke="#e6d3f5" stroke-width="2"/>
+		<circle cx="136" cy="94" r="5" fill="#3b2352"/>
+		<circle cx="138" cy="92" r="1.6" fill="#fff"/>
+		<circle cx="165" cy="119" r="2.2" fill="#c9a5dd"/>
+		<circle cx="120" cy="112" r="8" fill="#ffc0d9" opacity="0.7"/>
+	</svg>
+	<h1><span>{{ code }}</span> {{ title }}</h1>
+	<p>{{ text }}</p>
+	{% if host %}<small>{{ host }}</small>{% endif %}
+{% endblock %}

@@ -1499,7 +1499,10 @@ ERROR_PAGES = {
     "504": ("Gateway timeout", "The service behind this address took too long to answer."),
     "blocked": ("Blocked", "This address is blocked on this network."),
 }
-ERROR_DESIGNS = {"caddyman": "Caddyman", "ghost": "Ghost", "terminal": "Terminal", "connection": "Connection", "minimal": "Minimal"}
+ERROR_DESIGNS = {
+    "caddyman": "Caddyman", "ghost": "Ghost", "terminal": "Terminal", "connection": "Connection", "minimal": "Minimal",
+    "unicorn": "Unicorn", "space": "Space", "gaming": "Gaming", "forest": "Forest",
+}
 # Never 401: the answer to it has to carry the question for the login, which gets lost on the way.
 ERRORS_HANDLED = " ".join(code for code in ERROR_PAGES if code.isdigit())
 ERRORS_FILE = DATA_DIR / "errors.json"

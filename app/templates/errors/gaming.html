@@ -1,0 +1,27 @@
+{% extends "errors/base.html" %}
+{# An arcade screen after the last life. #}
+{% block style %}
+		body { color: #fff; background: #0b0014; font: 700 16px/1.6 ui-monospace, "Cascadia Code", Consolas, monospace; text-transform: uppercase; letter-spacing: 2px; }
+		/* The lines of an old tube, across everything. */
+		body::after { content: ""; position: fixed; inset: 0; pointer-events: none; background: repeating-linear-gradient(transparent 0 3px, rgba(0, 0, 0, 0.35) 3px 4px); }
+		.lives { display: flex; gap: 10px; }
+		.lives svg { width: 36px; fill: #ff2e88; }
+		.lives svg + svg { fill: #3a2350; }
+		.over { margin-top: 28px; color: #ffe600; font-size: clamp(40px, 10vw, 84px); line-height: 1.05; letter-spacing: 6px; text-shadow: 4px 4px 0 #ff2e88, -2px -2px 0 #00e5ff; }
+		h1 { margin-top: 20px; color: #00e5ff; font-size: 20px; }
+		p { margin-top: 10px; max-width: 520px; color: #c9b8e8; font-size: 13px; }
+		.coin { margin-top: 32px; color: #fff; font-size: 14px; animation: blink 1s steps(1) infinite; }
+		small { margin-top: 16px; color: #6d5a8c; font-size: 11px; }
+		@keyframes blink { 50% { visibility: hidden; } }
+		@media (prefers-reduced-motion: reduce) { .coin { animation: none; } }
+{% endblock %}
+{% block body %}
+	<div class="lives" aria-hidden="true">
+		{% for life in range(3) %}<svg viewBox="0 0 7 6" shape-rendering="crispEdges"><path d="M1 0h2v1h1V0h2v1h1v2H6v1H5v1H4v1H3V5H2V4H1V3H0V1h1z"/></svg>{% endfor %}
+	</div>
+	<div class="over">Game over</div>
+	<h1>Error {{ code }}: {{ title }}</h1>
+	<p>{{ text }}</p>
+	<div class="coin">Press F5 to continue</div>
+	{% if host %}<small>Stage: {{ host }}</small>{% endif %}
+{% endblock %}
