@@ -1,5 +1,29 @@
 # Changelog
 
+## 2026-10-13 02:09
+- chore: version 0.13.3
+- feat: a new hidden game, Cert Runner, started from the search of the route list
+- feat: wildcard names for routes, with the DNS challenge or Caddy's internal CA
+- docs: new screenshot of the route list
+- feat: the route list checks the target of every path as well
+- feat: the Caddy settings show image, variables and snippet for the DNS challenge per provider
+- feat: Let's Encrypt over the DNS challenge as a TLS mode, through a snippet in the base Caddyfile
+- feat: the status page says when a snippet stands below the import of the routes
+- feat: a route can send the HSTS header
+- feat: a route can be put behind a single sign-on through a forward_auth snippet
+- feat: paths of a route can go to targets of their own
+- fix: an added hostname field shows a hint instead of an example that reads like a value
+- feat: further hostnames get a field each, added by a button and laid out in two columns
+- feat: a route can answer to more hostnames besides its main one
+- fix: a switched-off route no longer shows two shades under the pointer
+- feat: a route can be limited to addresses and networks, everybody else gets a 403
+- feat: a route can be switched off and on again from the route list, its file is kept
+- feat: a route can skip the certificate check of an https target with a self-signed certificate
+- feat: sub-page titles stand above the content, rights are written out, the theme button stays at the right in a narrow window
+- fix: a table beside the side list scrolls below 1100px instead of running off the page
+- chore: ignore docs, screenshots live under assets
+
+
 ## 2026-10-12 23:58
 - moved folder
 
