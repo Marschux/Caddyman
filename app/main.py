@@ -2520,6 +2520,9 @@ def error_pages_view(request: Request, code: str = ""):
     if not code:
         routes = [item["route"] for item in list_routes(current) if item["route"]]
         context.update(catch_all=catch_all_state(current), users=sum(1 for route in routes if route.get("errors")))
+        # Caddy next door shares the machine: where the browser reached Caddyman by number, that is its address too.
+        there = request.url.hostname or ""
+        context["caddy_ip"] = there if current.get("storage") != "managed" and re.fullmatch(r"[0-9.]+", there) else ""
     return page(request, "error_pages.html", **context)
 
 

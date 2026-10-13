@@ -1971,7 +1971,7 @@ class TestEdit(RouteTest):
         written = f"http:// {{\n\trewrite * /error/blocked\n\treverse_proxy caddyman:{main.OWN_PORT}\n}}\n"
         self.assertEqual(self.read("catch-all.caddy").split("\n", 1)[1], written)
         self.assertIn(">Error page<", self.client.get("/").text)
-        self.assertIn("Remove the route", self.client.get("/error-pages").text)
+        self.assertIn("Switch off and reload Caddy", self.client.get("/error-pages").text)
         # It has no form of its own.
         self.assertEqual(self.client.get("/routes/catch-all/edit").headers["location"], "/error-pages")
         self.client.post("/error-pages/catch-all")
