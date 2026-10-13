@@ -212,6 +212,16 @@ class TestAuth(AppTest):
         main.LOGIN_FAILS.clear()
         response = self.client.post("/login", data={"username": "admin", "password": PASSWORD})
         self.assertEqual(response.headers["location"], "/")
+        # Counted per name too: a new address for every attempt does not get around the limit.
+        self.client.post("/logout")
+        main.LOGIN_FAILS.clear()
+        main.resolve_addresses.return_value = {"testclient"}  # the peer counts as Caddy and is believed
+        main.CADDY_ADDRESSES["until"] = 0.0
+        answers = [
+            self.client.post("/login", data={"username": "Admin ", "password": "nope"}, headers={"x-forwarded-for": f"198.51.100.{count}"}).status_code
+            for count in range(main.MAX_LOGIN_FAILS + 1)
+        ]
+        self.assertEqual(answers, [401] * main.MAX_LOGIN_FAILS + [429])
 
 
 class TestHosts(AppTest):
@@ -519,7 +529,7 @@ class TestRoutes(RouteTest):
         # Then the session cookie is marked Secure, and the login limit counts the visitor, not Caddy.
         guest = self.guest()
         answer = guest.post("/login", data={"username": "admin", "password": "wrong"}, headers=through)
-        self.assertEqual(list(main.LOGIN_FAILS), ["203.0.113.9"])
+        self.assertEqual(list(main.LOGIN_FAILS), ["203.0.113.9", "login:admin"])
         answer = guest.post("/login", data={"username": "admin", "password": PASSWORD}, headers=through)
         self.assertIn("Secure", answer.headers["set-cookie"])
         # The same headers from anywhere else change nothing.
@@ -1053,12 +1063,15 @@ class TestUsers(RouteTest):
     def test_import_takes_the_right_for_routes_too(self):
         self.add_user("keeper", right_backup="1")
         keeper, _ = self.log_in("keeper")
-        self.assertEqual(keeper.get("/backup/download").status_code, 200)
+        # The archive holds the route files, with the hashes of their logins: the same two rights.
+        self.assertEqual(keeper.get("/backup/download").status_code, 403)
+        self.assertNotIn('href="/backup/download"', keeper.get("/backup").text)
         self.assertNotIn('action="/backup/import"', keeper.get("/backup").text)
         self.assertEqual(keeper.post("/backup/import", data={"payload": ""}).status_code, 403)
         self.add_user("both", right_backup="1", right_routes="1")
         both, _ = self.log_in("both")
         self.assertIn('action="/backup/import"', both.get("/backup").text)
+        self.assertEqual(both.get("/backup/download").status_code, 200)
         self.assertNotEqual(both.post("/backup/import", data={"payload": ""}).status_code, 403)
 
     def test_trust_page_switched_off_is_part_of_the_root_ca_right(self):

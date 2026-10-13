@@ -432,8 +432,9 @@ AREAS = (
 
 
 # Where the right for the area is not enough, and which one it takes on top. The mail server
-# carries the reset link of every account; an import writes route files word for word.
-SECOND_RIGHT = {("POST", "/settings/mail"): "users", ("POST", "/backup/import"): "routes"}
+# carries the reset link of every account; an import writes route files word for word, and a
+# download hands them out, with the hashes of their logins.
+SECOND_RIGHT = {("POST", "/settings/mail"): "users", ("POST", "/backup/import"): "routes", ("GET", "/backup/download"): "routes"}
 
 
 def needed_permission(path: str) -> str | None:
@@ -589,13 +590,16 @@ def login_form(request: Request):
 @app.post("/login")
 def login_submit(request: Request, username: str = Form(""), password: str = Form("")):
     address = client_address(request)
-    if wait := locked_seconds(address):
+    # Counted against the name as well, whether it exists or not: where somebody gets to pick
+    # the address a request seems to come from, a new one per attempt is no way around the limit.
+    account = f"login:{username.strip().lower()[:64]}"
+    if wait := locked_seconds(address, account):
         return login_page(request, status_code=429, error=f"Too many attempts. Try again in {wait} seconds.")
     user = find_user(load_users(), username.strip())
     # A hash is always checked, so a wrong username takes as long as a wrong password.
     password_ok = check_password(password, user["password_hash"] if user else DUMMY_HASH)
     if not (user and password_ok):
-        record_fail(address)
+        record_fail(address, account)
         return login_page(request, status_code=401, error="Wrong username or password.", username=username)
     if user.get("totp"):
         # Half way in: a short-lived cookie remembers who passed the password, nothing more.

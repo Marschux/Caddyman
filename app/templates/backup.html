@@ -40,7 +40,11 @@
 		It does <strong>not</strong> contain the root CA: that lives in the volume of your CA and needs its own backup,
 		see <a href="/ca">Root CA</a>. It does <strong>not</strong> contain the accounts or any
 		password either; to keep those, back up the data volume of Caddyman.</p>
+	{% if "routes" in request.state.me.permissions %}
 	<a class="button" href="/backup/download">Download backup</a>
+	{% else %}
+	<p class="empty">Downloading takes the right to change routes as well: the archive holds every route file word for word.</p>
+	{% endif %}
 </section>
 {% endif %}
 
