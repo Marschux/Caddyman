@@ -55,34 +55,6 @@ defaults fit the compose file.
 **5. Put Caddyman behind HTTPS** with one click on the status page. Until then your login
 crosses the network in the clear.
 
-## Users
-
-The account from the setup page may do everything. Under "Settings", "Users" it adds further
-accounts and ticks what each of them may do: change routes and reload Caddy, the Root CA page,
-backup and restore, logs, the settings, managing users. An account without any right still sees
-the route list and the status page. The change log on the status page names who did what.
-Changing the mail settings takes two of them, the settings and managing users: the reset
-links of all accounts travel through that mail server. Importing a backup takes backup and
-changing routes, because it writes route files. Logging out ends the sessions of that account
-on every device.
-
-Every account can switch on two-factor login in its profile: scan the QR code with an
-authenticator app, keep the recovery codes. Whoever manages users can switch it off again for
-somebody who lost both. "Settings", "General" makes it a must for every account.
-
-The same block has two switches for the root certificate. "Offer the root CA without a login"
-opens `/trust` and the download to everybody who can reach Caddyman; the people who need the
-certificate are the ones without an account. "Point to the root CA on the login page" shows a
-card below the login form that leads there. Both are on by default.
-
-"Forgot password?" on the login page mails a link that works once and for one hour. It appears
-once a mail server is entered under "Settings", "Mail", and reaches accounts that have an
-email address. Without mail, whoever manages users sets a new password under "Edit". With
-mail, a new account can be created without a password: it gets a link to set its own, good
-for one day. Accounts are only ever created by somebody who manages users. A mail
-server whose certificate comes from your own CA needs that CA's root certificate in the field
-"CA certificate" there.
-
 ## Network only: a Caddy on another machine
 
 Choose "Network only" in the setup dialog instead of "Shared files". That is the layout for
