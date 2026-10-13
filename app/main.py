@@ -70,6 +70,9 @@ SESSION_COOKIE = "caddyman_session"
 SESSION_SECONDS = 7 * 24 * 3600
 MAX_LOGIN_FAILS = 5
 LOCK_SECONDS = 30
+# A failure counts for this long. A login that works does not wipe the count: somebody with an
+# account of their own could otherwise start over between two guesses at another one.
+FAIL_SECONDS = 600
 # bcrypt reads 72 bytes and no further; a longer password would be cut silently.
 MAX_PASSWORD_BYTES = 72
 MIN_PASSWORD_CHARS = 8
@@ -151,7 +154,7 @@ SETUP_TOKEN: str | None = None
 
 # In memory and never pruned, one entry per failing address. Fine for a
 # LAN tool with one worker; move to a bounded store if it is ever exposed publicly.
-LOGIN_FAILS: dict[str, list[float]] = {}  # address -> [fail count, locked until]
+LOGIN_FAILS: dict[str, list[float]] = {}  # address or account -> [fail count, locked until, last fail]
 
 
 # One checkbox per area. Seeing the route list, the status page and the own profile needs none.
@@ -249,17 +252,32 @@ def client_address(request: Request) -> str:
     return request.client.host if request.client else "unknown"
 
 
-def locked_seconds(address: str) -> int:
-    until = LOGIN_FAILS.get(address, [0, 0.0])[1]
+def locked_seconds(*keys: str) -> int:
+    until = max(LOGIN_FAILS.get(key, [0, 0.0])[1] for key in keys)
     return max(0, round(until - time.monotonic()))
 
 
-def record_fail(address: str) -> None:
-    entry = LOGIN_FAILS.setdefault(address, [0, 0.0])
-    entry[0] += 1
-    if entry[0] >= MAX_LOGIN_FAILS:
-        entry[0] = 0
-        entry[1] = time.monotonic() + LOCK_SECONDS
+def record_fail(*keys: str) -> None:
+    now = time.monotonic()
+    for key in keys:
+        entry = LOGIN_FAILS.setdefault(key, [0, 0.0, now])
+        if now - entry[2] > FAIL_SECONDS:
+            entry[0] = 0
+        entry[0], entry[2] = entry[0] + 1, now
+        if entry[0] >= MAX_LOGIN_FAILS:
+            entry[0] = 0
+            entry[1] = now + LOCK_SECONDS
+
+
+def foreign_origin(request: Request) -> bool:
+    """Whether a browser says this request was started by a page of another origin.
+
+    A client that says nothing is no browser and brings no session somebody could borrow.
+    """
+    if site := request.headers.get("sec-fetch-site", ""):
+        return site not in ("same-origin", "none")
+    origin = request.headers.get("origin", "")
+    return bool(origin) and urlsplit(origin).netloc != request.headers.get("host", "")
 
 
 def session_value(user: dict) -> list[str]:
@@ -403,6 +421,10 @@ async def require_session(request: Request, call_next):
         if address:
             return RedirectResponse(address + path, status_code=307)
         return Response("Caddyman only answers over HTTPS. Open it under the name of its route.", status_code=403, media_type="text/plain")
+    # A form sent from a page elsewhere would come with the visitor's session. What Caddy passes
+    # on to an error page is somebody else's request and changes nothing here.
+    if request.method not in ("GET", "HEAD", "OPTIONS") and not path.startswith("/error/") and foreign_origin(request):
+        return Response("This request was sent from another site. Open Caddyman and try again from there.", status_code=403, media_type="text/plain")
     users = load_users()
     me = request.state.me = session_user(request, users)
     request.state.user = me["username"] if me else None
@@ -534,7 +556,6 @@ def login_submit(request: Request, username: str = Form(""), password: str = For
         secure = request.url.scheme == "https"
         response.set_cookie(PENDING_COOKIE, PENDING.dumps(session_value(user)), max_age=PENDING_SECONDS, httponly=True, samesite="lax", secure=secure)
         return response
-    LOGIN_FAILS.pop(address, None)
     return start_session(RedirectResponse("/", status_code=303), request, user)
 
 
@@ -605,12 +626,14 @@ def login_code_submit(request: Request, code: str = Form("")):
     user = pending_user(request)
     if user is None:
         return RedirectResponse("/login", status_code=303)
-    if wait := locked_seconds(address):
+    # Counted against the account as well: the password is known at this point, so another
+    # address is no way around the limit.
+    account = f"2fa:{user['username']}"
+    if wait := locked_seconds(address, account):
         return page(request, "login_code.html", status_code=429, error=f"Too many attempts. Try again in {wait} seconds.")
     if not second_factor_ok(user, code):
-        record_fail(address)
+        record_fail(address, account)
         return page(request, "login_code.html", status_code=401, error="This code is not valid.")
-    LOGIN_FAILS.pop(address, None)
     response = start_session(RedirectResponse("/", status_code=303), request, user)
     response.delete_cookie(PENDING_COOKIE)
     return response
@@ -2792,9 +2815,11 @@ def fetch_root_ca(host: dict) -> tuple[str, str, bool]:
     internal = not host["root_ca_url"]
     source = f"{host['admin_url']}/pki/ca/local" if internal else host["root_ca_url"]
     try:
-        # Not verified on purpose: this is the download of the very certificate that would be
-        # needed to verify it. The fingerprint on the page is what gets compared instead.
-        response = httpx.get(source, timeout=ADMIN_TIMEOUT, verify=False, auth=admin_auth(host) if internal else None)
+        # Not verified while no CA is known: this is the download of the very certificate that
+        # would be needed to verify it. The fingerprint on the page is what gets compared instead.
+        # Once a CA is remembered for the admin API, its login only goes to a server that shows it.
+        verify = admin_verify(host) if internal and host.get("admin_ca") else False
+        response = httpx.get(source, timeout=ADMIN_TIMEOUT, verify=verify, auth=admin_auth(host) if internal else None)
         text = response.json().get("root_certificate", "") if internal else response.text
     except (httpx.HTTPError, ValueError, AttributeError) as error:
         raise ValueError(f"{source} did not answer with a certificate: {said(error)}") from None
@@ -3175,6 +3200,9 @@ LOG_TAIL_BYTES = 512 * 1024
 LOG_UNPACK_MAX = 64 * 1024 * 1024
 LOG_SHOWN = 300
 LOG_LEVELS = ("debug", "info", "warn", "error")
+# A link from a reset or invitation mail carries its token in the address, and an access log
+# keeps addresses. Whoever may read logs is not meant to pick up a way into an account there.
+LINK_TOKEN_RE = re.compile(r"(/reset\?token=)[A-Za-z0-9._~%-]+")
 
 
 def log_name(name: str) -> bool:
@@ -3331,6 +3359,7 @@ def logs_page(request: Request, file: str = "", level: str = "", q: str = "", qu
     threshold = LOG_LEVELS.index(level) if level in LOG_LEVELS else 0
     zone = time_zone()
     for line in reversed(lines):
+        line = LINK_TOKEN_RE.sub(r"\1[hidden]", line)
         if needle and needle not in line.lower():
             continue
         entry = parse_log_line(line, zone)

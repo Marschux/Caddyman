@@ -147,6 +147,36 @@ class TestAuth(AppTest):
         self.assertEqual(guest.post("/settings/users/new", data=new, headers={"host": "x/profile?"}).status_code, 403)
         self.assertIsNone(main.find_user(main.load_users(), "eve"))
 
+    def test_a_form_from_another_site_is_refused(self):
+        self.setup_admin()
+        new = {"username": "eve", "password": PASSWORD, "repeat": PASSWORD}
+        elsewhere = ({"origin": "https://app.lab.test"}, {"sec-fetch-site": "same-site"}, {"sec-fetch-site": "cross-site", "origin": "http://testserver"})
+        for headers in elsewhere:
+            with self.subTest(headers):
+                self.assertEqual(self.client.post("/settings/users/new", data=new, headers=headers).status_code, 403)
+        self.assertIsNone(main.find_user(main.load_users(), "eve"))
+        # A browser on Caddyman's own page says so; a client that is no browser says nothing.
+        own = {"origin": "http://testserver", "sec-fetch-site": "same-origin"}
+        self.assertEqual(self.client.post("/settings/users/new", data=new, headers=own).headers["location"], "/settings/users")
+        # A failed request that Caddy hands to an error page keeps the headers of its visitor.
+        self.assertEqual(self.client.post("/error/502", headers={"sec-fetch-site": "cross-site"}).status_code, 502)
+
+    def test_another_login_does_not_reset_the_limit(self):
+        self.setup_admin()
+        self.client.post("/settings/users/new", data={"username": "bob", "password": PASSWORD, "repeat": PASSWORD})
+        guest = self.guest()
+        for _ in range(main.MAX_LOGIN_FAILS - 1):
+            guest.post("/login", data={"username": "admin", "password": "nope"})
+        self.assertEqual(self.guest().post("/login", data={"username": "bob", "password": PASSWORD}).headers["location"], "/")
+        guest.post("/login", data={"username": "admin", "password": "nope"})
+        self.assertEqual(guest.post("/login", data={"username": "admin", "password": PASSWORD}).status_code, 429)
+        # A failure only counts for a while.
+        main.LOGIN_FAILS.clear()
+        guest.post("/login", data={"username": "admin", "password": "nope"})
+        main.LOGIN_FAILS["testclient"][2] -= main.FAIL_SECONDS + 1
+        guest.post("/login", data={"username": "admin", "password": "nope"})
+        self.assertEqual(main.LOGIN_FAILS["testclient"][0], 1)
+
     def test_login_locks_after_five_failures(self):
         self.setup_admin()
         self.client.post("/logout")
@@ -871,6 +901,14 @@ class TestUsers(RouteTest):
             self.assertEqual(client.post("/login/code", data={"code": codes[0].upper()}).status_code, expected)
         # Without having passed the password there is no second step.
         self.assertEqual(self.guest().post("/login/code", data={"code": codes[1]}).headers["location"], "/login")
+        # Wrong codes count against the account as well, so another address is no way around the limit.
+        main.LOGIN_FAILS.clear()
+        client, _ = self.log_in("admin")
+        for _ in range(main.MAX_LOGIN_FAILS):
+            client.post("/login/code", data={"code": "000000"})
+        main.LOGIN_FAILS.pop("testclient")
+        self.assertEqual(client.post("/login/code", data={"code": codes[1]}).status_code, 429)
+        main.LOGIN_FAILS.clear()
 
         self.assertEqual(self.client.post("/profile/2fa/disable", data={"current": "wrong"}).status_code, 400)
         self.client.post("/profile/2fa/disable", data={"current": PASSWORD})
@@ -1132,6 +1170,12 @@ class TestManaged(AppTest):
         self.add_route()
         self.assertIs(self.post.call_args.kwargs["verify"], main.admin_verify(host))
         self.assertIn("CA of the admin API is remembered", [check["label"] for check in main.preflight(host)])
+        # From then on the login only goes to a server that shows this CA, also when the open
+        # page fetches the root certificate.
+        main.ROOT_CA_CACHE.clear()
+        self.guest().get("/trust")
+        self.assertTrue(self.get.call_args.args[0].endswith("/pki/ca/local"))
+        self.assertIs(self.get.call_args.kwargs["verify"], main.admin_verify(host))
         # Saving again while the CA cannot be fetched keeps what is there.
         self.get.return_value = mock.Mock(status_code=500, content=b"")
         self.client.post(f"/hosts/{host['id']}/edit", data=self.form(admin_password=""))
@@ -1383,6 +1427,16 @@ class TestLogs(RouteTest):
             handle.write("\n".join(lines) + "\n")
         if mtime:
             os.utime(path, (mtime, mtime))
+
+    def test_tokens_of_mailed_links_are_not_shown(self):
+        line = (
+            '{"level":"info","ts":1791500004,"logger":"http.log.access.log0","msg":"handled request","request":{"method":"GET",'
+            '"uri":"/reset?token=WyJhZG1pbiJd.abc-DEF_1","host":"caddyman.lab.test","remote_ip":"10.0.0.9"},"status":200}'
+        )
+        self.write("access-caddyman.log", [line], mtime=3000)
+        page = self.client.get("/logs", params={"file": "access-caddyman.log"}).text
+        self.assertIn("GET /reset?token=[hidden] - 200", page)
+        self.assertNotIn("WyJhZG1pbiJd", page)
 
     def test_newest_file_newest_line_first(self):
         page = self.client.get("/logs").text
