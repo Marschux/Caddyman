@@ -1,5 +1,9 @@
 # Changelog
 
+## 2026-10-13 18:47
+- docs: tidy the changelog
+
+
 ## 2026-10-13 18:44
 - chore: version 0.15.5
 - feat: a changed address for the error pages is part of the backup
