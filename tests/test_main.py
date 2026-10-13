@@ -573,6 +573,9 @@ class TestRoutes(RouteTest):
             {"host": "a/b"},
             {"host": "../x"},
             {"host": "a b"},
+            # A line break at the end is no part of a name either.
+            {"host": "a.b\n."},
+            {"type": "redirect", "target": "http://a.b\n/", "code": "301"},
             {"host": "x {\nrespond 200\n}"},
             {"host": ""},
             {"port": "70000"},
@@ -627,7 +630,7 @@ class TestRoutes(RouteTest):
         self.assertEqual([entry["action"] for entry in main.read_audit()], ["delete", "delete", "create"])
 
     def test_route_names_cannot_leave_the_sites_directory(self):
-        for name in ("..", "../x", "a/b", ".hidden", ""):
+        for name in ("..", "../x", "a/b", ".hidden", "", "x\n"):
             self.assertIsNone(main.route_path(self.host, name))
         self.client.post("/routes/..%2FCaddyfile/delete")
         self.assertTrue(os.path.exists(self.caddyfile))

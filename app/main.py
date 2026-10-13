@@ -167,7 +167,7 @@ PERMISSIONS = {
     "users": "Manage users",
 }
 USERS_LOCK = threading.Lock()
-EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+$")
+EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\Z")
 # Who is acting, for the change log. Set per request by the middleware.
 CURRENT_USER: contextvars.ContextVar[str] = contextvars.ContextVar("user", default="-")
 
@@ -1072,8 +1072,8 @@ HOST_DEFAULTS = {
     "root_ca_url": "",
     "domain_suffix": "",
 }
-HOSTNAME_RE = re.compile(r"^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9-]+)*$")
-SNIPPET_RE = re.compile(r"^[A-Za-z0-9_-]+$")
+HOSTNAME_RE = re.compile(r"^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9-]+)*\Z")
+SNIPPET_RE = re.compile(r"^[A-Za-z0-9_-]+\Z")
 ADMIN_TIMEOUT = 5
 # The recommended way to reach the admin API: it stays on localhost, behind a site that asks for a login.
 ADMIN_SITE_SNIPPET = (
@@ -1466,14 +1466,14 @@ ROUTE_TYPES = ("reverse_proxy", "redirect", "static")
 TLS_MODES = ("acme_ca", "default", "dns", "internal", "none")
 REDIRECT_CODES = ("301", "302", "308")
 # The port may be left out: Caddy then takes 443 for https:// and 80 for everything else.
-UPSTREAM_RE = re.compile(r"^(https?://)?([A-Za-z0-9]([A-Za-z0-9.-]*[A-Za-z0-9])?)(?::([0-9]{1,5}))?$")
+UPSTREAM_RE = re.compile(r"^(https?://)?([A-Za-z0-9]([A-Za-z0-9.-]*[A-Za-z0-9])?)(?::([0-9]{1,5}))?\Z")
 # Everything below ends up in a file Caddy executes, so each value is held to a
 # character set that cannot open a block, start a directive or add a line.
-REDIRECT_RE = re.compile(r"^https?://[A-Za-z0-9.-]+(:[0-9]{1,5})?(/[A-Za-z0-9._~/-]*)?$")
-STATIC_ROOT_RE = re.compile(r"^/[A-Za-z0-9._/-]*$")
-AUTH_USER_RE = re.compile(r"^[A-Za-z0-9._@-]{1,64}$")
-BCRYPT_RE = re.compile(r"^\$2[aby]\$[0-9]{2}\$[./A-Za-z0-9]{53}$")
-ROUTE_NAME_RE = re.compile(r"^[A-Za-z0-9]([A-Za-z0-9._-]*[A-Za-z0-9])?$")
+REDIRECT_RE = re.compile(r"^https?://[A-Za-z0-9.-]+(:[0-9]{1,5})?(/[A-Za-z0-9._~/-]*)?\Z")
+STATIC_ROOT_RE = re.compile(r"^/[A-Za-z0-9._/-]*\Z")
+AUTH_USER_RE = re.compile(r"^[A-Za-z0-9._@-]{1,64}\Z")
+BCRYPT_RE = re.compile(r"^\$2[aby]\$[0-9]{2}\$[./A-Za-z0-9]{53}\Z")
+ROUTE_NAME_RE = re.compile(r"^[A-Za-z0-9]([A-Za-z0-9._-]*[A-Za-z0-9])?\Z")
 # Groups only sort the list. Which route is in which group stands in the route file; this
 # file only keeps the names, so a group can exist before a route uses it.
 GROUPS_FILE = DATA_DIR / "groups.json"
@@ -1637,7 +1637,7 @@ def load_errors() -> dict:
 
 
 # A path that goes to a target of its own. Never '/' alone: that is what the main target is for.
-PATH_RE = re.compile(r"^/[A-Za-z0-9._~-][A-Za-z0-9._~/-]*\*?$")
+PATH_RE = re.compile(r"^/[A-Za-z0-9._~-][A-Za-z0-9._~/-]*\*?\Z")
 
 
 def allowed_networks(text: str) -> str | None:
