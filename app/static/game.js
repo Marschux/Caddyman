@@ -12,9 +12,9 @@
 	const GRAVITY = 2600, JUMP = 780, SHORT_HOP = 300;
 	// The second jump, in the air, is a little weaker. Holding down in the air pulls to the ground.
 	const AIR_JUMP = 660, AIR_JUMPS = 1, DIVE = 3600;
-	const START_SPEED = 320, TOP_SPEED = 860, FASTER = 9;
+	const START_SPEED = 320, TOP_SPEED = 860, FASTER = 8;
 	// A little room on every side, so a touch that only looks like one does not count.
-	const MERCY = 5;
+	const MERCY = 6;
 	const PLAYER = { x: 70, width: 26, height: 30, ducked: 16 };
 	// What stands in the way: the label, how wide, how high, how far above the ground, what it says
 	// when it is hit, and the stage it first shows up in. What hangs in the air is ducked under.
@@ -173,7 +173,7 @@
 				const [label, width, tall, lift, end] = known[Math.floor(Math.random() * known.length)];
 				obstacles.push({ label, width, tall, lift, end, x: WIDTH });
 				// Far enough apart to land and jump again, closer together the longer it goes.
-				gap = width + speed * (0.75 + Math.random() * 0.9);
+				gap = width + speed * (0.85 + Math.random() * 0.9);
 			}
 			certGap -= speed * passed;
 			if (certGap <= 0) {
