@@ -10,19 +10,29 @@
 	// The field in its own units; the canvas is scaled to the window by CSS.
 	const WIDTH = 800, HEIGHT = 240, GROUND = 200;
 	const GRAVITY = 2600, JUMP = 780, SHORT_HOP = 300;
+	// The second jump, in the air, is a little weaker. Holding down in the air pulls to the ground.
+	const AIR_JUMP = 660, AIR_JUMPS = 1, DIVE = 3600;
 	const START_SPEED = 320, TOP_SPEED = 860, FASTER = 9;
 	// A little room on every side, so a touch that only looks like one does not count.
 	const MERCY = 5;
-	const PLAYER = { x: 70, width: 26, height: 30 };
-	// What stands in the way: the label, how wide, how high, and what it says when it is hit.
+	const PLAYER = { x: 70, width: 26, height: 30, ducked: 16 };
+	// What stands in the way: the label, how wide, how high, how far above the ground, what it says
+	// when it is hit, and the stage it first shows up in. What hangs in the air is ducked under.
 	const OBSTACLES = [
-		["502", 34, 26, "502 Bad Gateway"],
-		["504", 34, 26, "504 Gateway Timeout"],
-		["CVE", 32, 44, "Unpatched CVE"],
-		["EXPIRED", 66, 22, "Certificate expired"],
-		["TIMEOUT", 68, 34, "The upstream timed out"],
+		["502", 34, 26, 0, "502 Bad Gateway", 0],
+		["504", 34, 26, 0, "504 Gateway Timeout", 0],
+		["EXPIRED", 66, 22, 0, "Certificate expired", 0],
+		["DDoS", 44, 22, 20, "Knocked over by a DDoS", 1],
+		["CVE", 32, 44, 0, "Unpatched CVE", 1],
+		["TIMEOUT", 68, 34, 0, "The upstream timed out", 2],
+		["MITM", 44, 26, 22, "A man in the middle", 3],
 	];
-	const KEYS = [" ", "ArrowUp", "w"];
+	// A new stage every so many points. The last one goes on for ever.
+	const STAGES = ["HTTP", "TLS 1.0", "TLS 1.2", "TLS 1.3", "HSTS", "mTLS", "Post-quantum"];
+	const STAGE_POINTS = 500;
+	// Certificates to pick up: points for each, and every fifth is a shield that takes one hit.
+	const CERT = { width: 40, tall: 18, lifts: [6, 60, 95], points: 50, shield: 5 };
+	const UP = [" ", "ArrowUp", "w"], DOWN = ["ArrowDown", "s"];
 
 	// How often Enter was pressed on the name. Typing anything starts the count again.
 	let called = 0;
@@ -46,6 +56,7 @@
 
 	// Two boxes given as [x, y, width, height].
 	const overlap = (a, b) => a[0] < b[0] + b[2] && a[0] + a[2] > b[0] && a[1] < b[1] + b[3] && a[1] + a[3] > b[1];
+	const box = (thing) => [thing.x, GROUND - thing.lift - thing.tall, thing.width, thing.tall];
 
 	function best(points) {
 		// A browser may refuse to store anything; the game is the same without a record.
@@ -59,9 +70,9 @@
 	}
 
 	function play() {
-		const box = element("div", "game");
-		box.setAttribute("role", "dialog");
-		box.setAttribute("aria-label", "Cert Runner");
+		const screen = element("div", "game");
+		screen.setAttribute("role", "dialog");
+		screen.setAttribute("aria-label", "Cert Runner");
 		const score = element("p", "game-score");
 		const top = element("p", "game-best");
 		const close = element("button", "link", "Close");
@@ -75,27 +86,37 @@
 		const field = element("div", "game-field");
 		// The score stands in the middle, above the field, where the eyes are anyway.
 		field.append(score, top, canvas, say);
-		box.append(header, field, element("p", "game-help", "Space, arrow up or a click: jump. Hold for a higher jump. Esc: close."));
-		document.body.append(box);
+		const help = "Space, arrow up or a click: jump, and once more in the air. Hold for a higher jump. Arrow down: duck. Esc: close.";
+		screen.append(header, field, element("p", "game-help", help));
+		document.body.append(screen);
 
 		const pen = canvas.getContext("2d");
 		// The colours of the look that is switched on.
 		const style = getComputedStyle(document.documentElement);
 		const colour = (name) => style.getPropertyValue(name).trim();
-		const LINE = colour("--hairline-strong");
-		const PRODUCT = colour("--product"), ERROR = colour("--error");
+		const LINE = colour("--hairline-strong"), MUTED = colour("--ink-muted");
+		const PRODUCT = colour("--product"), ERROR = colour("--error"), OK = colour("--ok");
 		const MONO = `600 11px ${colour("--mono") || "monospace"}`;
 
-		let frame = 0, last = 0, over = false, held = false;
-		let speed, distance, height, rise, obstacles, gap, record;
+		let frame = 0, last = 0, over = false, held = false, low = false;
+		let speed, distance, height, rise, jumps, obstacles, gap, certs, certGap, record;
+		let bonus, collected, shield, stage, sayUntil;
 
 		function reset() {
 			speed = START_SPEED;
 			distance = 0;
 			height = 0; // above the ground
 			rise = 0; // upwards is positive
+			jumps = 0; // made in the air since the last landing
 			obstacles = [];
 			gap = 500;
+			certs = [];
+			certGap = 900;
+			bonus = 0;
+			collected = 0;
+			shield = false;
+			stage = 0;
+			sayUntil = 0;
 			over = false;
 			record = best(0);
 			say.textContent = "";
@@ -104,10 +125,21 @@
 			frame = requestAnimationFrame(step);
 		}
 
+		// A line below the field that goes away by itself.
+		function tell(text, now) {
+			say.textContent = text;
+			sayUntil = now + 1600;
+		}
+
 		function jump() {
 			if (over) return reset();
 			held = true;
-			if (height === 0) rise = JUMP;
+			if (height === 0) {
+				rise = JUMP;
+			} else if (jumps < AIR_JUMPS) {
+				jumps += 1;
+				rise = AIR_JUMP;
+			}
 		}
 
 		function release() {
@@ -122,33 +154,73 @@
 			last = now;
 			speed = Math.min(TOP_SPEED, speed + FASTER * passed);
 			distance += speed * passed;
-			rise -= GRAVITY * passed;
+			rise -= (GRAVITY + (low && height > 0 ? DIVE : 0)) * passed;
 			height = Math.max(0, height + rise * passed);
-			if (height === 0) rise = held ? JUMP : 0;
+			if (height === 0) {
+				jumps = 0;
+				rise = held && !low ? JUMP : 0;
+			}
+
+			const reached = Math.min(STAGES.length - 1, Math.floor(distance / 10 / STAGE_POINTS));
+			if (reached > stage) {
+				stage = reached;
+				tell(`Stage ${stage + 1}: ${STAGES[stage]}`, now);
+			}
 
 			gap -= speed * passed;
 			if (gap <= 0) {
-				const [label, width, tall, end] = OBSTACLES[Math.floor(Math.random() * OBSTACLES.length)];
-				obstacles.push({ label, width, tall, end, x: WIDTH });
+				const known = OBSTACLES.filter((obstacle) => obstacle[5] <= stage);
+				const [label, width, tall, lift, end] = known[Math.floor(Math.random() * known.length)];
+				obstacles.push({ label, width, tall, lift, end, x: WIDTH });
 				// Far enough apart to land and jump again, closer together the longer it goes.
 				gap = width + speed * (0.75 + Math.random() * 0.9);
 			}
-			for (const obstacle of obstacles) obstacle.x -= speed * passed;
+			certGap -= speed * passed;
+			if (certGap <= 0) {
+				const lift = CERT.lifts[Math.floor(Math.random() * CERT.lifts.length)];
+				certs.push({ width: CERT.width, tall: CERT.tall, lift, x: WIDTH });
+				certGap = 700 + Math.random() * 1100;
+			}
+			for (const thing of [...obstacles, ...certs]) thing.x -= speed * passed;
 			obstacles = obstacles.filter((obstacle) => obstacle.x + obstacle.width > 0);
+			certs = certs.filter((cert) => cert.x + cert.width > 0);
 
-			const me = [PLAYER.x + MERCY, GROUND - height - PLAYER.height + MERCY, PLAYER.width - 2 * MERCY, PLAYER.height - MERCY];
-			const hit = obstacles.find((obstacle) => overlap(me, [obstacle.x, GROUND - obstacle.tall, obstacle.width, obstacle.tall]));
+			const tall = low ? PLAYER.ducked : PLAYER.height;
+			const me = [PLAYER.x + MERCY, GROUND - height - tall + MERCY, PLAYER.width - 2 * MERCY, tall - MERCY];
+			// For a certificate the whole body counts: picking one up should be easy.
+			const body = [PLAYER.x, GROUND - height - tall, PLAYER.width, tall];
+			const taken = certs.find((cert) => overlap(body, box(cert)));
+			if (taken) {
+				certs = certs.filter((cert) => cert !== taken);
+				bonus += CERT.points;
+				collected += 1;
+				if (collected % CERT.shield === 0 && !shield) {
+					shield = true;
+					tell("Shield up: the next hit does not count", now);
+				}
+			}
+			let hit = obstacles.find((obstacle) => overlap(me, box(obstacle)));
+			if (hit && shield) {
+				shield = false;
+				obstacles = obstacles.filter((obstacle) => obstacle !== hit);
+				tell(`${hit.end}: the shield took it`, now);
+				hit = null;
+			}
+			if (sayUntil && now > sayUntil) {
+				say.textContent = "";
+				sayUntil = 0;
+			}
 			draw();
-			const points = Math.floor(distance / 10);
+			const points = Math.floor(distance / 10) + bonus;
+			const line = `Certificates ${collected} - best`;
+			score.textContent = points;
 			if (!hit) {
-				score.textContent = points;
-				top.textContent = `Best ${Math.max(record, points)}`;
+				top.textContent = `${line} ${Math.max(record, points)}`;
 				frame = requestAnimationFrame(step);
 				return;
 			}
 			over = true;
-			score.textContent = points;
-			top.textContent = `Best ${best(points)}`;
+			top.textContent = `${line} ${best(points)}`;
 			say.textContent = `${hit.end}. Space to run again.`;
 		}
 
@@ -164,49 +236,70 @@
 			pen.fillStyle = LINE;
 			for (let x = -(distance % 80); x < WIDTH; x += 80) pen.fillRect(x, GROUND + 8, 14, 2);
 
-			// The lock from the logo: a body with a shackle.
-			const top = GROUND - height - PLAYER.height;
+			pen.font = MONO;
+			pen.textBaseline = "middle";
+			pen.textAlign = "left";
+			pen.fillStyle = MUTED;
+			pen.fillText(`Stage ${stage + 1}: ${STAGES[stage]}`, 8, 14);
+
+			// The lock from the logo: a body with a shackle. Ducked, the shackle is pushed in.
+			const tall = low ? PLAYER.ducked : PLAYER.height;
+			const head = GROUND - height - tall;
+			const shackle = low ? 4 : 12;
 			pen.strokeStyle = PRODUCT;
 			pen.lineWidth = 4;
 			pen.beginPath();
-			pen.arc(PLAYER.x + PLAYER.width / 2, top + 12, 7, Math.PI, 0);
+			pen.arc(PLAYER.x + PLAYER.width / 2, head + shackle, 7, Math.PI, 0);
 			pen.stroke();
 			pen.fillStyle = PRODUCT;
 			pen.beginPath();
-			pen.roundRect(PLAYER.x, top + 12, PLAYER.width, PLAYER.height - 12, 4);
+			pen.roundRect(PLAYER.x, head + shackle, PLAYER.width, tall - shackle, 4);
 			pen.fill();
-
-			pen.font = MONO;
-			pen.textAlign = "center";
-			pen.textBaseline = "middle";
-			pen.lineWidth = 1.5;
-			for (const obstacle of obstacles) {
-				const y = GROUND - obstacle.tall;
-				pen.strokeStyle = ERROR;
+			if (shield) {
+				pen.strokeStyle = OK;
+				pen.lineWidth = 2;
 				pen.beginPath();
-				pen.roundRect(obstacle.x + 0.5, y + 0.5, obstacle.width - 1, obstacle.tall - 1, 4);
+				pen.arc(PLAYER.x + PLAYER.width / 2, GROUND - height - tall / 2, 26, 0, 2 * Math.PI);
 				pen.stroke();
-				pen.fillStyle = ERROR;
-				pen.fillText(obstacle.label, obstacle.x + obstacle.width / 2, y + obstacle.tall / 2 + 1);
+			}
+
+			pen.textAlign = "center";
+			pen.lineWidth = 1.5;
+			for (const [things, tint, name] of [[obstacles, ERROR, null], [certs, OK, "CERT"]]) {
+				for (const thing of things) {
+					const [x, y, width, high] = box(thing);
+					pen.strokeStyle = tint;
+					pen.beginPath();
+					pen.roundRect(x + 0.5, y + 0.5, width - 1, high - 1, 4);
+					pen.stroke();
+					pen.fillStyle = tint;
+					pen.fillText(name || thing.label, x + width / 2, y + high / 2 + 1);
+				}
 			}
 		}
 
 		function down(event) {
 			if (event.key === "Escape") return stop();
-			if (!KEYS.includes(event.key)) return;
+			if (DOWN.includes(event.key)) {
+				event.preventDefault();
+				low = true;
+				return;
+			}
+			if (!UP.includes(event.key)) return;
 			event.preventDefault();
 			if (!event.repeat) jump();
 		}
 
 		function up(event) {
-			if (KEYS.includes(event.key)) release();
+			if (DOWN.includes(event.key)) low = false;
+			if (UP.includes(event.key)) release();
 		}
 
 		function stop() {
 			cancelAnimationFrame(frame);
 			document.removeEventListener("keydown", down);
 			document.removeEventListener("keyup", up);
-			box.remove();
+			screen.remove();
 			search.focus();
 		}
 
@@ -216,8 +309,8 @@
 		document.addEventListener("keydown", down);
 		document.addEventListener("keyup", up);
 		// Not on a button: Space would press it.
-		box.tabIndex = -1;
-		box.focus();
+		screen.tabIndex = -1;
+		screen.focus();
 		reset();
 	}
 })();
