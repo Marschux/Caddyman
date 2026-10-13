@@ -844,6 +844,15 @@ class TestUsers(RouteTest):
         failed = self.client.post("/settings/users/new", data={"username": "bob", "email": "bob@lab.test"})
         self.assertIn("connection refused", self.client.get(failed.headers["location"]).text)
         self.assertIsNotNone(main.find_user(main.load_users(), "bob"))
+        # A link stands for the address it went to: once that is corrected, the first mail opens nothing.
+        mail.return_value = None
+        self.client.post("/settings/users/bob/invite")
+        first = main.re.search(r"(/reset\?token=\S+)", mail.call_args.args[2]).group(1)
+        self.assertEqual(guest.get(first).status_code, 200)
+        main.update_user("bob", email="robert@lab.test")
+        self.assertEqual(guest.get(first).status_code, 400)
+        self.client.post("/settings/users/bob/invite")
+        self.assertEqual(guest.get(main.re.search(r"(/reset\?token=\S+)", mail.call_args.args[2]).group(1)).status_code, 200)
 
     def test_account_from_before_there_were_users_keeps_every_right(self):
         main.write_private(main.AUTH_FILE, '{"username": "admin", "password_hash": "%s"}' % main.hash_password(PASSWORD))
@@ -924,7 +933,7 @@ class TestUsers(RouteTest):
             self.assertIn("is required here", client.get("/profile").text)
         self.assertEqual(self.client.post("/routes/new", data=self.form()).headers["location"], "/profile#two-factor")
         self.assertEqual(os.listdir(self.sites), [])
-        viewer.post("/profile/2fa/start")
+        viewer.post("/profile/2fa/start", data={"current": PASSWORD})
         secret = main.totp_secret(main.find_user(main.load_users(), "viewer"), "totp_pending")
         viewer.post("/profile/2fa/confirm", data={"code": main.totp_code(secret, int(main.time.time()) // main.TOTP_SECONDS)})
         self.assertEqual(viewer.get("/").status_code, 200)
@@ -942,7 +951,10 @@ class TestUsers(RouteTest):
         self.assertEqual(self.log_in("admin", "another horse")[1].headers["location"], "/")
 
     def test_two_factor_login(self):
-        self.client.post("/profile/2fa/start")
+        # A session alone does not set it up: that takes the password, like switching it off.
+        self.assertEqual(self.client.post("/profile/2fa/start").status_code, 400)
+        self.assertNotIn("totp_pending", main.load_users()[0])
+        self.client.post("/profile/2fa/start", data={"current": PASSWORD})
         secret = main.totp_secret(main.load_users()[0], "totp_pending")
         self.assertIn(secret, self.client.get("/profile").text)
         self.assertIn("<svg", self.client.get("/profile").text)
@@ -953,6 +965,15 @@ class TestUsers(RouteTest):
         self.assertEqual(len(codes), main.RECOVERY_CODES)
         self.assertNotIn(secret, main.AUTH_FILE.read_text())  # encrypted at rest
         self.assertNotIn(codes[0].replace("-", ""), main.AUTH_FILE.read_text())
+        # One that is on is not replaced, neither by a new start nor by a key left pending.
+        kept = main.load_users()[0]["totp"]
+        self.client.post("/profile/2fa/start", data={"current": PASSWORD})
+        self.assertNotIn("totp_pending", main.load_users()[0])
+        other = main.base64.b32encode(b"another key of 20 by").decode()
+        main.update_user("admin", totp_pending=main.seal(other))
+        self.assertEqual(self.client.post("/profile/2fa/confirm", data={"code": main.totp_code(other, step)}).status_code, 400)
+        self.assertEqual(main.load_users()[0]["totp"], kept)
+        main.update_user("admin", totp_pending=None)
 
         client, response = self.log_in("admin")
         self.assertEqual(response.headers["location"], "/login/code")
@@ -1305,8 +1326,14 @@ class TestManaged(AppTest):
         self.get.return_value = mock.Mock(status_code=500, content=b"")
         self.client.post(f"/hosts/{host['id']}/edit", data=self.form(admin_password=""))
         self.assertEqual(main.load_hosts()[0]["admin_ca"], host["admin_ca"])
+        # The login that was kept went out checked against that CA, not to whoever answered.
+        self.assertIs(self.get.call_args.kwargs["verify"], main.admin_verify(host))
+        # And it is not kept for another address: that would send it wherever the form points.
+        moved = self.client.post(f"/hosts/{host['id']}/edit", data=self.form(admin_password="", admin_url="http://caddy2:2020"))
+        self.assertEqual(moved.status_code, 400)
+        self.assertEqual(main.load_hosts()[0]["admin_url"], "https://admin.lab.test")
         # Plain http has no certificate to check.
-        self.client.post(f"/hosts/{host['id']}/edit", data=self.form(admin_password="", admin_url="http://caddy2:2020"))
+        self.client.post(f"/hosts/{host['id']}/edit", data=self.form(admin_url="http://caddy2:2020"))
         self.assertNotIn("admin_ca", main.load_hosts()[0])
         self.assertIs(main.admin_verify(main.load_hosts()[0]), True)
 
@@ -2159,6 +2186,17 @@ class TestEdit(RouteTest):
         self.assertIn(">SSO<", self.client.get("/").text)
         taken, reason = main.adopt_route(text, self.host)
         self.assertEqual(taken and taken.get("sso"), True, reason)
+        # With the snippet gone the tick still travels with the form, so a save is refused
+        # instead of dropping the login without a word.
+        with open(self.caddyfile, encoding="utf-8") as handle:
+            base = handle.read()
+        with open(self.caddyfile, "w", encoding="utf-8") as handle:
+            handle.write(base.replace("(sso) {", "(other) {"))
+        self.assertIn('name="sso" value="1" checked >', self.client.get("/routes/pdf/edit").text)
+        self.assertEqual(self.edit(sso="1", allow="private", upstream="10.0.0.6:80").status_code, 400)
+        self.assertEqual(self.read("pdf.caddy"), text)
+        with open(self.caddyfile, "w", encoding="utf-8") as handle:
+            handle.write(base)
         # A redirect has nothing to protect.
         self.edit(type="redirect", target="https://b.lab.test", code="302", sso="1")
         self.assertNotIn("sso", self.read("pdf.caddy"))
@@ -2234,6 +2272,11 @@ class TestEdit(RouteTest):
         self.assertEqual(self.read("catch-all.caddy").split("\n", 1)[1], written)
         # It has no form of its own.
         self.assertEqual(self.client.get("/routes/catch-all/edit").headers["location"], "/error-pages")
+        # Only that one file is left out: the same type under another name is somebody's own file.
+        self.put("evil.caddy", self.read("catch-all.caddy"))
+        self.assertIsNone(main.read_route(main.Path(self.sites) / "evil.caddy", self.host))
+        self.assertIn("evil.caddy", self.client.get("/").text)
+        os.remove(os.path.join(self.sites, "evil.caddy"))
         self.client.post("/error-pages/catch-all")
         self.assertFalse(os.path.exists(os.path.join(self.sites, "catch-all.caddy")))
         # A file somebody else put there is left alone.

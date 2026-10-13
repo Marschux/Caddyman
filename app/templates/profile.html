@@ -55,6 +55,8 @@
 	{% else %}
 	<p>Off. With it, logging in needs a code from an authenticator app on your phone as well as the password.</p>
 	<form method="post" action="/profile/2fa/start">
+		<label for="start_current">Password</label>
+		<input id="start_current" name="current" type="password" autocomplete="current-password" required>
 		<button type="submit" class="secondary spaced">Set up</button>
 	</form>
 	{% endif %}

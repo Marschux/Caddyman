@@ -307,22 +307,24 @@ def foreign_origin(request: Request) -> bool:
     return bool(origin) and urlsplit(origin).netloc != request.headers.get("host", "")
 
 
-def session_value(user: dict) -> list[str]:
+def session_value(user: dict, mailed: bool = False) -> list[str]:
     # A stamp made from the password hash and the number of logouts rides along: a new password
     # or a logout ends every session of that account. It is derived with the secret key, so
     # neither a cookie nor a mailed link shows anything of the hash itself.
-    stamp = hmac.new(SECRET_KEY.encode(), f"{user['password_hash']}:{user.get('logouts', 0)}".encode(), "sha256").hexdigest()[:16]
+    # A mailed link also stands for the address it went to: corrected, the old mail opens nothing.
+    text = f"{user['password_hash']}:{user.get('logouts', 0)}" + (f":{user.get('email', '')}" if mailed else "")
+    stamp = hmac.new(SECRET_KEY.encode(), text.encode(), "sha256").hexdigest()[:16]
     return [user["username"], stamp]
 
 
-def signed_user(signer: URLSafeTimedSerializer, value: str | None, users: list[dict], max_age: int) -> dict | None:
+def signed_user(signer: URLSafeTimedSerializer, value: str | None, users: list[dict], max_age: int, mailed: bool = False) -> dict | None:
     """The account a signed cookie or link stands for, if it is still good for that account."""
     try:
         name, stamp = signer.loads(value or "", max_age=max_age)
     except (BadSignature, ValueError, TypeError):
         return None
     user = find_user(users, name)
-    return user if user and session_value(user)[1] == stamp else None
+    return user if user and session_value(user, mailed)[1] == stamp else None
 
 
 def session_user(request: Request, users: list[dict]) -> dict | None:
@@ -784,7 +786,7 @@ def send_mail(to: str, subject: str, body: str) -> str | None:
 
 
 def send_reset_mail(user: dict) -> None:
-    link = f"{load_mail()['public_url']}/reset?token={RESETS.dumps(session_value(user))}"
+    link = f"{load_mail()['public_url']}/reset?token={RESETS.dumps(session_value(user, mailed=True))}"
     body = (
         f"Somebody asked for a new password for the Caddyman account {user['username']}.\n\n"
         f"Set one here, within the next hour:\n{link}\n\n"
@@ -796,7 +798,7 @@ def send_reset_mail(user: dict) -> None:
 
 def send_invite_mail(user: dict) -> str | None:
     """Mail a new account the link to set its first password. Returns the error, or None on success."""
-    link = f"{load_mail()['public_url']}/reset?token={INVITES.dumps(session_value(user))}"
+    link = f"{load_mail()['public_url']}/reset?token={INVITES.dumps(session_value(user, mailed=True))}"
     body = (
         f"An account was created for you in Caddyman. Your username is {user['username']}.\n\n"
         f"Set your password here, within one day:\n{link}\n\n"
@@ -808,7 +810,7 @@ def send_invite_mail(user: dict) -> str | None:
 def link_user(token: str) -> dict | None:
     """The account a link from a mail stands for: a reset for an hour, an invitation for a day."""
     users = load_users()
-    return signed_user(RESETS, token, users, RESET_SECONDS) or signed_user(INVITES, token, users, INVITE_SECONDS)
+    return signed_user(RESETS, token, users, RESET_SECONDS, mailed=True) or signed_user(INVITES, token, users, INVITE_SECONDS, mailed=True)
 
 
 @app.get("/forgot")
@@ -906,7 +908,13 @@ def profile_password(request: Request, current: str = Form(""), password: str = 
 
 
 @app.post("/profile/2fa/start")
-def profile_2fa_start(request: Request):
+def profile_2fa_start(request: Request, current: str = Form("")):
+    me = request.state.me
+    # Like switching it off: a session alone does not decide about the second factor.
+    if me.get("totp"):
+        return redirect("/profile", "error", "Two-factor login is on already. Switch it off first to set it up anew.")
+    if not check_password(current, me["password_hash"]):
+        return profile_page(request, status_code=400, totp_error="The password is wrong.")
     secret = base64.b32encode(secrets.token_bytes(20)).decode()
     update_user(request.state.user, totp_pending=seal(secret))
     return RedirectResponse("/profile#two-factor", status_code=303)
@@ -915,7 +923,8 @@ def profile_2fa_start(request: Request):
 @app.post("/profile/2fa/confirm")
 def profile_2fa_confirm(request: Request, code: str = Form("")):
     me = find_user(load_users(), request.state.user)
-    secret = totp_secret(me, "totp_pending")
+    # A factor that is on is never replaced from here, only switched off with the password.
+    secret = totp_secret(me, "totp_pending") if not me.get("totp") else None
     step = totp_step(secret, code) if secret else None
     if step is None:
         return profile_page(request, status_code=400, totp_error="This code does not fit. Check the clock of your phone and try the next one.")
@@ -1007,8 +1016,8 @@ async def mail_save(request: Request):
         return page(request, "mail_form.html", status_code=400, error=error, mail=mail, securities=MAIL_SECURITY)
     if password := str(form.get("password", "")):
         mail["password_enc"] = seal(password)
-    elif mail["user"] and mail["user"] == stored["user"] and stored.get("password_enc"):
-        mail["password_enc"] = stored["password_enc"]  # an empty field keeps the password of the same login
+    elif mail["user"] and (mail["user"], mail["host"]) == (stored["user"], stored["host"]) and stored.get("password_enc"):
+        mail["password_enc"] = stored["password_enc"]  # an empty field keeps the password of the same login at the same server
     write_json(MAIL_FILE, mail)
     if not mail["host"]:
         return redirect("/settings/mail", "ok", 'Mail is switched off. The login page no longer offers "Forgot password?".')
@@ -1942,8 +1951,13 @@ def read_route(path: Path, host: dict) -> dict | None:
         if not first.startswith(META_PREFIX):
             return None
         route = json.loads(first[len(META_PREFIX):])
+        if not well_formed(route):
+            return None
+        # No form writes this type: it is the one file Error pages writes, and nothing else.
+        if route["type"] == "error_page" and not (path.stem == CATCH_ALL and route.get("page") in ERROR_PAGES and valid_upstream(route.get("upstream", ""))):
+            return None
         # No hash, no parser: a file is ours exactly when its metadata reproduces it.
-        return route if well_formed(route) and render_route(route, host) == content else None
+        return route if render_route(route, host) == content else None
     except (OSError, ValueError, KeyError, TypeError):
         return None
 
@@ -2414,7 +2428,7 @@ def existing_route(name: str) -> tuple[dict | None, Path | None]:
 def index(request: Request):
     current = the_host()
     # The route for unknown names is switched on and off under Error pages, and only there.
-    routes = [item for item in list_routes(current) if not (item["route"] and item["route"]["type"] == "error_page")]
+    routes = [item for item in list_routes(current) if not (item["name"] == CATCH_ALL and item["route"] and item["route"]["type"] == "error_page")]
     jobs = {}
     for item in routes:
         item["hand"] = None if item["route"] else hand_written(current, item["name"])
@@ -2849,10 +2863,11 @@ async def host_save(request: Request, host_id: str | None = None):
     if not error and host["admin_user"]:
         if password:
             host["admin_password_enc"] = seal(password)
-        elif existing and existing.get("admin_user") == host["admin_user"] and existing.get("admin_password_enc"):
+        elif existing and (existing.get("admin_user"), existing.get("admin_url")) == (host["admin_user"], host["admin_url"]) and existing.get("admin_password_enc"):
             host["admin_password_enc"] = existing["admin_password_enc"]
         else:
-            error = "The admin API login needs a password."
+            # The stored one belongs to the address it was entered for and is not sent to another.
+            error = "The admin API login needs a password. It is not kept for another login or address."
     if error:
         context = {**host, "id": host_id, "form_base": base, "form_ca": pasted_ca}
         return page(request, "host_form.html", status_code=400, error=error, host=context)
@@ -2863,7 +2878,10 @@ async def host_save(request: Request, host_id: str | None = None):
     else:
         # A CA that was pasted before and is now removed is not what gets remembered next.
         previous = existing.get("admin_ca", "") if existing and not existing.get("admin_ca_pasted") else ""
-        if admin_ca := remember_admin_ca(host, previous):
+        # A login that was kept only goes to a server that shows the CA remembered for it. Typing
+        # the password again is the way to trust a new CA at the same address.
+        known = previous if not password else ""
+        if admin_ca := remember_admin_ca({**host, "admin_ca": known} if known else host, previous):
             host["admin_ca"] = admin_ca
     if host["storage"] == "managed":
         # The one base Caddyfile this tool writes: its own copy, which Caddy never reads from disk.
