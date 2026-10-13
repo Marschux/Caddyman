@@ -55,23 +55,6 @@ defaults fit the compose file.
 **5. Put Caddyman behind HTTPS** with one click on the status page. Until then your login
 crosses the network in the clear.
 
-Everything else is optional, and Caddyman shows the block to copy where it is used: the status
-page and the Caddy settings for your own ACME CA, for Let's Encrypt over DNS (which needs a Caddy
-built with your provider's plugin) and for single sign-on, the Logs page for Caddy's log.
-Settings go into a `.env`, see [`docker/.env.example`](docker/.env.example).
-
-![Logs page](assets/screenshot-logs.png)
-
-## Securing the admin API
-
-Caddy's admin API has no login. Whoever reaches it controls Caddy. That is why the installation
-above leaves it on `localhost` and puts a site with a login in front of it. The `header_up` line
-in that site is required: the admin API refuses requests that do not carry its own address.
-
-The shortcut is `admin :2019` in the global options block, with `http://caddy:2019` and no login
-in Caddyman. It works, but every container on the same Docker network can then reconfigure
-Caddy, including every service behind the proxy. The status page marks it.
-
 ## Users
 
 The account from the setup page may do everything. Under "Settings", "Users" it adds further
