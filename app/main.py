@@ -2046,15 +2046,20 @@ def apply_route(
     action: str,
     label: str,
     expect: tuple[Path, int] | None = None,
+    fresh: Path | None = None,
 ) -> str | None:
     """Write the files (None deletes one), reload Caddy, undo everything on failure.
 
     Every write path goes through here. With expect, the change is refused when that
-    file no longer has the modification time it had when it was loaded.
+    file no longer has the modification time it had when it was loaded. fresh names a
+    file that must not be there yet: looked at under the lock, so two saves at the same
+    moment cannot both take the name.
     """
     with WRITE_LOCK:
         if expect and file_mtime(expect[0]) != expect[1]:
             raise Conflict
+        if fresh and fresh.exists():
+            return f"A route file {fresh.name} already exists."
         previous = {path: path.read_bytes() if path.exists() else None for path in changes}
         try:
             for path, content in changes.items():
@@ -2469,7 +2474,7 @@ async def route_create(request: Request):
         return route_form_page(request, current, route, "This hostname cannot be used as a file name.")
     if path.exists():
         return route_form_page(request, current, route, f"A route file {path.name} already exists.")
-    if error := apply_route(current, {path: render_route(route, current)}, "create", path.stem):
+    if error := apply_route(current, {path: render_route(route, current)}, "create", path.stem, fresh=path):
         return route_form_page(request, current, route, f"Caddy rejected the route, nothing was changed: {error}")
     if route["type"] == "reverse_proxy" and not target_reachable(route["upstream"]):
         return redirect("/", "warn", f"{route['host']} is saved, but {route['upstream']} does not answer yet.")
@@ -2547,7 +2552,7 @@ async def route_update(request: Request, name: str):
         changes[path] = None
     label = name if new_path == path else f"{name} -> {new_path.stem}"
     try:
-        error = apply_route(current, changes, "update", label, expect=(path, mtime))
+        error = apply_route(current, changes, "update", label, expect=(path, mtime), fresh=new_path if new_path != path else None)
     except Conflict:
         # Saving once more from this page overwrites what is on disk, knowingly.
         disk = path.read_text(encoding="utf-8", errors="replace") if path.exists() else "(the file was deleted)"

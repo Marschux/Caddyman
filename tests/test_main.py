@@ -620,6 +620,12 @@ class TestRoutes(RouteTest):
         before = self.read("pdf.caddy")
         self.assertEqual(self.create(upstream="10.0.0.9:1").status_code, 400)
         self.assertEqual(self.read("pdf.caddy"), before)
+        # The same holds for a save that got past the form at the very same moment.
+        self.load.reset_mock()
+        path = main.Path(self.sites) / "pdf.caddy"
+        self.assertIn("already exists", main.apply_route(self.host, {path: "other"}, "create", "pdf", fresh=path))
+        self.assertEqual(self.read("pdf.caddy"), before)
+        self.load.assert_not_called()
 
     def test_delete_and_rejected_delete(self):
         self.create()
