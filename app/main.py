@@ -76,6 +76,7 @@ FAIL_SECONDS = 600
 # bcrypt reads 72 bytes and no further; a longer password would be cut silently.
 MAX_PASSWORD_BYTES = 72
 MIN_PASSWORD_CHARS = 8
+MIN_SECRET_KEY_CHARS = 32
 # No form of Caddyman comes near this. The largest is an import, which carries its archive of
 # up to 512 KiB as text.
 MAX_BODY_BYTES = 2 * 1024 * 1024
@@ -177,6 +178,12 @@ SETUP_TOKEN: str | None = None
 # In memory, one entry per failing address or account, dropped once it is neither locked nor
 # recent. Fine for a LAN tool with one worker; move to a shared store if there are ever several.
 LOGIN_FAILS: dict[str, list[float]] = {}  # address or account -> [fail count, locked until, last fail]
+# The lock on the second factor of an account doubles each time, up to an hour, and starts over
+# after a day without one. At that step the password is known, so 30 seconds each time would
+# leave thousands of guesses a day at a code of six digits.
+LOCK_ROUNDS: dict[str, list[float]] = {}  # "2fa:<account>" -> [locks so far, last lock]
+LOCK_MAX_SECONDS = 3600
+LOCK_ROUND_SECONDS = 86400
 
 
 # One checkbox per area. Seeing the route list, the status page and the own profile needs none.
@@ -294,6 +301,42 @@ def record_fail(*keys: str) -> None:
         if entry[0] >= MAX_LOGIN_FAILS:
             entry[0] = 0
             entry[1] = now + LOCK_SECONDS
+            if key.startswith("2fa:"):
+                for name, (_, last) in list(LOCK_ROUNDS.items()):
+                    if now - last > LOCK_ROUND_SECONDS:
+                        LOCK_ROUNDS.pop(name, None)
+                rounds = LOCK_ROUNDS.get(key, [0, now])[0]
+                LOCK_ROUNDS[key] = [rounds + 1, now]
+                entry[1] = now + min(LOCK_SECONDS * 2**rounds, LOCK_MAX_SECONDS)
+                # Kept while the lock holds: the sweep above only drops what is no longer locked.
+
+
+def own_password_problem(me: dict, current: str, wrong: str = "The current password is wrong.") -> str | None:
+    """What stands against taking `current` as the password of the account that is logged in.
+
+    Counted against the account like a login: a session somebody borrowed is no way to guess
+    the password at leisure.
+    """
+    account = f"login:{me['username'].lower()[:64]}"
+    if wait := locked_seconds(account):
+        return f"Too many attempts. Try again in {wait} seconds."
+    if check_password(current, me["password_hash"]):
+        return None
+    record_fail(account)
+    return wrong
+
+
+def is_https(request: Request) -> bool:
+    """From the scope, not from request.url: that one parses the Host header and raises on a broken one."""
+    return request.scope.get("scheme") == "https"
+
+
+def asked_host(request: Request) -> tuple[str, int | None]:
+    """Name and port the browser asked for. They come from the Host header: for hints only, never for a decision."""
+    try:
+        return request.url.hostname or "", request.url.port
+    except ValueError:
+        return "", None
 
 
 def foreign_origin(request: Request) -> bool:
@@ -324,7 +367,7 @@ def signed_user(signer: URLSafeTimedSerializer, value: str | None, users: list[d
     except (BadSignature, ValueError, TypeError):
         return None
     user = find_user(users, name)
-    return user if user and session_value(user, mailed)[1] == stamp else None
+    return user if user and hmac.compare_digest(session_value(user, mailed)[1], str(stamp)) else None
 
 
 def session_user(request: Request, users: list[dict]) -> dict | None:
@@ -332,13 +375,15 @@ def session_user(request: Request, users: list[dict]) -> dict | None:
 
 
 def start_session(response: RedirectResponse, request: Request, user: dict) -> RedirectResponse:
+    # SameSite=Lax is what foreign_origin() leans on when a request names no origin at all: a
+    # form from elsewhere then comes without this cookie. Loosen it, and that check has a hole.
     response.set_cookie(
         SESSION_COOKIE,
         SESSIONS.dumps(session_value(user)),
         max_age=SESSION_SECONDS,
         httponly=True,
         samesite="lax",
-        secure=request.url.scheme == "https",
+        secure=is_https(request),
     )
     return response
 
@@ -453,10 +498,10 @@ async def require_session(request: Request, call_next):
     # The path the router goes by. request.url is put together from the Host header, which the
     # client writes: "Host: x/login?" would turn every address into /login there.
     path = request.scope["path"]
-    OVER_HTTPS.set(request.url.scheme == "https")
+    OVER_HTTPS.set(is_https(request))
     # Switched on under Settings: nothing but HTTPS. What Caddy fetches itself and the root
     # certificate stay open, or the error pages and the way to trust the CA would be cut off.
-    if request.url.scheme != "https" and path != "/healthz" and not path.startswith(("/static/", "/error/")) and path not in PUBLIC_PATHS and https_only():
+    if not is_https(request) and path != "/healthz" and not path.startswith(("/static/", "/error/")) and path not in PUBLIC_PATHS and https_only():
         current = pick_host()
         address = own_route_address(current)[1] if current else ""
         if address:
@@ -507,6 +552,9 @@ def page(request: Request, template: str, status_code: int = 200, **context):
             pass
     context = {"version": VERSION, "source_url": SOURCE_URL, "flash": flash, **context}
     response = templates.TemplateResponse(request, template, context, status_code=status_code)
+    if template == "reset.html":
+        # The link from the mail is this page's address: it is not to travel on as a Referer.
+        response.headers["Referrer-Policy"] = "no-referrer"
     if cookie:
         response.delete_cookie(FLASH_COOKIE)
     return response
@@ -604,7 +652,7 @@ def login_submit(request: Request, username: str = Form(""), password: str = For
     if user.get("totp"):
         # Half way in: a short-lived cookie remembers who passed the password, nothing more.
         response = RedirectResponse("/login/code", status_code=303)
-        secure = request.url.scheme == "https"
+        secure = is_https(request)
         response.set_cookie(PENDING_COOKIE, PENDING.dumps(session_value(user)), max_age=PENDING_SECONDS, httponly=True, samesite="lax", secure=secure)
         return response
     return start_session(RedirectResponse("/", status_code=303), request, user)
@@ -642,15 +690,18 @@ def totp_secret(user: dict, key: str) -> str | None:
         return None
 
 
-def recovery_digest(code: str) -> str:
-    return hashlib.sha256(re.sub(r"[^0-9a-z]", "", code.lower()).encode()).hexdigest()
+def recovery_digest(code: str, keyed: bool = True) -> str:
+    """What is stored of a recovery code. Keyed with the secret key, so a copy of the accounts alone
+    is not enough to guess the codes; versions up to 0.16 stored the plain SHA-256."""
+    plain = re.sub(r"[^0-9a-z]", "", code.lower()).encode()
+    return hmac.new(f"recovery:{SECRET_KEY}".encode(), plain, "sha256").hexdigest() if keyed else hashlib.sha256(plain).hexdigest()
 
 
 def second_factor_ok(user: dict, code: str) -> bool:
     """Check an app code or a recovery code. Either one works exactly once."""
     secret = totp_secret(user, "totp")
     step = totp_step(secret, code) if secret else None
-    digest = recovery_digest(code)
+    digests = (recovery_digest(code), recovery_digest(code, keyed=False))
     # Looked at and used up under one lock: the same code sent twice at once passes once.
     with USERS_LOCK:
         users = load_users()
@@ -659,7 +710,7 @@ def second_factor_ok(user: dict, code: str) -> bool:
             return False
         if step is not None and step > account.get("totp_last", 0):
             account["totp_last"] = step
-        elif digest in account.get("recovery", []):
+        elif digest := next((digest for digest in digests if digest in account.get("recovery", [])), None):
             account["recovery"].remove(digest)
         else:
             return False
@@ -692,6 +743,7 @@ def login_code_submit(request: Request, code: str = Form("")):
     if not second_factor_ok(user, code):
         record_fail(address, account)
         return page(request, "login_code.html", status_code=401, error="This code is not valid.")
+    LOCK_ROUNDS.pop(account, None)
     response = start_session(RedirectResponse("/", status_code=303), request, user)
     response.delete_cookie(PENDING_COOKIE)
     return response
@@ -811,9 +863,9 @@ def send_invite_mail(user: dict) -> str | None:
     return send_mail(user["email"], "Caddyman: your account", body)
 
 
-def link_user(token: str) -> dict | None:
+def link_user(token: str, users: list[dict] | None = None) -> dict | None:
     """The account a link from a mail stands for: a reset for an hour, an invitation for a day."""
-    users = load_users()
+    users = load_users() if users is None else users
     return signed_user(RESETS, token, users, RESET_SECONDS, mailed=True) or signed_user(INVITES, token, users, INVITE_SECONDS, mailed=True)
 
 
@@ -855,8 +907,17 @@ def reset_submit(request: Request, token: str = Form(""), password: str = Form("
         return page(request, "reset.html", status_code=400, token=token, valid=False, mail_ready=mail_ready())
     if error := password_problem(password, repeat):
         return page(request, "reset.html", status_code=400, token=token, valid=True, error=error)
-    # The link carries the end of the old hash, so it stops working with this very change.
-    update_user(user["username"], password_hash=hash_password(password), invited=None)
+    hashed = hash_password(password)
+    # Looked at again and used up under one lock: the same link sent twice at once works once.
+    # It carries a stamp of the old hash, so it stops working with this very change.
+    with USERS_LOCK:
+        users = load_users()
+        if user := link_user(token, users):
+            user["password_hash"] = hashed
+            user.pop("invited", None)
+            save_users(users)
+    if user is None:
+        return page(request, "reset.html", status_code=400, token=token, valid=False, mail_ready=mail_ready())
     return redirect("/login", "ok", "The password is set. Log in with it.")
 
 
@@ -882,8 +943,8 @@ def profile_save(request: Request, realname: str = Form(""), email: str = Form("
     if error := user_problem({"username": request.state.user, **fields}, others):
         return profile_page(request, status_code=400, error=error, form=fields)
     # The reset links go to this address, so changing it takes the password, like changing that does.
-    if fields["email"] != me.get("email", "") and not check_password(current, me["password_hash"]):
-        return profile_page(request, status_code=400, error="Changing the email address takes your current password.", form=fields)
+    if fields["email"] != me.get("email", "") and (error := own_password_problem(me, current, "Changing the email address takes your current password.")):
+        return profile_page(request, status_code=400, error=error, form=fields)
     update_user(request.state.user, **fields)
     return redirect("/profile", "ok", "Your profile is saved.")
 
@@ -901,8 +962,8 @@ def profile_theme(request: Request, back: str = Form("/")):
 @app.post("/profile/password")
 def profile_password(request: Request, current: str = Form(""), password: str = Form(""), repeat: str = Form("")):
     me = request.state.me
-    if not check_password(current, me["password_hash"]):
-        return profile_page(request, status_code=400, password_error="The current password is wrong.")
+    if error := own_password_problem(me, current):
+        return profile_page(request, status_code=400, password_error=error)
     if error := password_problem(password, repeat):
         return profile_page(request, status_code=400, password_error=error)
     update_user(me["username"], password_hash=hash_password(password))
@@ -917,8 +978,8 @@ def profile_2fa_start(request: Request, current: str = Form("")):
     # Like switching it off: a session alone does not decide about the second factor.
     if me.get("totp"):
         return redirect("/profile", "error", "Two-factor login is on already. Switch it off first to set it up anew.")
-    if not check_password(current, me["password_hash"]):
-        return profile_page(request, status_code=400, totp_error="The password is wrong.")
+    if error := own_password_problem(me, current, "The password is wrong."):
+        return profile_page(request, status_code=400, totp_error=error)
     secret = base64.b32encode(secrets.token_bytes(20)).decode()
     update_user(request.state.user, totp_pending=seal(secret))
     return RedirectResponse("/profile#two-factor", status_code=303)
@@ -933,16 +994,19 @@ def profile_2fa_confirm(request: Request, code: str = Form("")):
     if step is None:
         return profile_page(request, status_code=400, totp_error="This code does not fit. Check the clock of your phone and try the next one.")
     codes = [secrets.token_hex(5) for _ in range(RECOVERY_CODES)]
-    update_user(me["username"], totp=me["totp_pending"], totp_pending=None, totp_last=step, recovery=[recovery_digest(code) for code in codes])
+    # Every session opened with the password alone ends here; this one continues.
+    fields = {"totp": me["totp_pending"], "totp_pending": None, "totp_last": step, "logouts": me.get("logouts", 0) + 1}
+    update_user(me["username"], recovery=[recovery_digest(code) for code in codes], **fields)
     # Shown this once and never again: only their hashes are kept.
-    return profile_page(request, recovery_codes=[f"{code[:5]}-{code[5:]}" for code in codes])
+    response = profile_page(request, recovery_codes=[f"{code[:5]}-{code[5:]}" for code in codes])
+    return start_session(response, request, find_user(load_users(), me["username"]))
 
 
 @app.post("/profile/2fa/disable")
 def profile_2fa_disable(request: Request, current: str = Form("")):
     me = request.state.me
-    if not check_password(current, me["password_hash"]):
-        return profile_page(request, status_code=400, totp_error="The password is wrong.")
+    if error := own_password_problem(me, current, "The password is wrong."):
+        return profile_page(request, status_code=400, totp_error=error)
     update_user(me["username"], **{key: None for key in TOTP_KEYS if key in me})
     return redirect("/profile", "ok", "Two-factor login is switched off.")
 
@@ -975,7 +1039,7 @@ def settings_security_save(
     request: Request, require_2fa: str = Form(""), public_ca: str = Form(""), login_ca_hint: str = Form(""), https_only_on: str = Form("")
 ):
     # Switched on over plain HTTP, the answer to this very request would already be refused.
-    if https_only_on and not https_only() and request.url.scheme != "https":
+    if https_only_on and not https_only() and not is_https(request):
         return redirect("/settings/security", "error", "Open Caddyman over HTTPS first, through its own route, and switch it on from there.")
     # Checkboxes in one form: one that is not sent was unticked.
     save_settings(require_2fa=require_2fa and "1", public_ca=public_ca and "1", login_ca_hint=login_ca_hint and "1", https_only=https_only_on and "1")
@@ -1020,8 +1084,9 @@ async def mail_save(request: Request):
         return page(request, "mail_form.html", status_code=400, error=error, mail=mail, securities=MAIL_SECURITY)
     if password := str(form.get("password", "")):
         mail["password_enc"] = seal(password)
-    elif mail["user"] and (mail["user"], mail["host"]) == (stored["user"], stored["host"]) and stored.get("password_enc"):
-        mail["password_enc"] = stored["password_enc"]  # an empty field keeps the password of the same login at the same server
+    elif mail["user"] and all(mail[key] == stored[key] for key in ("user", "host", "port", "security")) and stored.get("password_enc"):
+        # An empty field keeps the password of the same login at the same server, sent the same way.
+        mail["password_enc"] = stored["password_enc"]
     write_json(MAIL_FILE, mail)
     if not mail["host"]:
         return redirect("/settings/mail", "ok", 'Mail is switched off. The login page no longer offers "Forgot password?".')
@@ -1080,6 +1145,10 @@ async def user_save(request: Request, name: str | None = None):
         if not error and existing and existing["username"] == request.state.user and "users" not in user["permissions"]:
             # Whoever manages users keeps that right for themselves, so there is always one left.
             error = "You cannot take the right to manage users away from yourself."
+        # Looked at under the lock: two accounts that take the right from each other at the
+        # same moment would otherwise both pass and leave nobody.
+        if not error and existing and not any("users" in (user if other is existing else other)["permissions"] for other in users):
+            error = "One account has to keep the right to manage users."
         if error:
             return page(request, "user_form.html", status_code=400, error=error, user=user, new=not existing, invite=mail_ready())
         if password:
@@ -1093,8 +1162,10 @@ async def user_save(request: Request, name: str | None = None):
         if existing and form.get("reset_totp"):
             for key in TOTP_KEYS:
                 user.pop(key, None)
+            # Whatever sessions the account has were opened with the factor that is gone now.
+            user["logouts"] = user.get("logouts", 0) + 1
         save_users([user if other is existing else other for other in users] if existing else [*users, user])
-    if existing and existing["username"] == request.state.user and password:
+    if existing and existing["username"] == request.state.user and (password or form.get("reset_totp")):
         return start_session(redirect("/settings/users", "ok", f"{user['username']} is saved."), request, user)
     if invite:
         if error := send_invite_mail(user):
@@ -1125,7 +1196,11 @@ def user_delete(request: Request, name: str):
     if name == request.state.user:
         return redirect("/settings/users", "error", "You cannot delete your own account.")
     with USERS_LOCK:
-        save_users([user for user in load_users() if user["username"] != name])
+        left = [user for user in load_users() if user["username"] != name]
+        # Under the lock, like in user_save: two accounts deleting each other at once leave one.
+        if not any("users" in user["permissions"] for user in left):
+            return redirect("/settings/users", "error", "One account has to keep the right to manage users.")
+        save_users(left)
     return redirect("/settings/users", "ok", f"{name} is deleted.")
 
 
@@ -1209,7 +1284,7 @@ def remember_admin_ca(host: dict, previous: str = "") -> str:
     # The own CA if one is named, and Caddy's internal one: the admin site may use either.
     for source in dict.fromkeys((host["root_ca_url"], "")):
         try:
-            pem = fetch_root_ca({**host, "root_ca_url": source})[0]
+            pem = fetch_root_ca({**host, "root_ca_url": source}, first=True)[0]
             fingerprints(pem)
             found.append(pem)
         except ValueError:
@@ -1221,6 +1296,7 @@ def save_hosts(hosts: list[dict]) -> None:
     write_json(HOSTS_FILE, hosts)
     CADDY_ADDRESSES["until"] = 0.0  # the admin URL may have changed: look its addresses up again
     PROBE_CACHE.clear()  # and what the status page found was about the settings before
+    ROOT_CA_CACHE.clear()  # like the certificate the open page hands out
 
 
 def is_http_url(value: str) -> bool:
@@ -1236,13 +1312,13 @@ def is_clean_path(value: str) -> bool:
 
 
 def is_own_ground(value: str) -> bool:
-    """Whether a path leads to where Caddyman keeps its own things: the data directory and /proc.
+    """Whether a path leads to where Caddyman keeps its own things: the data directory, /proc and the logs.
 
-    The base Caddyfile travels in the backup and to Caddy. Pointed at the secret key or the
-    accounts, it would carry those along.
+    The base Caddyfile travels in the backup and to Caddy. Pointed at the secret key, the
+    accounts or a log, it would carry those along, past the right that guards them.
     """
     path = Path(value).resolve()
-    return any(path.is_relative_to(ground) for ground in (DATA_DIR.resolve(), Path("/proc")))
+    return any(path.is_relative_to(ground) for ground in (DATA_DIR.resolve(), Path("/proc"), LOG_DIR.resolve()))
 
 
 def host_problem(host: dict) -> str | None:
@@ -1251,7 +1327,7 @@ def host_problem(host: dict) -> str | None:
     if host.get("storage") != "managed" and not (is_clean_path(host["caddyfile"]) and is_clean_path(host["sites_dir"])):
         return "Caddyfile and sites directory have to be absolute paths without '..'."
     if host.get("storage") != "managed" and (is_own_ground(host["caddyfile"]) or is_own_ground(host["sites_dir"])):
-        return "Caddyfile and sites directory have to be those of Caddy, not a place in Caddyman's own data directory."
+        return "Caddyfile and sites directory have to be those of Caddy, not a place in Caddyman's own data or in the log directory."
     if host.get("admin_user") and not AUTH_USER_RE.match(host["admin_user"]):
         return "The admin API username may only contain letters, digits, '.', '_', '@' and '-'."
     snippets = [host[key] for key in ("tls_snippet", "sso_snippet", "dns_snippet") if host[key]]
@@ -1500,6 +1576,16 @@ def preflight(host: dict) -> list[dict]:
         "to the compose file. With the same key nothing has to be entered again.",
         "docker exec caddyman cat /data/secret.key\n\n# .env\nCADDYMAN_SECRET_KEY=<what the command printed>",
     )
+    if SECRET_KEY_FROM_ENV and len(SECRET_KEY) < MIN_SECRET_KEY_CHARS:
+        add(
+            "Secret key is long enough",
+            False,
+            f"{len(SECRET_KEY)} characters",
+            f"A key under {MIN_SECRET_KEY_CHARS} characters can be guessed by anybody who holds a session cookie, and it "
+            "also encrypts the stored passwords. Make a new one and put it into the .env file. Every session ends, and "
+            "the passwords for the admin API and the mail server and every two-factor login have to be set up again.",
+            "openssl rand -base64 32",
+        )
     return checks
 
 
@@ -1805,6 +1891,8 @@ def route_from_form(form, host: dict, previous: dict | None = None) -> tuple[dic
             password = str(form.get("auth_password", ""))
             kept = previous.get("auth_hash", "") if previous and previous.get("auth_user") == auth_user else ""
             if password:
+                if len(password) < MIN_PASSWORD_CHARS:
+                    return route, f"The basic auth password needs at least {MIN_PASSWORD_CHARS} characters."
                 if len(password.encode()) > MAX_PASSWORD_BYTES:
                     return route, f"The basic auth password is longer than {MAX_PASSWORD_BYTES} bytes."
                 # Only the hash is kept, in the route file. The password itself is never stored.
@@ -1844,6 +1932,9 @@ def route_from_form(form, host: dict, previous: dict | None = None) -> tuple[dic
             return route, "The directory has to be an absolute path of letters, digits, '.', '_', '-' and '/'."
     else:
         return route, "Unknown route type."
+    # Only a reverse proxy asks for a login. Changing the type would drop it without a word.
+    if route["type"] != "reverse_proxy" and previous and previous.get("auth_user"):
+        return route, "This route asks for a login (basic auth), which only a reverse proxy does. Remove the login first, then change the type."
     # Always the last key, so the button in the list can add and drop it without the form.
     if get("off"):
         route["off"] = True
@@ -1997,6 +2088,7 @@ def load_groups(host: dict) -> list[str]:
 def regroup(host: dict, old: str, new: str) -> str | None:
     """Move every route of a group to another name, or to none. One reload, undone as a whole."""
     changes = {}
+    stamps = route_stamps(host)
     for item in list_routes(host):
         route = item["route"]
         if route_group(route) == old:
@@ -2004,9 +2096,8 @@ def regroup(host: dict, old: str, new: str) -> str | None:
             # Same place as in route_from_form, or the file would no longer count as ours.
             head = {key: rest[key] for key in ("type", "host", "port", "tls")}
             changes[item["path"]] = render_route({**head, **({"group": new} if new else {}), **rest}, host)
-    # The files were read before the lock: an edit saved in that instant would be overwritten.
-    # Fine for one admin at a time; pass the mtimes to apply_route if that ever bites.
-    return apply_route(host, changes, "group", f"{old} -> {new or 'no group'}") if changes else None
+    # Raises Conflict when one of the files was saved by somebody else since it was read here.
+    return apply_route(host, changes, "group", f"{old} -> {new or 'no group'}", expect={path: stamps.get(path) for path in changes}) if changes else None
 
 
 def admin_get(host: dict, path: str, **more) -> httpx.Response:
@@ -2091,6 +2182,14 @@ class Conflict(Exception):
     """The file changed on disk after it was loaded into the editor."""
 
 
+CHANGED_MEANWHILE = "A route file was changed in the meantime. Nothing was done, try again."
+
+
+def route_stamps(host: dict) -> dict[Path, int]:
+    """The modification time of every route file, taken before they are read: for apply_route(expect=...)."""
+    return {path: file_mtime(path) for path in Path(host["sites_dir"]).glob("*.caddy")}
+
+
 def file_mtime(path: Path) -> int:
     try:
         return path.stat().st_mtime_ns
@@ -2103,18 +2202,19 @@ def apply_route(
     changes: dict[Path, str | None],
     action: str,
     label: str,
-    expect: tuple[Path, int] | None = None,
+    expect: tuple[Path, int] | dict[Path, int] | None = None,
     fresh: Path | None = None,
 ) -> str | None:
     """Write the files (None deletes one), reload Caddy, undo everything on failure.
 
     Every write path goes through here. With expect, the change is refused when that
-    file no longer has the modification time it had when it was loaded. fresh names a
+    file (or one of several) no longer has the modification time it had when it was loaded. fresh names a
     file that must not be there yet: looked at under the lock, so two saves at the same
     moment cannot both take the name.
     """
     with WRITE_LOCK:
-        if expect and file_mtime(expect[0]) != expect[1]:
+        stamps = dict([expect]) if isinstance(expect, tuple) else expect or {}
+        if any(file_mtime(path) != stamp for path, stamp in stamps.items()):
             raise Conflict
         if fresh and fresh.exists():
             return f"A route file {fresh.name} already exists."
@@ -2391,7 +2491,7 @@ def own_route(route: dict | None, request: Request) -> str:
     """
     if not route or route["type"] != "reverse_proxy" or not route["upstream"].endswith(f":{OWN_PORT}"):
         return ""
-    return "used" if request.url.hostname in (route["host"], *route.get("aliases", [])) else "own"
+    return "used" if asked_host(request)[0] in (route["host"], *route.get("aliases", [])) else "own"
 
 
 class NoHost(Exception):
@@ -2482,7 +2582,7 @@ def route_new(request: Request, own: bool = False):
     route = {"type": "reverse_proxy", "tls": tls, "code": "308"}
     if own:
         # A Caddy next door reaches this container by name, one elsewhere by the address the browser used.
-        there = request.url.hostname if current.get("storage") == "managed" else "caddyman"
+        there = asked_host(request)[0] if current.get("storage") == "managed" else "caddyman"
         route.update(host="caddyman" if current["domain_suffix"] else "", upstream=f"{there}:{OWN_PORT}")
     return route_form_page(request, current, route)
 
@@ -2494,7 +2594,7 @@ def arrived(request: Request) -> str:
     Caddy says so in a header all the same; that header is what tells the two cases apart.
     Somebody could send it by hand over plain HTTP, and would only fool the hint on their own screen.
     """
-    if request.url.scheme == "https":
+    if is_https(request):
         return "https"
     return "unseen" if request.headers.get("x-forwarded-proto", "").lower() == "https" else "plain"
 
@@ -2694,7 +2794,11 @@ def group_rename(old: str = Form(""), new: str = Form("")):
         return redirect("/groups", "error", GROUP_HINT)
     if taken(new, [group for group in groups if group != old]):
         return redirect("/groups", "error", f"A group {new} already exists.")
-    if error := regroup(current, old, new):
+    try:
+        error = regroup(current, old, new)
+    except Conflict:
+        return redirect("/groups", "warn", CHANGED_MEANWHILE)
+    if error:
         return redirect("/groups", "error", f"Caddy rejected the reload, nothing was changed: {error}")
     save_groups([new if group == old else group for group in [*stored_groups(), old]])
     return redirect("/groups", "ok", f"{old} is now {new}.")
@@ -2705,7 +2809,11 @@ def group_delete(name: str = Form("")):
     current = pick_host()
     if current is None or name not in load_groups(current):
         return redirect("/groups", "error", "This group does not exist.")
-    if error := regroup(current, name, ""):
+    try:
+        error = regroup(current, name, "")
+    except Conflict:
+        return redirect("/groups", "warn", CHANGED_MEANWHILE)
+    if error:
         return redirect("/groups", "error", f"Caddy rejected the reload, nothing was changed: {error}")
     save_groups(group for group in stored_groups() if group != name)
     return redirect("/groups", "ok", f"{name} was removed. Its routes are kept, without a group.")
@@ -2751,8 +2859,9 @@ def error_pages_view(request: Request, code: str = ""):
         # The address to hand to a DNS blocker. A page that came through Caddy was asked for under a
         # name that leads to Caddy; one that came straight to this port only tells where Caddyman
         # is, which is Caddy's machine when the two sit next to each other.
-        if request.url.port != int(OWN_PORT) or current.get("storage") != "managed":
-            context["caddy_ip"] = next((address for address in sorted(resolve_addresses(request.url.hostname or "")) if re.fullmatch(r"[0-9.]+", address) and not address.startswith("127.")), "")
+        name, port = asked_host(request)
+        if port != int(OWN_PORT) or current.get("storage") != "managed":
+            context["caddy_ip"] = next((address for address in sorted(resolve_addresses(name)) if re.fullmatch(r"[0-9.]+", address) and not address.startswith("127.")), "")
     return page(request, "error_pages.html", **context)
 
 
@@ -2769,6 +2878,7 @@ def error_pages_save(upstream: str = Form("")):
     if current is None or not valid_upstream(upstream):
         return redirect("/error-pages", "error", "The address has to look like host:port or http://host:port.")
     changes = {}
+    stamps = route_stamps(current)
     for item in list_routes(current):
         route = item["route"]
         if route and route["type"] == "error_page":
@@ -2778,7 +2888,11 @@ def error_pages_save(upstream: str = Form("")):
         else:
             continue
         changes[item["path"]] = render_route(route, current)
-    if changes and (error := apply_route(current, changes, "error pages", upstream)):
+    try:
+        error = apply_route(current, changes, "error pages", upstream, expect={path: stamps.get(path) for path in changes}) if changes else None
+    except Conflict:
+        return redirect("/error-pages", "warn", CHANGED_MEANWHILE)
+    if error:
         return redirect("/error-pages", "error", f"Caddy rejected the reload, nothing was changed: {error}")
     write_json(ERRORS_FILE, {**load_errors(), "upstream": upstream})
     return redirect("/error-pages", "ok", "The address is saved." + (f" {len(changes)} route files were rewritten." if changes else ""))
@@ -2926,10 +3040,11 @@ def host_push(host_id: str):
 PEM_RE = re.compile(r"-----BEGIN CERTIFICATE-----.+?-----END CERTIFICATE-----", re.DOTALL)
 
 
-def fetch_root_ca(host: dict) -> tuple[str, str, bool]:
+def fetch_root_ca(host: dict, first: bool = False) -> tuple[str, str, bool]:
     """Root certificates as PEM, where they came from, and whether that is Caddy's own CA.
 
-    Raises ValueError with a message for the page when nothing usable comes back.
+    Raises ValueError with a message for the page when nothing usable comes back. first is
+    the fetch while the settings are saved, the one moment a login goes out unchecked.
     """
     internal = not host["root_ca_url"]
     source = f"{host['admin_url']}/pki/ca/local" if internal else host["root_ca_url"]
@@ -2938,7 +3053,10 @@ def fetch_root_ca(host: dict) -> tuple[str, str, bool]:
         # would be needed to verify it. The fingerprint on the page is what gets compared instead.
         # Once a CA is remembered for the admin API, its login only goes to a server that shows it.
         verify = admin_verify(host) if internal and host.get("admin_ca") else False
-        response = httpx.get(source, timeout=ADMIN_TIMEOUT, verify=verify, auth=admin_auth(host) if internal else None)
+        # An https admin API whose CA was never remembered gets no login from a page view:
+        # anybody can open /trust, and each time the password would go to whoever answers.
+        unchecked = host["admin_url"].startswith("https://") and not host.get("admin_ca")
+        response = httpx.get(source, timeout=ADMIN_TIMEOUT, verify=verify, auth=admin_auth(host) if internal and (first or not unchecked) else None)
         text = response.json().get("root_certificate", "") if internal else response.text
     except (httpx.HTTPError, ValueError, AttributeError) as error:
         raise ValueError(f"{source} did not answer with a certificate: {said(error)}") from None
@@ -3164,9 +3282,9 @@ def read_backup(data: bytes) -> dict:
             host_id = str(item.get("id", ""))
             host_id = host_id if re.fullmatch(r"[0-9a-f]{8}", host_id) else secrets.token_hex(4)
             admin_ca = "\n".join(PEM_RE.findall(str(item.get("admin_ca", ""))))
-            try:
-                fingerprints(admin_ca)
-            except ValueError:
+            # Held to what the settings form takes: text that only looks like a certificate
+            # would later break every page that builds a TLS context from it.
+            if not admin_ca or ca_problem(admin_ca):
                 admin_ca = ""
             kept = {"admin_ca": admin_ca, **({"admin_ca_pasted": "1"} if item.get("admin_ca_pasted") else {})} if admin_ca else {}
             hosts.append(with_paths({"id": host_id, **host, **kept}))
@@ -3256,6 +3374,9 @@ async def backup_restore(request: Request):
         target = target or (backup["hosts"][0] if backup["hosts"] else None)
     if target is None:
         return refuse("Add a Caddy host first: this archive has no usable host settings to import the routes into.")
+    if fresh and target["storage"] == "managed" and not backup["caddyfile"].strip():
+        # Pushed with an empty base, the routes alone would replace Caddy's whole configuration.
+        return refuse("This archive has no base Caddyfile, which the layout of its Caddy needs. Set the Caddy up under Settings first, then import the routes.")
     plan = backup_plan(backup, target)
     # The switches and the mail settings come back only into an empty install.
     with_settings = fresh
@@ -3529,7 +3650,9 @@ def status(request: Request):
             f"({', '.join(sorted(caddy_addresses())) or 'no address found for it'}). This page came through something "
             "else: another proxy in front, or Caddy under an address that name does not lead to. Until that is "
             "trusted too, the session cookie is not marked Secure and the login limit counts everybody as one. "
-            "Add the address to the .env file next to the compose file and start the container again:",
+            "Add the address to the .env file next to the compose file and start the container again. Only do "
+            "that if nothing but your proxy reaches Caddyman from this address: everybody who does is believed "
+            "as well, which is the case for the gateway address of a Docker network:",
             "block": f"CADDYMAN_FORWARDED_ALLOW_IPS={caddy}",
         })
     context = {"no_https": bool(hosts) and way == "plain", "has_own_route": has_route, "own_address": address}
@@ -3603,8 +3726,11 @@ class TrustCaddy:
                 scope["scheme"] = scheme
             # The last entry is the address Caddy itself saw; anything before it came from further out.
             visitor = headers.get(b"x-forwarded-for", "").split(",")[-1].strip()
-            if visitor:
-                scope["client"] = (visitor, 0)
+            try:
+                # Only ever an address: it is what the login limit counts against and what the status page shows.
+                scope["client"] = (str(ipaddress.ip_address(visitor)), 0)
+            except ValueError:
+                pass
         await self.app(scope, receive, send)
 
 

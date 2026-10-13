@@ -117,7 +117,8 @@
 		<noscript><input name="allow" aria-label="Allowed networks, separated by commas"></noscript>
 		<button type="button" class="secondary" data-add='[["allow", "192.168.1.0/24"]]'>Add network</button>
 		<small>Everybody else gets a 403. An address or a network per field, or <code>private</code> for all
-			private networks. None means open to everybody who can reach Caddy.</small>
+			private networks. None means open to everybody who can reach Caddy. Caddy has to see the visitor's own
+			address for this: behind another proxy or Docker's own forwarding, everybody arrives from a private one.</small>
 
 		<div class="not-redirect">
 			<label class="check"><input type="checkbox" name="sso" value="1" {{ "checked" if route.sso }} {{ "disabled" if not sso and not route.sso }}>

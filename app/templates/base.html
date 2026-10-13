@@ -29,7 +29,7 @@
 		{# Sun in the dark look, moon in the light one: the button shows where a click leads. #}
 		{% set light = account.theme == "light" %}
 		<form method="post" action="/profile/theme" class="theme">
-			<input type="hidden" name="back" value="{{ request.scope["path"] }}{{ '?' ~ request.url.query if request.url.query }}">
+			<input type="hidden" name="back" value="{{ request.scope["path"] }}{{ '?' ~ request.scope["query_string"].decode("latin-1") if request.scope["query_string"] }}">
 			<button type="submit" class="icon" title="Switch to the {{ 'dark' if light else 'light' }} look" aria-label="Switch to the {{ 'dark' if light else 'light' }} look">
 				<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
 					{% if light %}<path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/>

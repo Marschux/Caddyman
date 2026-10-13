@@ -11,7 +11,7 @@ from unittest import mock
 # Module constants are read once at import, so the data directory has to be set first.
 _DATA = tempfile.TemporaryDirectory()
 os.environ["CADDYMAN_DATA_DIR"] = _DATA.name
-os.environ["CADDYMAN_SECRET_KEY"] = "test-key"
+os.environ["CADDYMAN_SECRET_KEY"] = "test-key-of-at-least-32-characters"
 os.environ.pop("CADDYMAN_SETUP_TOKEN", None)
 
 from cryptography import x509  # noqa: E402
@@ -34,6 +34,7 @@ class AppTest(unittest.TestCase):
         main.GROUPS_FILE.unlink(missing_ok=True)
         main.ERRORS_FILE.unlink(missing_ok=True)
         main.LOGIN_FAILS.clear()
+        main.LOCK_ROUNDS.clear()
         # No name is looked up from a test: where "Caddy" sits is said by each test that needs it.
         self.patch(main, "resolve_addresses", mock.Mock(return_value=set()))
         main.CADDY_ADDRESSES.update(until=0.0, found=frozenset(), busy=False)
@@ -2082,6 +2083,9 @@ class TestEdit(RouteTest):
         self.assertIn(route["auth_hash"], self.read("pdf.caddy"))
         self.assertEqual(self.edit(auth_user="eve").status_code, 400)
         self.assertIn(f"max {route['auth_hash']}", self.read("pdf.caddy"))
+        # Another type could not ask for the login: it is not dropped along the way.
+        self.assertEqual(self.edit(type="static", root="/srv/www").status_code, 400)
+        self.assertIn(f"max {route['auth_hash']}", self.read("pdf.caddy"))
         # An empty username takes the login away again.
         self.edit()
         self.assertEqual(self.read("pdf.caddy"), self.original)
@@ -2091,6 +2095,7 @@ class TestEdit(RouteTest):
         self.assertEqual(self.edit(auth_user="a b", auth_password="secret").status_code, 400)
         self.assertEqual(self.edit(auth_user="x {\n\trespond", auth_password="secret").status_code, 400)
         self.assertEqual(self.edit(auth_user="max", auth_password="x" * 73).status_code, 400)
+        self.assertEqual(self.edit(auth_user="max", auth_password="short").status_code, 400)
         self.assertEqual(self.read("pdf.caddy"), self.original)
 
     def test_host_header_option(self):
@@ -2120,7 +2125,7 @@ class TestEdit(RouteTest):
         self.assertEqual(self.read("hand.caddy"), "hand.lab.test {\n\trespond 200\n}\n")
 
     def test_allowed_networks_wrap_the_route(self):
-        self.edit(allow="192.168.2.5/24, private  10.0.0.9", auth_user="max", auth_password="secret")
+        self.edit(allow="192.168.2.5/24, private  10.0.0.9", auth_user="max", auth_password="open sesame")
         text = self.read("pdf.caddy")
         route = main.read_route(main.Path(self.sites) / "pdf.caddy", self.host)
         self.assertEqual(route["allow"], "192.168.2.0/24 private 10.0.0.9")
@@ -2414,6 +2419,128 @@ class TestEdit(RouteTest):
         self.client.post("/routes/odd/adopt")
         self.assertEqual(self.read("odd.caddy"), refused[0])
         self.assertIn("left as it is", self.client.get("/").text)
+
+
+class TestHardening(RouteTest):
+    def test_lock_on_the_second_factor_grows(self):
+        for expected in (main.LOCK_SECONDS, main.LOCK_SECONDS * 2, main.LOCK_SECONDS * 4):
+            main.LOGIN_FAILS.clear()
+            for _ in range(main.MAX_LOGIN_FAILS):
+                main.record_fail("198.51.100.1", "2fa:admin")
+            self.assertEqual(main.locked_seconds("2fa:admin"), expected)
+            self.assertEqual(main.locked_seconds("198.51.100.1"), main.LOCK_SECONDS)  # an address is not an account
+        main.LOCK_ROUNDS["2fa:admin"][0] = 20
+        main.LOGIN_FAILS.clear()
+        for _ in range(main.MAX_LOGIN_FAILS):
+            main.record_fail("2fa:admin")
+        self.assertEqual(main.locked_seconds("2fa:admin"), main.LOCK_MAX_SECONDS)
+
+    def test_the_own_password_is_not_guessed_from_a_session(self):
+        form = {"password": "another horse", "repeat": "another horse"}
+        for _ in range(main.MAX_LOGIN_FAILS):
+            self.assertEqual(self.client.post("/profile/password", data={**form, "current": "nope"}).status_code, 400)
+        answer = self.client.post("/profile/password", data={**form, "current": PASSWORD})
+        self.assertEqual(answer.status_code, 400)
+        self.assertIn("Too many attempts", answer.text)
+        self.assertEqual(self.client.post("/profile/2fa/start", data={"current": PASSWORD}).status_code, 400)
+
+    def test_a_broken_host_header_is_no_error(self):
+        for path in ("/", "/status", "/error-pages", "/routes/new?own=1", "/profile"):
+            self.assertEqual(self.client.get(path, headers={"host": "["}).status_code, 200, path)
+            self.assertEqual(self.client.get(path, headers={"host": "caddyman:x"}).status_code, 200, path)
+
+    def test_a_forwarded_address_has_to_be_one(self):
+        main.resolve_addresses.return_value = {"testclient"}
+        main.CADDY_ADDRESSES["until"] = 0.0
+        guest = self.guest()
+        guest.post("/login", data={"username": "admin", "password": "nope"}, headers={"x-forwarded-for": "<b>, not an address"})
+        self.assertEqual(list(main.LOGIN_FAILS), ["testclient", "login:admin"])
+
+    def test_turning_the_second_factor_on_ends_the_other_sessions(self):
+        other = self.guest()
+        other.post("/login", data={"username": "admin", "password": PASSWORD})
+        self.assertEqual(other.get("/").status_code, 200)
+        self.client.post("/profile/2fa/start", data={"current": PASSWORD})
+        secret = main.totp_secret(main.load_users()[0], "totp_pending")
+        self.client.post("/profile/2fa/confirm", data={"code": main.totp_code(secret, int(main.time.time()) // main.TOTP_SECONDS)})
+        self.assertEqual(self.client.get("/").status_code, 200)
+        self.assertEqual(other.get("/").headers["location"], "/login")
+
+    def test_recovery_codes_are_stored_keyed_and_old_ones_still_work(self):
+        self.assertNotEqual(main.recovery_digest("abcde-12345"), main.recovery_digest("abcde-12345", keyed=False))
+        main.update_user("admin", totp=main.seal("JBSWY3DPEHPK3PXP"), recovery=[main.recovery_digest("abcde12345", keyed=False), main.recovery_digest("fffff00000")])
+        user = main.load_users()[0]
+        self.assertTrue(main.second_factor_ok(user, "ABCDE-12345"))
+        self.assertFalse(main.second_factor_ok(user, "abcde-12345"))
+        self.assertTrue(main.second_factor_ok(user, "fffff-00000"))
+        self.assertEqual(main.load_users()[0]["recovery"], [])
+
+    def test_the_page_of_a_mailed_link_sends_no_referrer(self):
+        self.assertEqual(self.guest().get("/reset?token=x").headers["referrer-policy"], "no-referrer")
+
+    def test_groups_and_error_pages_do_not_overwrite_a_change_made_meanwhile(self):
+        self.create(group="Media", errors="1")
+        before = self.read("pdf.caddy")
+        real = main.list_routes
+
+        def slow(host):
+            found = real(host)
+            path = os.path.join(self.sites, "pdf.caddy")
+            os.utime(path, ns=(1, os.stat(path).st_mtime_ns + 5_000_000_000))  # somebody saves it right now
+            return found
+
+        with mock.patch.object(main, "list_routes", slow):
+            self.client.post("/groups/rename", data={"old": "Media", "new": "Films"})
+            self.client.post("/error-pages", data={"upstream": "192.168.1.9:5052"})
+        self.assertEqual(self.read("pdf.caddy"), before)
+        self.client.post("/groups/rename", data={"old": "Media", "new": "Films"})
+        self.assertIn('"group":"Films"', self.read("pdf.caddy"))
+
+    def test_log_directory_is_no_place_for_the_caddyfile(self):
+        self.assertTrue(main.is_own_ground(str(main.LOG_DIR / "caddy.log")))
+        self.assertFalse(main.is_own_ground("/etc/caddy/Caddyfile"))
+
+    def test_a_short_secret_key_is_named_on_the_status_page(self):
+        labels = lambda: [check["label"] for check in main.preflight(self.host)]  # noqa: E731
+        self.assertNotIn("Secret key is long enough", labels())
+        with mock.patch.object(main, "SECRET_KEY", "short"):
+            self.assertIn("Secret key is long enough", labels())
+
+    def test_mail_password_is_kept_only_for_the_same_server(self):
+        mail = {"public_url": "https://caddyman.lab.test", "host": "smtp.lab.test", "port": "587", "security": "starttls", "user": "caddyman", "sender": "c@lab.test"}
+        self.client.post("/settings/mail", data={**mail, "password": "mail-secret"})
+        self.client.post("/settings/mail", data={**mail, "sender": "d@lab.test"})
+        self.assertIn("password_enc", main.read_json(main.MAIL_FILE, {}))
+        for change in ({"host": "smtp.evil.test"}, {"security": "none", "port": "25"}):
+            self.client.post("/settings/mail", data={**mail, "password": "mail-secret"})
+            self.client.post("/settings/mail", data={**mail, **change})
+            self.assertNotIn("password_enc", main.read_json(main.MAIL_FILE, {}), change)
+
+    def test_import_takes_no_broken_ca_and_no_caddy_without_its_base(self):
+        def archive(host):
+            data = io.BytesIO()
+            with zipfile.ZipFile(data, "w") as packed:
+                packed.writestr("hosts.json", main.json.dumps([host]))
+            return data.getvalue()
+
+        broken = "-----BEGIN CERTIFICATE-----\nAAAA\n-----END CERTIFICATE-----"
+        host = {**main.HOST_DEFAULTS, "id": "0123abcd", "storage": "managed", "admin_ca": broken}
+        self.assertNotIn("admin_ca", main.read_backup(archive(host))["hosts"][0])
+        # Into an empty install: a Caddy elsewhere without its base Caddyfile would be pushed the routes alone.
+        main.HOSTS_FILE.unlink()
+        payload = base64.b64encode(archive(host)).decode()
+        self.assertEqual(self.client.post("/backup/import", data={"payload": payload}).status_code, 400)
+        self.assertEqual(main.load_hosts(), [])
+
+    def test_an_unknown_https_admin_api_gets_no_login_from_a_page_view(self):
+        host = {**self.host, "admin_url": "https://admin.lab.test", "admin_user": "caddyman", "admin_password_enc": main.seal("pw")}
+        get = self.patch(main.httpx, "get", mock.Mock(return_value=mock.Mock(status_code=401, text="")))
+        with self.assertRaises(ValueError):
+            main.fetch_root_ca(host)
+        self.assertIsNone(get.call_args.kwargs["auth"])
+        with self.assertRaises(ValueError):
+            main.fetch_root_ca(host, first=True)  # saving the settings: trust on first use
+        self.assertIsNotNone(get.call_args.kwargs["auth"])
 
 
 if __name__ == "__main__":
