@@ -977,6 +977,16 @@ class TestUsers(RouteTest):
         self.assertNotIn("theme", main.load_users()[0])
         self.assertNotIn("data-theme", self.client.get("/").text)
 
+    def test_trust_page_switched_off_is_part_of_the_root_ca_right(self):
+        self.add_user("viewer")
+        viewer, _ = self.log_in("viewer")
+        self.assertNotEqual(viewer.get("/trust").status_code, 403)
+        self.client.post("/settings/security", data={"login_ca_hint": "1"})  # the box for the open page unticked
+        self.assertEqual(self.guest().get("/trust").headers["location"], "/login")
+        for path in ("/trust", "/root-ca.crt"):
+            self.assertEqual(viewer.get(path).status_code, 403)
+            self.assertNotEqual(self.client.get(path).status_code, 403)
+
     def test_mail_settings_take_the_right_to_manage_users_too(self):
         # The reset links of all accounts travel through the mail server.
         mail = {"host": "smtp.lab.test", "port": "25", "sender": "c@lab.test", "security": "none", "public_url": "https://caddyman.lab.test"}

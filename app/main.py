@@ -410,6 +410,8 @@ def needed_permission(path: str) -> str | None:
     """The right a request needs. Decided here by its path, so no endpoint can forget its own check."""
     if path == "/settings":
         return None  # only forwards to the first block this account may open
+    if path in PUBLIC_PATHS:
+        return None if flag("public_ca") else "ca"  # switched off, they are part of the Root CA page
     if re.fullmatch(r"/hosts/[^/]+/push", path):
         return "routes"  # "Reload Caddy" lives under /hosts but is part of working with routes
     return next((right for prefix, right in AREAS if path == prefix or path.startswith(prefix + "/")), None)
