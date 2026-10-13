@@ -3,9 +3,6 @@
 ## 2026-10-13 18:44
 - chore: version 0.15.5
 - feat: a changed address for the error pages is part of the backup
-- fix: the hidden game is a little easier: more room between obstacles, a slower build-up of speed
-- feat: the hidden game has ducking and flying obstacles, certificates to collect with a shield, stages and a second jump in the air
-- feat: the hidden game starts after Enter was pressed five times on its name, and shows the score large in the middle
 
 
 ## 2026-10-13 18:29
@@ -27,7 +24,6 @@
 
 ## 2026-10-13 02:09
 - chore: version 0.13.3
-- feat: a new hidden game, Cert Runner, started from the search of the route list
 - feat: wildcard names for routes, with the DNS challenge or Caddy's internal CA
 - docs: new screenshot of the route list
 - feat: the route list checks the target of every path as well
