@@ -2940,7 +2940,8 @@ Caddyfile      the base Caddyfile, as a copy for reference. Caddyman never write
 hosts.json     where Caddy is reachable. Only used when restoring into an empty install.
 settings.json  the switches and the time zone under Settings, General. Only used when restoring into an empty install.
 mail.json      the mail settings without the password. Only used when restoring into an empty install.
-errors.json    the design chosen for each error page. Only used when restoring into an empty install.
+errors.json    the design chosen for each error page, and the address Caddy fetches them from if it was changed.
+               Only used when restoring into an empty install.
 
 NOT IN HERE: the root CA.
 It lives in the volume of your CA (for step-ca: the volume mounted at /home/step),
@@ -2971,8 +2972,10 @@ def build_backup(host: dict) -> bytes:
         archive.writestr("settings.json", json.dumps({key: settings.get(key, "") for key in (*SETTING_DEFAULTS, "time_zone")}, indent=2))
         archive.writestr("mail.json", json.dumps({key: mail[key] for key in MAIL_DEFAULTS}, indent=2))
         archive.writestr("groups.json", json.dumps(load_groups(host), indent=2))
-        # Only the designs: where Caddy finds Caddyman belongs to the install, and stands in the routes.
-        archive.writestr("errors.json", json.dumps({"designs": load_errors()["designs"]}, indent=2))
+        # The designs, and where Caddy finds Caddyman if somebody changed that: new routes need it again.
+        errors = load_errors()
+        there = {} if errors["upstream"] == f"caddyman:{OWN_PORT}" else {"upstream": errors["upstream"]}
+        archive.writestr("errors.json", json.dumps({"designs": errors["designs"], **there}, indent=2))
         try:
             archive.writestr("Caddyfile", Path(host["caddyfile"]).read_bytes())
         except OSError:
@@ -3042,6 +3045,9 @@ def read_backup(data: bytes) -> dict:
     errors = extra.get("errors.json")
     designs = errors.get("designs") if isinstance(errors, dict) else None
     designs = {code: design for code, design in designs.items() if code in ERROR_PAGES and design in ERROR_DESIGNS} if isinstance(designs, dict) else {}
+    there = errors.get("upstream") if isinstance(errors, dict) else None
+    match = UPSTREAM_RE.match(there) if isinstance(there, str) else None
+    there = {"upstream": there} if match and (not match.group(4) or valid_port(match.group(4))) else {}
     return {
         "routes": routes,
         "hosts": hosts,
@@ -3051,7 +3057,7 @@ def read_backup(data: bytes) -> dict:
         "settings": settings,
         "mail": mail if mail and mail["host"] and mail_problem(mail) is None else {},
         "groups": groups,
-        "errors": {"designs": designs} if designs else {},
+        "errors": {"designs": designs, **there} if designs or there else {},
     }
 
 
