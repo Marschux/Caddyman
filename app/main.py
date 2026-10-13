@@ -1865,6 +1865,20 @@ def route_path(host: dict, name: str) -> Path | None:
     return path if path.parent == sites else None
 
 
+# Where render_route expects text. A number there would render just as well, and then trip
+# up everything that reads the route afterwards.
+ROUTE_TEXTS = ("type", "host", "port", "tls", "group", "allow", "errors", "upstream", "auth_user", "auth_hash", "target", "code", "root", "page")
+
+
+def well_formed(route) -> bool:
+    """Whether the metadata of a file has the shapes route_from_form gives it."""
+    if not isinstance(route, dict) or not all(isinstance(route.get(key, ""), str) for key in ROUTE_TEXTS):
+        return False
+    aliases, paths = route.get("aliases", []), route.get("paths", [])
+    pairs = isinstance(paths, list) and all(isinstance(pair, list) and len(pair) == 2 and all(isinstance(part, str) for part in pair) for pair in paths)
+    return pairs and isinstance(aliases, list) and all(isinstance(name, str) for name in aliases)
+
+
 def read_route(path: Path, host: dict) -> dict | None:
     """Metadata of a file this tool wrote and nobody changed since, else None."""
     try:
@@ -1874,7 +1888,7 @@ def read_route(path: Path, host: dict) -> dict | None:
             return None
         route = json.loads(first[len(META_PREFIX):])
         # No hash, no parser: a file is ours exactly when its metadata reproduces it.
-        return route if render_route(route, host) == content else None
+        return route if well_formed(route) and render_route(route, host) == content else None
     except (OSError, ValueError, KeyError, TypeError):
         return None
 

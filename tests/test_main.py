@@ -645,6 +645,13 @@ class TestRoutes(RouteTest):
         self.put("legacy.caddy", "legacy.lab.test {\n\trespond 200\n}\n")
         self.assertIn("legacy.caddy", self.client.get("/").text)
 
+    def test_a_metadata_line_with_a_number_for_text_is_not_ours(self):
+        # It renders to the very same file, so only its shape tells.
+        route = {"type": "reverse_proxy", "host": "pdf.lab.test", "port": "", "tls": "default", "upstream": 123}
+        self.put("pdf.caddy", main.render_route(route, self.host))
+        self.assertIsNone(main.read_route(main.Path(self.sites) / "pdf.caddy", self.host))
+        self.assertEqual(self.client.get("/").status_code, 200)
+
     def test_route_list_carries_the_hidden_game(self):
         self.create()
         self.assertIn('<script src="/static/game.js" defer>', self.client.get("/").text)
