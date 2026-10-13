@@ -1676,7 +1676,11 @@ class TestBackup(RouteTest):
         self.client.post("/settings/security", data={"public_ca": "1"})  # the hint on the login page goes off
         self.client.post("/settings/mail", data=self.MAIL)
         self.client.post("/error-pages/502", data={"design": "ghost"})
-        archive = self.client.get("/backup/download").content
+        self.client.post("/settings/general", data={"zone": "Europe/Berlin"})
+        # "Only over HTTPS" is never part of a backup: restored without its route, it would lock everybody out.
+        main.save_settings(https_only="1")
+        archive = main.build_backup(main.pick_host()[1])
+        main.save_settings(https_only="")
         with zipfile.ZipFile(io.BytesIO(archive)) as packed:
             everything = b"".join(packed.read(name) for name in packed.namelist())
         self.assertIn(b"smtp.lab.test", everything)
@@ -1709,6 +1713,7 @@ class TestBackup(RouteTest):
         self.assertNotIn("password_enc", main.load_mail())
         self.assertEqual((main.flag("public_ca"), main.flag("login_ca_hint")), (True, False))
         self.assertEqual(main.load_errors()["designs"], {"502": "ghost"})
+        self.assertEqual((main.time_zone().key, main.https_only()), ("Europe/Berlin", False))
 
     def test_only_who_may_change_settings_restores_them(self):
         # The connection to Caddy and the mail settings decide who gets in and where reset links go:

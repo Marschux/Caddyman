@@ -2938,7 +2938,7 @@ sites/         one file per route. This is what a restore writes back.
 groups.json    the names of the route groups. A restore adds the ones that are missing.
 Caddyfile      the base Caddyfile, as a copy for reference. Caddyman never writes it.
 hosts.json     where Caddy is reachable. Only used when restoring into an empty install.
-settings.json  the switches under Settings, General. Only used when restoring into an empty install.
+settings.json  the switches and the time zone under Settings, General. Only used when restoring into an empty install.
 mail.json      the mail settings without the password. Only used when restoring into an empty install.
 errors.json    the design chosen for each error page. Only used when restoring into an empty install.
 
@@ -2966,7 +2966,9 @@ def build_backup(host: dict) -> bytes:
         archive.writestr("README.txt", BACKUP_README.format(created=created, version=VERSION))
         archive.writestr("backup.json", json.dumps({"created": created, "version": VERSION, "host_id": host["id"]}))
         archive.writestr("hosts.json", json.dumps(hosts, indent=2))
-        archive.writestr("settings.json", json.dumps({key: load_settings()[key] for key in SETTING_DEFAULTS}, indent=2))
+        # The switches and the time zone. "Only over HTTPS" stays out: restored without its route, it would lock everybody out.
+        settings = load_settings()
+        archive.writestr("settings.json", json.dumps({key: settings.get(key, "") for key in (*SETTING_DEFAULTS, "time_zone")}, indent=2))
         archive.writestr("mail.json", json.dumps({key: mail[key] for key in MAIL_DEFAULTS}, indent=2))
         archive.writestr("groups.json", json.dumps(load_groups(host), indent=2))
         # Only the designs: where Caddy finds Caddyman belongs to the install, and stands in the routes.
@@ -3026,7 +3028,13 @@ def read_backup(data: bytes) -> dict:
     meta = extra.get("backup.json")
     # Everything below is held to what the forms of the interface would accept.
     settings = extra.get("settings.json")
+    zone = settings.get("time_zone") if isinstance(settings, dict) else None
     settings = {key: "1" if settings.get(key) else "" for key in SETTING_DEFAULTS if key in settings} if isinstance(settings, dict) else {}
+    try:
+        if isinstance(zone, str) and zone and ZoneInfo(zone):
+            settings["time_zone"] = zone
+    except (KeyError, ValueError, OSError):
+        pass
     mail = extra.get("mail.json")
     mail = {key: str(mail.get(key, default)) for key, default in MAIL_DEFAULTS.items()} if isinstance(mail, dict) else {}
     groups = extra.get("groups.json")
