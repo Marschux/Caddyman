@@ -2413,7 +2413,8 @@ def existing_route(name: str) -> tuple[dict | None, Path | None]:
 @app.get("/")
 def index(request: Request):
     current = the_host()
-    routes = list_routes(current)
+    # The route for unknown names is switched on and off under Error pages, and only there.
+    routes = [item for item in list_routes(current) if not (item["route"] and item["route"]["type"] == "error_page")]
     jobs = {}
     for item in routes:
         item["hand"] = None if item["route"] else hand_written(current, item["name"])
@@ -2712,7 +2713,7 @@ def error_page(request: Request, code: str, design: str = ""):
 
 
 def catch_all_state(host: dict) -> str:
-    """'on', 'off' when it is switched off in the route list, 'taken' when the file is somebody else's, else ''."""
+    """'on', 'off' when its block is commented out, 'taken' when the file is somebody else's, else ''."""
     path = route_path(host, CATCH_ALL)
     if not path.exists():
         return ""
@@ -2767,7 +2768,7 @@ def error_pages_save(upstream: str = Form("")):
 
 @app.post("/error-pages/catch-all")
 def error_pages_catch_all(on: str = Form("")):
-    """The route for every name no other route knows. A file like the others, so the list shows it."""
+    """The route for every name no other route knows. A file like the others, but not in the route list."""
     current = the_host()
     path, state = route_path(current, CATCH_ALL), catch_all_state(current)
     if state == "taken":

@@ -55,10 +55,10 @@
 	{% if catch_all == "taken" %}
 	<p class="empty">A file <code>catch-all.caddy</code> exists and was not written here. Rename or delete it first.</p>
 	{% else %}
-	{% if catch_all == "off" %}<p class="empty">The route exists, but is switched off in the route list.</p>{% endif %}
+	{# A file switched off by an older version counts as off: switching on writes it anew. #}
 	<form method="post" action="/error-pages/catch-all" class="row">
-		{% if not catch_all %}<input type="hidden" name="on" value="1">{% endif %}
-		<button type="submit" {% if catch_all %}class="secondary"{% endif %}>{{ "Switch off and reload Caddy" if catch_all else "Answer unknown names and reload Caddy" }}</button>
+		{% if catch_all != "on" %}<input type="hidden" name="on" value="1">{% endif %}
+		<button type="submit" {% if catch_all == "on" %}class="secondary"{% endif %}>{{ "Switch off and reload Caddy" if catch_all == "on" else "Answer unknown names and reload Caddy" }}</button>
 		<a href="/error-pages/blocked">Choose the design of the page</a>
 	</form>
 	{% endif %}

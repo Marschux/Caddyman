@@ -2224,8 +2224,14 @@ class TestEdit(RouteTest):
         self.client.post("/error-pages/catch-all", data={"on": "1"})
         written = f"http:// {{\n\trewrite * /error/blocked\n\treverse_proxy caddyman:{main.OWN_PORT}\n}}\n"
         self.assertEqual(self.read("catch-all.caddy").split("\n", 1)[1], written)
-        self.assertIn(">Error page<", self.client.get("/").text)
+        # Switched on and off under Error pages only: the route list leaves it out.
+        self.assertNotIn("/routes/catch-all/", self.client.get("/").text)
         self.assertIn("Switch off and reload Caddy", self.client.get("/error-pages").text)
+        # One an older version switched off in the list comes back with the same button.
+        self.client.post("/routes/catch-all/toggle")
+        self.assertIn("Answer unknown names", self.client.get("/error-pages").text)
+        self.client.post("/error-pages/catch-all", data={"on": "1"})
+        self.assertEqual(self.read("catch-all.caddy").split("\n", 1)[1], written)
         # It has no form of its own.
         self.assertEqual(self.client.get("/routes/catch-all/edit").headers["location"], "/error-pages")
         self.client.post("/error-pages/catch-all")
