@@ -576,6 +576,7 @@ class TestRoutes(RouteTest):
             # A line break at the end is no part of a name either.
             {"host": "a.b\n."},
             {"type": "redirect", "target": "http://a.b\n/", "code": "301"},
+            {"allow": "fe80::1%{env.X}"},
             {"host": "x {\nrespond 200\n}"},
             {"host": ""},
             {"port": "70000"},

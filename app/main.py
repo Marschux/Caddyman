@@ -1648,6 +1648,9 @@ def allowed_networks(text: str) -> str | None:
     """
     found = []
     for item in text.replace(",", " ").split()[: MAX_NETWORKS + 1]:
+        # An IPv6 address may name a zone after '%', and ipaddress keeps whatever stands there.
+        if "%" in item:
+            return None
         try:
             if item.lower() == "private":
                 found.append("private")
