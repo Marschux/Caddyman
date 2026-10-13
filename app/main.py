@@ -2861,6 +2861,7 @@ Caddyfile      the base Caddyfile, as a copy for reference. Caddyman never write
 hosts.json     where Caddy is reachable. Only used when restoring into an empty install.
 settings.json  the switches under Settings, Security. Only used when restoring into an empty install.
 mail.json      the mail settings without the password. Only used when restoring into an empty install.
+errors.json    the design chosen for each error page. Only used when restoring into an empty install.
 
 NOT IN HERE: the root CA.
 It lives in the volume of your CA (for step-ca: the volume mounted at /home/step),
@@ -2889,6 +2890,8 @@ def build_backup(host: dict) -> bytes:
         archive.writestr("settings.json", json.dumps({key: load_settings()[key] for key in SETTING_DEFAULTS}, indent=2))
         archive.writestr("mail.json", json.dumps({key: mail[key] for key in MAIL_DEFAULTS}, indent=2))
         archive.writestr("groups.json", json.dumps(load_groups(host), indent=2))
+        # Only the designs: where Caddy finds Caddyman belongs to the install, and stands in the routes.
+        archive.writestr("errors.json", json.dumps({"designs": load_errors()["designs"]}, indent=2))
         try:
             archive.writestr("Caddyfile", Path(host["caddyfile"]).read_bytes())
         except OSError:
@@ -2916,7 +2919,7 @@ def read_backup(data: bytes) -> dict:
             name = item.filename[len("sites/") : -len(".caddy")]
             if item.filename == f"sites/{name}.caddy" and ROUTE_NAME_RE.match(name) and ".." not in name:
                 routes[name] = archive.read(item).decode("utf-8")
-            elif item.filename in ("hosts.json", "backup.json", "settings.json", "mail.json", "groups.json"):
+            elif item.filename in ("hosts.json", "backup.json", "settings.json", "mail.json", "groups.json", "errors.json"):
                 extra[item.filename] = json.loads(archive.read(item))
             elif item.filename == "Caddyfile":
                 extra["Caddyfile"] = archive.read(item).decode("utf-8")
@@ -2949,6 +2952,9 @@ def read_backup(data: bytes) -> dict:
     mail = {key: str(mail.get(key, default)) for key, default in MAIL_DEFAULTS.items()} if isinstance(mail, dict) else {}
     groups = extra.get("groups.json")
     groups = [name for name in groups if isinstance(name, str) and GROUP_RE.fullmatch(name)] if isinstance(groups, list) else []
+    errors = extra.get("errors.json")
+    designs = errors.get("designs") if isinstance(errors, dict) else None
+    designs = {code: design for code, design in designs.items() if code in ERROR_PAGES and design in ERROR_DESIGNS} if isinstance(designs, dict) else {}
     return {
         "routes": routes,
         "hosts": hosts,
@@ -2958,6 +2964,7 @@ def read_backup(data: bytes) -> dict:
         "settings": settings,
         "mail": mail if mail and mail["host"] and mail_problem(mail) is None else {},
         "groups": groups,
+        "errors": {"designs": designs} if designs else {},
     }
 
 
@@ -3027,6 +3034,7 @@ async def backup_restore(request: Request):
         *([f"{len(new_groups)} route groups"] if new_groups else []),
         *(["the switches under Settings, Security"] if with_settings and backup["settings"] else []),
         *(["the mail settings, without the password"] if with_settings and backup["mail"] else []),
+        *(["the designs of the error pages"] if with_settings and backup["errors"] else []),
     ]
     if not confirmed:
         payload = base64.b64encode(data).decode()
@@ -3051,6 +3059,8 @@ async def backup_restore(request: Request):
         save_settings(**backup["settings"])
     if with_settings and backup["mail"]:
         write_private(MAIL_FILE, json.dumps(backup["mail"], indent=2))
+    if with_settings and backup["errors"]:
+        write_private(ERRORS_FILE, json.dumps(backup["errors"], indent=2))
     if new_groups:
         save_groups([*stored_groups(), *new_groups])
     if not changes:

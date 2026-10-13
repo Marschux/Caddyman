@@ -223,8 +223,8 @@ status page shows its check code, the same one the Root CA page gives.
 - **Back up your CA separately.** The backup holds the routes, not the root CA. A lost root has
   to be imported on every device again.
 - **The backup has no accounts and no passwords.** It holds the routes and their groups, the
-  connection to Caddy, the switches under "Security" and the mail settings without the
-  password. The last three only come back when restoring into an empty install. To keep the
+  connection to Caddy, the switches under "Security", the designs of the error pages and the mail
+  settings without the password. The last four only come back when restoring into an empty install. To keep the
   accounts too, back up the data volume.
 - **Restart both containers after editing the base Caddyfile by hand.** Mounted as a single
   file, it can stay stale inside the container when an editor replaces it.

@@ -1558,8 +1558,8 @@ class TestBackup(RouteTest):
         with zipfile.ZipFile(io.BytesIO(self.archive)) as archive:
             self.assertEqual(
                 sorted(archive.namelist()),
-                ["Caddyfile", "README.txt", "backup.json", "groups.json", "hosts.json", "mail.json", "settings.json",
-                 "sites/pdf.caddy", "sites/wiki.caddy"],
+                ["Caddyfile", "README.txt", "backup.json", "errors.json", "groups.json", "hosts.json", "mail.json",
+                 "settings.json", "sites/pdf.caddy", "sites/wiki.caddy"],
             )
             self.assertIn("NOT IN HERE: the accounts", archive.read("README.txt").decode())
             self.assertEqual(archive.read("sites/pdf.caddy").decode(), self.pdf)
@@ -1639,6 +1639,7 @@ class TestBackup(RouteTest):
         self.client.post("/groups", data={"name": "Media"})
         self.client.post("/settings/security", data={"public_ca": "1"})  # the hint on the login page goes off
         self.client.post("/settings/mail", data=self.MAIL)
+        self.client.post("/error-pages/502", data={"design": "ghost"})
         archive = self.client.get("/backup/download").content
         with zipfile.ZipFile(io.BytesIO(archive)) as packed:
             everything = b"".join(packed.read(name) for name in packed.namelist())
@@ -1649,10 +1650,11 @@ class TestBackup(RouteTest):
         main.GROUPS_FILE.unlink()
         main.MAIL_FILE.unlink()
         main.SETTINGS_FILE.unlink()
+        main.ERRORS_FILE.unlink()
         self.assertIn("1 route groups", self.upload(archive).text)
         self.confirm(archive)
         self.assertEqual(main.stored_groups(), ["Media"])
-        self.assertEqual((main.load_mail()["host"], main.flag("login_ca_hint")), ("", True))
+        self.assertEqual((main.load_mail()["host"], main.flag("login_ca_hint"), main.load_errors()["designs"]), ("", True, {}))
         # Into an empty install everything comes back, the mail password excepted.
         main.save_hosts([])
         for name in os.listdir(self.sites):
@@ -1670,6 +1672,7 @@ class TestBackup(RouteTest):
         self.assertEqual((main.load_mail()["host"], main.load_mail()["user"]), ("smtp.lab.test", "caddyman"))
         self.assertNotIn("password_enc", main.load_mail())
         self.assertEqual((main.flag("public_ca"), main.flag("login_ca_hint")), (True, False))
+        self.assertEqual(main.load_errors()["designs"], {"502": "ghost"})
 
     def test_only_who_may_change_settings_restores_them(self):
         # The connection to Caddy and the mail settings decide who gets in and where reset links go:
