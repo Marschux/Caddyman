@@ -1,0 +1,59 @@
+# An example for Caddy's base Caddyfile. Caddyman only reads this file; the routes
+# live in the sites directory, one file each.
+{
+	# The contact your ACME CA gets. Let's Encrypt wants a real domain here.
+	email you@example.com
+
+	# Caddy listens on 80 and 443. For other ports, publish them on the Caddy
+	# container as well.
+	# http_port 8080
+	# https_port 8443
+
+	# For the Logs page: a second logger, so `docker logs` keeps working.
+	log caddyman {
+		output file /var/log/caddy/caddy.log {
+			roll_size 10MiB
+			roll_keep 3
+		}
+		format json
+		exclude http.log.access
+	}
+}
+
+# Your own ACME CA, here step-ca. Enter the name "stepca" as TLS snippet under
+# Settings, Caddy. Leave the block out if Caddy's default is enough.
+(stepca) {
+	tls {
+		ca https://ca.home.example:9001/acme/acme/directory
+		ca_root /etc/caddy/root_ca.crt
+	}
+}
+
+# Let's Encrypt over the DNS challenge, as DNS snippet "dns". Needs a Caddy built
+# with the plugin of your DNS provider.
+# (dns) {
+# 	tls {
+# 		dns cloudflare {env.CLOUDFLARE_API_TOKEN}
+# 	}
+# }
+
+# Your login service, here Authelia, as SSO snippet "sso".
+# (sso) {
+# 	forward_auth authelia:9091 {
+# 		uri /api/authz/forward-auth
+# 		copy_headers Remote-User Remote-Groups Remote-Email Remote-Name
+# 	}
+# }
+
+# The login in front of Caddy's admin API. Create the hash with
+# `docker exec -it caddy caddy hash-password`, and do not publish port 2020.
+:2020 {
+	basic_auth {
+		caddyman <hash>
+	}
+	reverse_proxy localhost:2019 {
+		header_up Host {upstream_hostport}
+	}
+}
+
+import /etc/caddy/sites/*.caddy
