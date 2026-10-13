@@ -1187,6 +1187,7 @@ def remember_admin_ca(host: dict, previous: str = "") -> str:
 def save_hosts(hosts: list[dict]) -> None:
     write_json(HOSTS_FILE, hosts)
     CADDY_ADDRESSES["until"] = 0.0  # the admin URL may have changed: look its addresses up again
+    PROBE_CACHE.clear()  # and what the status page found was about the settings before
 
 
 def is_http_url(value: str) -> bool:
@@ -3456,9 +3457,22 @@ def logs_page(request: Request, file: str = "", level: str = "", q: str = "", qu
     return page(request, "logs.html", host=current, shown=LOG_SHOWN, **snippets, **context)
 
 
+# The status page is open to every account, and its checks ask Caddy, the CA and the admin API
+# with Caddyman's own login. Kept for a moment, so reloading the page does not multiply them.
+STATUS_SECONDS = 10
+
+
+def kept_preflight(host: dict) -> list[dict]:
+    key = ("preflight", host["id"])
+    kept = PROBE_CACHE.get(key)
+    if not kept or kept[0] < time.monotonic():
+        kept = PROBE_CACHE[key] = (time.monotonic() + STATUS_SECONDS, preflight(host))
+    return list(kept[1])
+
+
 @app.get("/status")
 def status(request: Request):
-    hosts = [{**host, "checks": preflight(host)} for host in load_hosts()]
+    hosts = [{**host, "checks": kept_preflight(host)} for host in load_hosts()]
     way = arrived(request)
     has_route, address = own_route_address(hosts[0]) if hosts else (False, "")
     if hosts and way != "plain":

@@ -454,6 +454,18 @@ class TestRoutes(RouteTest):
             main.reset_https_only()
         self.assertEqual(self.client.get("/").status_code, 200)
 
+    def test_status_keeps_its_checks_for_a_moment(self):
+        get = self.patch(main.httpx, "get", mock.Mock(side_effect=main.httpx.ConnectError("down")))
+        self.client.get("/status")
+        asked = get.call_count
+        self.assertGreater(asked, 0)
+        self.client.get("/status")
+        self.assertEqual(get.call_count, asked)  # reloading the page asks nobody again
+        # A change to the routes does.
+        self.create()
+        self.client.get("/status")
+        self.assertGreater(get.call_count, asked)
+
     def test_status_offers_a_route_for_caddyman_itself(self):
         hint = 'href="/routes/new?own=1"'
         self.assertIn(hint, self.client.get("/status").text)
