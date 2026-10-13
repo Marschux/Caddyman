@@ -1668,6 +1668,8 @@ def render_route(route: dict, host: dict) -> str:
     address = ", ".join(f"{scheme}{name}{port}" for name in (route["host"], *route.get("aliases", [])))
     if route["type"] == "error_page":
         # No name at all: every request over plain HTTP that no other route claims.
+        # Plain HTTP only. Over HTTPS it would need a certificate for any name, and Caddy takes
+        # no issuer on a site without a name once the base Caddyfile has one itself or an email.
         address = "http://"
     lines = []
     if route["tls"] == "acme_ca":

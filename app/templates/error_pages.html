@@ -47,10 +47,11 @@
 <section>
 	<h2>For a DNS blocker{% if catch_all == "on" %} <span class="tag">Switched on</span>{% endif %}</h2>
 	<p class="empty">Answers every name that no route knows with the <a href="/error-pages/blocked">Blocked page</a>,
-		over plain HTTP. In Technitium, choose the blocking type "Custom Address" and enter
-		{% if caddy_ip %}<code>{{ caddy_ip }}</code>, the address of the machine Caddy runs on{% else %}the IP address of the machine Caddy runs on{% endif %}. A blocked
-		name then shows the page instead of a connection error. That only works for <code>http://</code>: for
-		<code>https://</code> Caddy has no certificate in the name of a blocked site, and the browser shows its own error.</p>
+		so a blocked name shows that page instead of a connection error. In Technitium, choose the blocking type
+		"Custom Address" and enter the IP address of the machine Caddy runs on. No port: the browser picks it.</p>
+	{% if caddy_ip %}<pre>{{ caddy_ip }}</pre>{% endif %}
+	<p class="empty">Over plain HTTP only. For <code>https://</code> Caddy has no certificate in the name of a
+		blocked site, and the browser shows its own error.</p>
 	{% if catch_all == "taken" %}
 	<p class="empty">A file <code>catch-all.caddy</code> exists and was not written here. Rename or delete it first.</p>
 	{% else %}
