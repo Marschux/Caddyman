@@ -9,16 +9,13 @@ A web interface for Caddy routes that works with your own ACME CA, such as
 
 ![Route list](assets/screenshot.png)
 
-- **Routes:** reverse proxy, redirect or static files, with several hostnames, wildcard names and paths to other targets; can be switched off without deleting
-- **Access per route:** basic auth, allowed networks, or your single sign-on (Authelia, Authentik) through a `forward_auth` snippet; targets with a self-signed certificate work too; HSTS per route
-- **Error pages:** when Caddy cannot answer, the visitor gets a page in a design you pick per error instead of
-  an empty one; a catch-all route shows a "Blocked" page for names a DNS blocker like Technitium points at Caddy
-- **TLS per route:** your own ACME CA, Caddy's default, Let's Encrypt over the DNS challenge, Caddy's internal CA, or none
+- **Routes:** reverse proxy, redirect or static files, with several hostnames, wildcards and paths to other targets
+- **Access per route:** basic auth, allowed networks, or your single sign-on through a `forward_auth` snippet
+- **Error pages:** a page in a design you pick per error, where Caddy would send an empty one
+- **TLS per route:** your own ACME CA, Caddy's default, Let's Encrypt over DNS, Caddy's internal CA, or none
 - **Certificate check:** shows who issued what each route really serves, and when it expires
-- **Root CA page:** download, fingerprints, a check code to pass on by voice, and import steps
-  for Windows, macOS, Debian, iPhone, Android, Chrome and Firefox; open without a login at `/trust`
-- **Logs:** Caddy's log, live and filterable, to see why a certificate did not arrive; rotated
-  files too, and an access log per route for the routes that ask for one
+- **Root CA page:** download, check code and import steps for every common system, open without a login at `/trust`
+- **Logs:** Caddy's log, live and filterable
 - **Backup:** all routes as a ZIP, with a preview before an import writes anything
 
 Caddyman writes one file per route into the directory Caddy already reads, then reloads Caddy.
@@ -89,10 +86,6 @@ admin.home.example {
 
 The `handle_path` block serves the log to the Logs page and can be left out.
 
-The certificate of that site usually comes from your own CA, which the Caddyman container does
-not know. Saving the Caddy settings fetches that CA and remembers it for this address; the
-status page shows its check code, the same one the Root CA page gives.
-
 ## Configuration
 
 | Variable | Default | |
@@ -100,11 +93,8 @@ status page shows its check code, the same one the Root CA page gives.
 | `CADDYMAN_SECRET_KEY` | generated | Signs sessions and links from mails, encrypts the passwords for the admin API and the mail server and the keys of two-factor logins. `openssl rand -base64 32` |
 | `CADDYMAN_SETUP_TOKEN` | random, in the log | Your own token for the setup page, at least 12 characters |
 | `CADDYMAN_FORWARDED_ALLOW_IPS` | `127.0.0.1` | Whose `X-Forwarded-*` headers are trusted besides the managed Caddy, which is trusted by itself |
-| `CADDYMAN_LOG_DIR` | `/var/log/caddy` | Where Caddy's log directory is mounted |
 | `TZ` | `UTC` | The time zone the Logs and Changes pages show their times in, like `Europe/Berlin`; one picked under Settings, General comes before it |
 | `CADDYMAN_RESET_HTTPS_ONLY` | `false` | Set to `true` for one start to switch "Only answer over HTTPS" off again, when the route to Caddyman is lost |
-| `CADDYMAN_DATA_DIR` | `/data` | Account, settings, change log |
-| `CADDYMAN_HOST` / `CADDYMAN_PORT` | `0.0.0.0` / `5052` | |
 | `CADDYMAN_SOURCE_URL` | this repository | Where the version number in the footer links to. Point it at your own source if you run a modified copy |
 
 ## Good to know
@@ -115,22 +105,14 @@ status page shows its check code, the same one the Root CA page gives.
   if that route breaks.
 - **Locked out for good?** Delete `auth.json` from the data volume and restart. The setup page
   returns with a new token in the log. That removes every account, not just yours.
-- **Changed `CADDYMAN_SECRET_KEY`?** Everybody is logged out, and links from mails stop working.
-  Enter the passwords for the admin API and the mail server again. Two-factor logins only take
-  a recovery code now; whoever manages users can switch the second factor off for an account,
-  which then sets it up again.
 - **Back up your CA separately.** The backup holds the routes, not the root CA. A lost root has
   to be imported on every device again.
-- **The backup has no accounts and no passwords.** It holds the routes and their groups, the
-  connection to Caddy, the switches under "General", the designs of the error pages and the mail
-  settings without the password. The last four only come back when restoring into an empty install. To keep the
-  accounts too, back up the data volume.
 - **Restart both containers after editing the base Caddyfile by hand.** Mounted as a single
   file, it can stay stale inside the container when an editor replaces it.
 - **One Caddyman manages one Caddy.** For a second Caddy, run a second Caddyman.
 
-Left out on purpose: user management, load balancing, free-form headers, metrics and an undo
-history. For history, put the sites directory under Git.
+Left out on purpose: load balancing, free-form headers, metrics and an undo history. For
+history, put the sites directory under Git.
 
 ## Development
 
@@ -151,8 +133,3 @@ if you run a modified copy, set `CADDYMAN_SOURCE_URL` to where yours can be foun
 
 Most of this project's code was written with AI assistance (Claude Code). Commits and design
 decisions were reviewed by the maintainer.
-
-## Links
-
-- [Issues](https://github.com/Marschux/Caddyman/issues)
-- [Container registry](https://github.com/Marschux/Caddyman/pkgs/container/caddyman)
