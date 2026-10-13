@@ -5,12 +5,12 @@
 <div class="heading"><h2>Recent changes</h2></div>
 <table>
 	<thead>
-		<tr><th>Time ({{ time_zone }})</th><th>User</th><th>Route</th><th>Action</th><th>Reload</th></tr>
+		<tr><th>Time ({{ time_zone() }})</th><th>User</th><th>Route</th><th>Action</th><th>Reload</th></tr>
 	</thead>
 	<tbody>
 		{% for entry in audit %}
 		<tr>
-			<td>{{ entry.time|local_time }}</td>
+			<td>{{ entry.time }}</td>
 			<td>{{ entry.user or "-" }}</td>
 			<td>{{ entry.route }}</td>
 			<td>{{ entry.action }}</td>

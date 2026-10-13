@@ -28,7 +28,7 @@ from email.message import EmailMessage
 from functools import lru_cache
 from pathlib import Path
 from urllib.parse import quote, urlsplit
-from zoneinfo import ZoneInfo
+from zoneinfo import ZoneInfo, available_timezones
 
 import bcrypt
 import httpx
@@ -55,7 +55,8 @@ SECRET_FILE = DATA_DIR / "secret.key"
 HOSTS_FILE = DATA_DIR / "hosts.json"
 AUDIT_FILE = DATA_DIR / "audit.log"
 AUDIT_SHOWN = 100
-# The zone the times in the logs and the change log are shown in. What is stored stays UTC.
+# The zone the times in the logs and the change log are shown in unless one is chosen under
+# Settings. What is stored stays UTC.
 try:
     TIME_ZONE = ZoneInfo(os.getenv("TZ") or "UTC")
 except (KeyError, ValueError, OSError):
@@ -64,6 +65,8 @@ FLASH_COOKIE = "caddyman_flash"
 # For installs where nobody gets to read the container log.
 ENV_SETUP_TOKEN = os.getenv("CADDYMAN_SETUP_TOKEN", "").strip()
 OWN_PORT = os.getenv("CADDYMAN_PORT", "5052")
+# The way back in when "only over HTTPS" is on and the route to Caddyman is gone.
+RESET_HTTPS_ONLY = os.getenv("CADDYMAN_RESET_HTTPS_ONLY", "").strip().lower() in ("1", "true", "yes", "on")
 # Whoever knows the token becomes admin, so a chosen one must not be guessable.
 MIN_SETUP_TOKEN_CHARS = 12
 
@@ -267,6 +270,7 @@ async def lifespan(app: FastAPI):
             print(f"Setup required. Open http://<host>:{port}/setup\nToken: {shown}", flush=True)
     if not SECRET_KEY_FROM_ENV:
         print("CADDYMAN_SECRET_KEY is not set, using a generated key from the data directory.", flush=True)
+    reset_https_only()
     yield
 
 
@@ -274,10 +278,9 @@ app = FastAPI(title="Caddyman", version=VERSION, lifespan=lifespan, docs_url=Non
 app.mount("/static", StaticFiles(directory=BASE_DIR / "static"), name="static")
 templates = Jinja2Templates(directory=BASE_DIR / "templates")
 templates.env.filters["initials"] = initials
-# Defined further down, next to the change log it belongs to.
-templates.env.filters["local_time"] = lambda stamp: local_time(stamp)
 templates.env.globals["PERMISSIONS"] = PERMISSIONS
-templates.env.globals["time_zone"] = TIME_ZONE.key
+# Defined below, with the settings it reads.
+templates.env.globals["time_zone"] = lambda: time_zone().key
 # The settings page calls it by name: defined further down, with the rest about Caddy.
 templates.env.globals["dns_guides"] = lambda snippet: dns_guides(snippet)
 
@@ -312,6 +315,26 @@ def flag(key: str) -> bool:
     return bool(load_settings()[key])
 
 
+def time_zone() -> ZoneInfo:
+    """The zone times are shown in: the one chosen under Settings, else the TZ variable, else UTC."""
+    chosen = load_settings().get("time_zone")
+    try:
+        return ZoneInfo(chosen) if chosen else TIME_ZONE
+    except (KeyError, ValueError, OSError):
+        return TIME_ZONE
+
+
+def https_only() -> bool:
+    """Whether Caddyman refuses plain HTTP. Not one of the defaults: it never travels in a backup."""
+    return bool(load_settings().get("https_only"))
+
+
+def reset_https_only() -> None:
+    if RESET_HTTPS_ONLY and https_only():
+        save_settings(https_only="")
+        print("CADDYMAN_RESET_HTTPS_ONLY is set: plain HTTP is answered again. Remove the variable now.", flush=True)
+
+
 # The way in: logging in, the second factor and a forgotten password.
 LOGIN_PATHS = {"/login", "/login/code", "/forgot", "/reset"}
 # The first prefix that fits decides, so the users below /settings come before /settings itself.
@@ -340,6 +363,14 @@ def needed_permission(path: str) -> str | None:
 @app.middleware("http")
 async def require_session(request: Request, call_next):
     path = request.url.path
+    # Switched on under Settings: nothing but HTTPS. What Caddy fetches itself and the root
+    # certificate stay open, or the error pages and the way to trust the CA would be cut off.
+    if request.url.scheme != "https" and path != "/healthz" and not path.startswith(("/static/", "/error/")) and path not in PUBLIC_PATHS and https_only():
+        _, current = pick_host()
+        address = own_route_address(current)[1] if current else ""
+        if address:
+            return RedirectResponse(address + path, status_code=307)
+        return Response("Caddyman only answers over HTTPS. Open it under the name of its route.", status_code=403, media_type="text/plain")
     users = load_users()
     me = request.state.me = session_user(request, users)
     request.state.user = me["username"] if me else None
@@ -814,10 +845,32 @@ def settings_security(request: Request):
 
 
 @app.post("/settings/security")
-def settings_security_save(require_2fa: str = Form(""), public_ca: str = Form(""), login_ca_hint: str = Form("")):
-    # Three checkboxes in one form: one that is not sent was unticked.
-    save_settings(require_2fa=require_2fa and "1", public_ca=public_ca and "1", login_ca_hint=login_ca_hint and "1")
+def settings_security_save(
+    request: Request, require_2fa: str = Form(""), public_ca: str = Form(""), login_ca_hint: str = Form(""), https_only_on: str = Form("")
+):
+    # Switched on over plain HTTP, the answer to this very request would already be refused.
+    if https_only_on and not https_only() and request.url.scheme != "https":
+        return redirect("/settings/security", "error", "Open Caddyman over HTTPS first, through its own route, and switch it on from there.")
+    # Checkboxes in one form: one that is not sent was unticked.
+    save_settings(require_2fa=require_2fa and "1", public_ca=public_ca and "1", login_ca_hint=login_ca_hint and "1", https_only=https_only_on and "1")
     return redirect("/settings/security", "ok", "Saved.")
+
+
+@app.get("/settings/general")
+def settings_general(request: Request):
+    return page(request, "settings_general.html", chosen=load_settings().get("time_zone", ""), fallback=TIME_ZONE.key, zones=sorted(available_timezones()))
+
+
+@app.post("/settings/general")
+def settings_general_save(zone: str = Form("")):
+    zone = zone.strip()
+    try:
+        if zone:
+            ZoneInfo(zone)
+    except (KeyError, ValueError, OSError):
+        return redirect("/settings/general", "error", "Unknown time zone. Pick one from the list, like Europe/Berlin.")
+    save_settings(time_zone=zone)
+    return redirect("/settings/general", "ok", "Saved.")
 
 
 @app.get("/settings/users")
@@ -1885,13 +1938,13 @@ def read_audit() -> list[dict]:
     return [json.loads(line) for line in reversed(lines[-AUDIT_SHOWN:])]
 
 
-def local_time(stamp: str) -> str:
+def local_time(stamp: str, zone: ZoneInfo) -> str:
     """A time from the change log, which is kept in UTC, in the zone that is shown."""
     try:
         moment = datetime.strptime(stamp, "%Y-%m-%d %H:%M:%S").replace(tzinfo=timezone.utc)
     except ValueError:
         return stamp
-    return moment.astimezone(TIME_ZONE).strftime("%Y-%m-%d %H:%M:%S")
+    return moment.astimezone(zone).strftime("%Y-%m-%d %H:%M:%S")
 
 
 class Conflict(Exception):
@@ -3021,7 +3074,7 @@ def backup_download():
     return Response(build_backup(current), media_type="application/zip", headers=headers)
 
 
-@app.post("/backup/restore")
+@app.post("/backup/import")
 async def backup_restore(request: Request):
     hosts, current = pick_host()
     # The context manager closes the uploaded temp file again.
@@ -3072,7 +3125,7 @@ async def backup_restore(request: Request):
         write_private(Path(target["caddyfile"]), backup["caddyfile"])
     changes = {item["path"]: item["content"] for item in plan if item["state"] != "unchanged"}
     # One reload for all files: either the whole backup is live afterwards or none of it.
-    if changes and (error := apply_route(target, changes, "restore", f"{len(changes)} routes")):
+    if changes and (error := apply_route(target, changes, "import", f"{len(changes)} routes")):
         back = "/backup" if fresh else "/"
         return redirect(back, "error", f"Caddy rejected the imported routes, nothing was changed: {error}")
     # Everything else only now, so a rejected restore leaves the install as it was.
@@ -3248,13 +3301,13 @@ def load_log(host: dict, wanted: str, end: int = 0) -> tuple[list[str], str, lis
     return names, chosen, *(found or ([], 0))
 
 
-def parse_log_line(line: str) -> dict:
+def parse_log_line(line: str, zone: ZoneInfo | None = None) -> dict:
     """One line of Caddy's JSON log as columns. Anything else is shown as it is."""
     try:
         entry = json.loads(line)
         stamp = entry.pop("ts", "")
         if isinstance(stamp, (int, float)):
-            stamp = datetime.fromtimestamp(stamp, TIME_ZONE).strftime("%Y-%m-%d %H:%M:%S")
+            stamp = datetime.fromtimestamp(stamp, zone or time_zone()).strftime("%Y-%m-%d %H:%M:%S")
         level = str(entry.pop("level", "")).lower()
         logger, message = str(entry.pop("logger", "")), str(entry.pop("msg", ""))
         asked = entry.get("request")
@@ -3280,10 +3333,11 @@ def logs_page(request: Request, file: str = "", level: str = "", q: str = "", qu
     entries = []
     needle = q.strip().lower()
     threshold = LOG_LEVELS.index(level) if level in LOG_LEVELS else 0
+    zone = time_zone()
     for line in reversed(lines):
         if needle and needle not in line.lower():
             continue
-        entry = parse_log_line(line)
+        entry = parse_log_line(line, zone)
         if threshold and (entry["level"] not in LOG_LEVELS or LOG_LEVELS.index(entry["level"]) < threshold):
             continue
         # Caddyman's own polling of the admin API would otherwise bury everything else.
@@ -3326,7 +3380,8 @@ def status(request: Request):
 @app.get("/changes")
 def changes(request: Request):
     """Who changed which route, and what Caddy said to it. Open to every account, like the status."""
-    return page(request, "changes.html", audit=read_audit())
+    zone = time_zone()
+    return page(request, "changes.html", audit=[{**entry, "time": local_time(entry["time"], zone)} for entry in read_audit()])
 
 
 # What comes through the Caddy this tool manages is believed without further setup: that it

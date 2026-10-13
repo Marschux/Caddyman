@@ -186,6 +186,12 @@ input, select, textarea {
 /* Several values of one kind, two side by side, with the button that adds one below. */
 .fields { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 8px; }
 .fields:empty { display: none; }
+/* One entry: its field, or a path and its target across both columns, and the x that removes it. */
+.fields .entry { display: flex; gap: 6px; min-width: 0; }
+.fields .entry.pair { grid-column: 1 / -1; }
+.fields .entry input { flex: 1; min-width: 0; }
+.fields .entry button.remove { flex: none; width: 46px; margin: 0; padding: 0; font-size: 20px; line-height: 1; color: var(--product); background: none; border-color: var(--hairline-strong); }
+.fields .entry button.remove:hover { background: var(--product-bg); border-color: var(--product); }
 input::placeholder, textarea::placeholder { color: var(--ink-subtle); }
 textarea { font: 13px/1.6 var(--mono); tab-size: 4; resize: vertical; }
 input:focus, select:focus, textarea:focus { outline: 1px solid var(--link); border-color: var(--link); }

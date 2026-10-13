@@ -18,6 +18,13 @@
 		Point to the root CA on the login page</label>
 	<small>A card below the login form. It only shows while the root CA is offered without a login.</small>
 
+	<label class="check"><input type="checkbox" name="https_only_on" value="1" {{ "checked" if settings.https_only }}>
+		Only answer over HTTPS</label>
+	<small>Caddyman then refuses plain HTTP, also on its own port, and sends a browser to its route where it
+		knows one. Can only be switched on from a page that came in over HTTPS. If the route to Caddyman is ever
+		lost: put <code>CADDYMAN_RESET_HTTPS_ONLY=1</code> into the <code>.env</code> file, start the container
+		again, and take the line out afterwards. The root CA page and the error pages stay reachable either way.</small>
+
 	<button type="submit">Save</button>
 </form>
 {% endblock %}

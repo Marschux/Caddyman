@@ -70,17 +70,27 @@
 	<small>With Caddy's internal CA the root certificate lives in Caddy's data directory and changes when that is lost.
 		Over DNS, a name gets a public certificate without being reachable from the internet.</small>
 
+	{% if groups %}
+	<label for="group">Group <span class="optional">optional</span></label>
+	<select id="group" name="group">
+		<option value="">No group</option>
+		{% for group in groups %}
+		<option value="{{ group }}" {{ "selected" if route.group == group }}>{{ group }}</option>
+		{% endfor %}
+	</select>
+	<small>Only sorts the list of routes. <a href="/groups">Manage groups</a></small>
+	{% endif %}
+
 	{# Everything below is optional. A block opens by itself when something in it is set. #}
 	<details {{ "open" if route.aliases or route.port }}>
 		<summary>More hostnames and port</summary>
 
-		{# One field per name, two side by side. The button adds a field; an empty one is dropped on saving. #}
+		{# One field per name, two side by side. The button adds a field, the x removes one. #}
 		<label>More hostnames <span class="optional">optional</span></label>
-		<div class="fields">{% for alias in route.aliases or [] %}<input name="aliases" value="{{ alias }}" aria-label="Further hostname" autocomplete="off">{% endfor %}</div>
+		<div class="fields">{% for alias in route.aliases or [] %}<span class="entry"><input name="aliases" value="{{ alias }}" aria-label="Further hostname" autocomplete="off"><button type="button" class="remove" title="Remove" aria-label="Remove">&times;</button></span>{% endfor %}</div>
 		<noscript><input name="aliases" aria-label="Further hostnames, separated by commas"></noscript>
-		<button type="button" class="secondary"
-			onclick="const field = document.createElement('input'); field.name = 'aliases'; field.autocomplete = 'off'; field.placeholder = 'Another hostname'; field.setAttribute('aria-label', 'Further hostname'); this.parentElement.querySelector('.fields').append(field); field.focus()">Add hostname</button>
-		<small>Further names that lead to the same place. Each gets a certificate of its own. Empty a field to remove the name.</small>
+		<button type="button" class="secondary" data-add='[["aliases", "Another hostname"]]'>Add hostname</button>
+		<small>Further names that lead to the same place. Each gets a certificate of its own.</small>
 
 		<label for="port">Port <span class="optional">optional</span></label>
 		<input id="port" name="port" value="{{ route.port or '' }}" inputmode="numeric" placeholder="443">
@@ -103,12 +113,11 @@
 
 		{# One field per network, like the hostnames above. #}
 		<label>Allowed networks <span class="optional">optional</span></label>
-		<div class="fields">{% for network in (route.allow or "").split() %}<input name="allow" value="{{ network }}" aria-label="Allowed network" autocomplete="off">{% endfor %}</div>
+		<div class="fields">{% for network in (route.allow or "").split() %}<span class="entry"><input name="allow" value="{{ network }}" aria-label="Allowed network" autocomplete="off"><button type="button" class="remove" title="Remove" aria-label="Remove">&times;</button></span>{% endfor %}</div>
 		<noscript><input name="allow" aria-label="Allowed networks, separated by commas"></noscript>
-		<button type="button" class="secondary"
-			onclick="const field = document.createElement('input'); field.name = 'allow'; field.autocomplete = 'off'; field.placeholder = '192.168.1.0/24'; field.setAttribute('aria-label', 'Allowed network'); this.previousElementSibling.previousElementSibling.append(field); field.focus()">Add network</button>
+		<button type="button" class="secondary" data-add='[["allow", "192.168.1.0/24"]]'>Add network</button>
 		<small>Everybody else gets a 403. An address or a network per field, or <code>private</code> for all
-			private networks. None means open to everybody who can reach Caddy. Empty a field to remove it.</small>
+			private networks. None means open to everybody who can reach Caddy.</small>
 
 		<div class="not-redirect">
 			<label class="check"><input type="checkbox" name="sso" value="1" {{ "checked" if route.sso }} {{ "disabled" if not sso }}>
@@ -132,15 +141,14 @@
 
 		{# One pair of fields per path: the path at the left, its target at the right. #}
 		<label>Paths to other targets <span class="optional">optional</span></label>
-		<div class="fields">{% for path, target in route.paths or [] %}<input name="path" value="{{ path }}" aria-label="Path" autocomplete="off"><input name="path_upstream" value="{{ target }}" aria-label="Target for this path" autocomplete="off">{% endfor %}</div>
-		<button type="button" class="secondary"
-			onclick="const fields = this.parentElement.querySelectorAll('.fields')[0]; [['path', 'Path, like /api/*'], ['path_upstream', 'Target for this path']].forEach(([name, hint]) => { const field = document.createElement('input'); field.name = name; field.autocomplete = 'off'; field.placeholder = hint; field.setAttribute('aria-label', hint); fields.append(field); }); fields.children[fields.children.length - 2].focus()">Add path</button>
+		<div class="fields">{% for path, target in route.paths or [] %}<span class="entry pair"><input name="path" value="{{ path }}" aria-label="Path" autocomplete="off"><input name="path_upstream" value="{{ target }}" aria-label="Target for this path" autocomplete="off"><button type="button" class="remove" title="Remove" aria-label="Remove">&times;</button></span>{% endfor %}</div>
+		<button type="button" class="secondary" data-add='[["path", "Path, like /api/*"], ["path_upstream", "Target for this path"]]'>Add path</button>
 		<small>Requests below such a path go to its own target, everything else to the target above. <code>/api/*</code>
-			means everything below <code>/api/</code>. The path is passed on unchanged. Empty both fields to remove a path.</small>
+			means everything below <code>/api/</code>. The path is passed on unchanged.</small>
 	</details>
 
-	<details {{ "open" if route.errors or route.hsts or route.log or route.group }}>
-		<summary>Error pages, HSTS, log and group</summary>
+	<details {{ "open" if route.errors or route.hsts or route.log }}>
+		<summary>Error pages, HSTS and log</summary>
 
 		<div class="not-redirect">
 			<label class="check"><input type="checkbox" name="errors" value="1" {{ "checked" if route.errors }}>
@@ -158,17 +166,6 @@
 		<label class="check"><input type="checkbox" name="log" value="1" {{ "checked" if route.log }}> Write an access log for this route</label>
 		<small>Every request goes into a file of its own, to be read on the <a href="/logs">Logs page</a>. It needs the log
 			directory that page explains; without it Caddy keeps the file to itself.</small>
-
-		{% if groups %}
-		<label for="group">Group <span class="optional">optional</span></label>
-		<select id="group" name="group">
-			<option value="">No group</option>
-			{% for group in groups %}
-			<option value="{{ group }}" {{ "selected" if route.group == group }}>{{ group }}</option>
-			{% endfor %}
-		</select>
-		<small>Only sorts the list of routes. <a href="/groups">Manage groups</a></small>
-		{% endif %}
 	</details>
 
 	<button type="submit">{{ "Overwrite and reload Caddy" if conflict else "Save and reload Caddy" }}</button>
@@ -177,3 +174,4 @@
 	{% endif %}
 </form>
 {% endblock %}
+{% block scripts %}<script src="/static/form.js" defer></script>{% endblock %}

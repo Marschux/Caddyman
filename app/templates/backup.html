@@ -24,7 +24,7 @@
 	</table>
 	{% if also %}<p class="empty">Imported as well: {{ also|join(", ") }}.</p>{% endif %}
 	{% if ignored %}<p class="empty">Ignored, not part of a backup: {{ ignored|join(", ") }}</p>{% endif %}
-	<form method="post" action="/backup/restore" class="row">
+	<form method="post" action="/backup/import" class="row">
 		<input type="hidden" name="payload" value="{{ payload }}">
 		<button type="submit">Import and reload Caddy</button>
 		<a href="/backup">Cancel</a>
@@ -48,7 +48,7 @@
 	<h2>Import</h2>
 	<p class="empty">Upload a backup to see what it would change. Nothing is written before you confirm.
 		{% if not host %}No host is set up yet: the host settings from the archive are imported too.{% endif %}</p>
-	<form method="post" action="/backup/restore" enctype="multipart/form-data" class="row">
+	<form method="post" action="/backup/import" enctype="multipart/form-data" class="row">
 		<input type="file" name="archive" accept=".zip,application/zip" required>
 		<button type="submit">Show what it contains</button>
 	</form>

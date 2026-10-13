@@ -374,6 +374,29 @@ class RouteTest(AppTest):
 
 
 class TestRoutes(RouteTest):
+    def test_only_over_https(self):
+        # Over plain HTTP the switch cannot be set: the answer to that very request would be refused.
+        self.client.post("/settings/security", data={"https_only_on": "1"})
+        self.assertFalse(main.https_only())
+        main.resolve_addresses.return_value = {"testclient"}
+        main.CADDY_ADDRESSES["until"] = 0.0
+        through = {"x-forwarded-proto": "https"}
+        self.client.post("/settings/security", data={"https_only_on": "1"}, headers=through)
+        self.assertTrue(main.https_only())
+        self.assertEqual(self.client.get("/", headers=through).status_code, 200)
+        self.assertEqual(self.client.get("/").status_code, 403)
+        # What Caddy fetches itself and the health check stay open.
+        self.assertEqual(self.client.get("/healthz").status_code, 200)
+        self.assertEqual(self.client.get("/error/502").status_code, 502)
+        self.assertNotEqual(self.client.get("/root-ca.crt").status_code, 403)
+        # With a route to Caddyman the browser is sent there.
+        self.client.post("/routes/new", data=self.form(host="caddyman", upstream=f"caddyman:{main.OWN_PORT}"), headers=through)
+        self.assertEqual(self.client.get("/status").headers["location"], "https://caddyman.lab.test/status")
+        # The way back in: the variable switches it off at the next start.
+        with mock.patch.object(main, "RESET_HTTPS_ONLY", True):
+            main.reset_https_only()
+        self.assertEqual(self.client.get("/").status_code, 200)
+
     def test_status_offers_a_route_for_caddyman_itself(self):
         hint = 'href="/routes/new?own=1"'
         self.assertIn(hint, self.client.get("/status").text)
@@ -1234,7 +1257,7 @@ class TestManaged(AppTest):
         # Into an empty install: host, base copy and route come back; the login has to be re-entered.
         main.save_hosts([])
         shutil.rmtree(main.DATA_DIR / "hosts")
-        self.client.post("/backup/restore", data={"payload": base64.b64encode(archive).decode()})
+        self.client.post("/backup/import", data={"payload": base64.b64encode(archive).decode()})
         restored = main.load_hosts()[0]
         self.assertEqual((restored["id"], restored["storage"], restored.get("admin_user", "")), (host["id"], "managed", ""))
         self.assertEqual(main.Path(restored["caddyfile"]).read_text(), self.BASE + "\n")
@@ -1389,7 +1412,14 @@ class TestLogs(RouteTest):
         # Times are shown in the zone from TZ; the change log keeps UTC and is converted for the page.
         with mock.patch.object(main, "TIME_ZONE", main.ZoneInfo("Europe/Berlin")):
             self.assertEqual(main.parse_log_line('{"ts":0}')["time"], "1970-01-01 01:00:00")
-            self.assertEqual(main.local_time("2026-07-01 12:00:00"), "2026-07-01 14:00:00")
+            self.assertEqual(main.local_time("2026-07-01 12:00:00", main.time_zone()), "2026-07-01 14:00:00")
+        # A zone chosen under Settings comes before the variable; one that does not exist is refused.
+        self.client.post("/settings/general", data={"zone": "Nowhere/City"})
+        self.assertEqual(main.time_zone().key, "UTC")
+        self.client.post("/settings/general", data={"zone": "Europe/Berlin"})
+        self.assertEqual(main.parse_log_line('{"ts":0}')["time"], "1970-01-01 01:00:00")
+        self.assertIn("Time (Europe/Berlin)", self.client.get("/changes").text)
+        self.assertIn('name="zone" value="Europe/Berlin"', self.client.get("/settings/general").text)
         self.assertIn("Recent changes", self.client.get("/changes").text)
         self.assertNotIn("Recent changes", self.client.get("/status").text)
         self.assertLess(len(lines), 5)
@@ -1555,10 +1585,10 @@ class TestBackup(RouteTest):
         return buffer.getvalue()
 
     def upload(self, data):
-        return self.client.post("/backup/restore", files={"archive": ("backup.zip", data, "application/zip")})
+        return self.client.post("/backup/import", files={"archive": ("backup.zip", data, "application/zip")})
 
     def confirm(self, data, query=""):
-        return self.client.post(f"/backup/restore{query}", data={"payload": base64.b64encode(data).decode()})
+        return self.client.post(f"/backup/import{query}", data={"payload": base64.b64encode(data).decode()})
 
     def test_export_holds_routes_and_settings_but_no_secrets(self):
         with zipfile.ZipFile(io.BytesIO(self.archive)) as archive:
@@ -1590,7 +1620,7 @@ class TestBackup(RouteTest):
         self.assertEqual((self.read("pdf.caddy"), self.read("wiki.caddy")), (self.pdf, self.wiki))
         self.assertTrue(os.path.exists(os.path.join(self.sites, "extra.caddy")))  # not in the archive, kept
         self.assertEqual(self.load.call_count, 1)  # one reload for the whole restore
-        self.assertEqual(main.read_audit()[0]["action"], "restore")
+        self.assertEqual(main.read_audit()[0]["action"], "import")
 
     def test_rejected_restore_undoes_every_file(self):
         os.remove(os.path.join(self.sites, "wiki.caddy"))
@@ -1626,7 +1656,7 @@ class TestBackup(RouteTest):
         bomb = self.make_zip({"sites/a.caddy": "x"})
         with mock.patch.object(main, "BACKUP_MAX_UNPACKED", 0):
             self.assertEqual(self.upload(bomb).status_code, 400)
-        self.assertEqual(self.client.post("/backup/restore", data={"payload": "@@not base64@@"}).status_code, 400)
+        self.assertEqual(self.client.post("/backup/import", data={"payload": "@@not base64@@"}).status_code, 400)
 
     def test_restore_into_an_empty_install_brings_the_host_back(self):
         main.save_hosts([])
@@ -1693,11 +1723,11 @@ class TestBackup(RouteTest):
         keeper.post("/login", data={"username": "keeper", "password": PASSWORD})
         main.save_hosts([])
         payload = {"payload": base64.b64encode(archive).decode()}
-        self.assertEqual(keeper.post("/backup/restore", files={"archive": ("b.zip", archive, "application/zip")}).status_code, 403)
-        self.assertEqual(keeper.post("/backup/restore", data=payload).status_code, 403)
+        self.assertEqual(keeper.post("/backup/import", files={"archive": ("b.zip", archive, "application/zip")}).status_code, 403)
+        self.assertEqual(keeper.post("/backup/import", data=payload).status_code, 403)
         self.assertEqual((main.load_hosts(), main.load_mail()["host"], main.flag("public_ca"), main.stored_groups()), ([], "", True, []))
         # Somebody who may change the settings restores all of it.
-        self.client.post("/backup/restore", data=payload)
+        self.client.post("/backup/import", data=payload)
         self.assertEqual((len(main.load_hosts()), main.load_mail()["host"], main.flag("public_ca")), (1, "evil.example", False))
         self.assertEqual(main.stored_groups(), ["ok"])  # names only, and only usable ones
 
