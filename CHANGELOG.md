@@ -1,5 +1,23 @@
 # Changelog
 
+## 2026-10-13 22:24
+- chore: version 0.16.0
+- feat: logging out ends every session of the account, the email address changes only with the password, an import takes the right for routes, and what Caddy said to a rejected reload is shown only to who may change routes
+- fix: a request larger than any form, or one that does not say its length, is refused before it is read
+- fix: the status page keeps its checks for ten seconds instead of asking again on every reload
+- fix: route files and the data files are put in place in one step, never cut short by a crash
+- fix: with the open trust page switched off, it takes the right for the Root CA page
+- fix: an error page only answers for the errors Caddy hands over
+- fix: whether a route file exists already is looked at under the write lock
+- fix: the table of failed logins drops entries that are neither locked nor recent
+- fix: a second-factor code is checked and used up under one lock
+- fix: the message for the next page is signed with a key of its own and marked Secure over HTTPS
+- fix: an archive that does not unpack is refused as unreadable, and host values from an archive are trimmed
+- fix: a route file whose metadata has a number where text belongs is treated as hand-written
+- fix: an allowed network with an IPv6 zone is refused
+- fix: a name, target or path with a line break at its end is refused
+
+
 ## 2026-10-13 21:11
 - chore: version 0.15.7
 - fix: changing the mail settings takes the right to manage users as well, and the paths of Caddy's files cannot point into Caddyman's own data
