@@ -126,6 +126,19 @@ class TestAuth(AppTest):
         self.assertEqual(response.headers["location"], "/")
         self.assertEqual(self.client.get("/status").status_code, 200)
 
+    def test_logout_ends_every_session_of_the_account(self):
+        self.setup_admin()
+        copied = self.client.cookies.get(main.SESSION_COOKIE)
+        # The stamp in the cookie shows nothing of the password hash.
+        self.assertNotIn(main.SESSIONS.loads(copied)[1], main.load_users()[0]["password_hash"])
+        elsewhere = self.guest()
+        elsewhere.post("/login", data={"username": "admin", "password": PASSWORD})
+        self.client.post("/logout")
+        self.client.cookies.clear()
+        self.client.cookies.set(main.SESSION_COOKIE, copied)
+        self.assertEqual(self.client.get("/").headers["location"], "/login")
+        self.assertEqual(elsewhere.get("/").headers["location"], "/login")
+
     def test_forged_session_is_rejected(self):
         self.setup_admin()
         self.client.cookies.clear()
@@ -986,7 +999,7 @@ class TestUsers(RouteTest):
         self.assertIn('<html lang="en" data-theme="light">', page)
         self.assertIn('title="Switch to the dark look"', page)
         # Saving the profile leaves the choice alone.
-        self.client.post("/profile", data={"realname": "", "email": ""})
+        self.client.post("/profile", data={"realname": "", "email": "", "current": PASSWORD})
         self.assertEqual(main.load_users()[0]["theme"], "light")
         # Another account and the pages before the login keep the dark one.
         self.add_user()
@@ -997,6 +1010,35 @@ class TestUsers(RouteTest):
             self.assertEqual(self.client.post("/profile/theme", data={"back": elsewhere}).headers["location"], "/")
         self.assertNotIn("theme", main.load_users()[0])
         self.assertNotIn("data-theme", self.client.get("/").text)
+
+    def test_changing_the_email_address_takes_the_password(self):
+        self.assertEqual(self.client.post("/profile", data={"realname": "Ada", "email": "ada@lab.test"}).status_code, 400)
+        self.assertEqual(main.load_users()[0].get("email", ""), "")
+        self.client.post("/profile", data={"realname": "Ada", "email": "ada@lab.test", "current": PASSWORD})
+        self.assertEqual(main.load_users()[0]["email"], "ada@lab.test")
+        # The name alone needs none.
+        self.assertEqual(self.client.post("/profile", data={"realname": "Ada A.", "email": "ada@lab.test"}).headers["location"], "/profile")
+
+    def test_what_caddy_said_is_only_for_who_may_change_routes(self):
+        self.reject()
+        self.create()
+        self.assertIn("unknown directive", self.client.get("/changes").text)
+        self.add_user("viewer")
+        viewer, _ = self.log_in("viewer")
+        page = viewer.get("/changes").text
+        self.assertNotIn("unknown directive", page)
+        self.assertIn("<code>rejected</code>", page)
+
+    def test_import_takes_the_right_for_routes_too(self):
+        self.add_user("keeper", right_backup="1")
+        keeper, _ = self.log_in("keeper")
+        self.assertEqual(keeper.get("/backup/download").status_code, 200)
+        self.assertNotIn('action="/backup/import"', keeper.get("/backup").text)
+        self.assertEqual(keeper.post("/backup/import", data={"payload": ""}).status_code, 403)
+        self.add_user("both", right_backup="1", right_routes="1")
+        both, _ = self.log_in("both")
+        self.assertIn('action="/backup/import"', both.get("/backup").text)
+        self.assertNotEqual(both.post("/backup/import", data={"payload": ""}).status_code, 403)
 
     def test_trust_page_switched_off_is_part_of_the_root_ca_right(self):
         self.add_user("viewer")
@@ -1022,7 +1064,7 @@ class TestUsers(RouteTest):
         self.assertEqual(main.load_mail()["host"], "smtp.lab.test")
 
     def test_forgotten_password_by_mail(self):
-        self.client.post("/profile", data={"realname": "Ada Admin", "email": "ada@lab.test"})
+        self.client.post("/profile", data={"realname": "Ada Admin", "email": "ada@lab.test", "current": PASSWORD})
         self.assertIn(">AA<", self.client.get("/profile").text)  # initials stand in for a picture
         guest = self.guest()
         self.assertEqual(guest.get("/forgot").status_code, 404)  # no mail server, no offer

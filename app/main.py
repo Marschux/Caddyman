@@ -308,8 +308,11 @@ def foreign_origin(request: Request) -> bool:
 
 
 def session_value(user: dict) -> list[str]:
-    # The end of the password hash rides along: a changed password ends every session of that account.
-    return [user["username"], user["password_hash"][-8:]]
+    # A stamp made from the password hash and the number of logouts rides along: a new password
+    # or a logout ends every session of that account. It is derived with the secret key, so
+    # neither a cookie nor a mailed link shows anything of the hash itself.
+    stamp = hmac.new(SECRET_KEY.encode(), f"{user['password_hash']}:{user.get('logouts', 0)}".encode(), "sha256").hexdigest()[:16]
+    return [user["username"], stamp]
 
 
 def signed_user(signer: URLSafeTimedSerializer, value: str | None, users: list[dict], max_age: int) -> dict | None:
@@ -426,6 +429,11 @@ AREAS = (
 )
 
 
+# Where the right for the area is not enough, and which one it takes on top. The mail server
+# carries the reset link of every account; an import writes route files word for word.
+SECOND_RIGHT = {("POST", "/settings/mail"): "users", ("POST", "/backup/import"): "routes"}
+
+
 def needed_permission(path: str) -> str | None:
     """The right a request needs. Decided here by its path, so no endpoint can forget its own check."""
     if path == "/settings":
@@ -477,10 +485,8 @@ async def require_session(request: Request, call_next):
     else:
         CURRENT_USER.set(me["username"])
         right = needed_permission(path)
-        # The mail server carries the reset link of every account, so changing it takes the
-        # right to manage users on top of the one for the settings.
-        if path == "/settings/mail" and request.method == "POST" and "settings" in me["permissions"]:
-            right = "users"
+        if right in me["permissions"]:
+            right = SECOND_RIGHT.get((request.method, path), right)
         if right and right not in me["permissions"]:
             return page(request, "forbidden.html", status_code=403, right=PERMISSIONS[right])
         # Where the second factor is required, an account without one gets as far as its profile.
@@ -686,7 +692,10 @@ def login_code_submit(request: Request, code: str = Form("")):
 
 
 @app.post("/logout")
-def logout():
+def logout(request: Request):
+    # Counted on the account: the cookie is worth nothing afterwards, wherever a copy of it lies.
+    if me := request.state.me:
+        update_user(me["username"], logouts=me.get("logouts", 0) + 1)
     response = RedirectResponse("/login", status_code=303)
     response.delete_cookie(SESSION_COOKIE)
     return response
@@ -860,12 +869,15 @@ def profile(request: Request):
 
 
 @app.post("/profile")
-def profile_save(request: Request, realname: str = Form(""), email: str = Form("")):
-    users = load_users()
+def profile_save(request: Request, realname: str = Form(""), email: str = Form(""), current: str = Form("")):
+    users, me = load_users(), request.state.me
     fields = {"realname": realname.strip(), "email": email.strip()}
     others = [user for user in users if user["username"] != request.state.user]
     if error := user_problem({"username": request.state.user, **fields}, others):
         return profile_page(request, status_code=400, error=error, form=fields)
+    # The reset links go to this address, so changing it takes the password, like changing that does.
+    if fields["email"] != me.get("email", "") and not check_password(current, me["password_hash"]):
+        return profile_page(request, status_code=400, error="Changing the email address takes your current password.", form=fields)
     update_user(request.state.user, **fields)
     return redirect("/profile", "ok", "Your profile is saved.")
 
@@ -3505,7 +3517,11 @@ def status(request: Request):
 def changes(request: Request):
     """Who changed which route, and what Caddy said to it. Open to every account, like the status."""
     zone = time_zone()
-    return page(request, "changes.html", audit=[{**entry, "time": local_time(entry["time"], zone)} for entry in read_audit()])
+    # What Caddy said to a rejected reload can quote from a route file: only for who may open those.
+    full = "routes" in request.state.me["permissions"]
+    said_by_caddy = lambda result: result if full or result == "ok" else "rejected"  # noqa: E731
+    entries = [{**entry, "time": local_time(entry["time"], zone), "result": said_by_caddy(entry["result"])} for entry in read_audit()]
+    return page(request, "changes.html", audit=entries)
 
 
 # What comes through the Caddy this tool manages is believed without further setup: that it

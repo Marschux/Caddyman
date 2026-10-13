@@ -46,12 +46,16 @@
 
 <section>
 	<h2>Import</h2>
+	{% if "routes" in request.state.me.permissions %}
 	<p class="empty">Upload a backup to see what it would change. Nothing is written before you confirm.
 		{% if not host %}No host is set up yet: the host settings from the archive are imported too.{% endif %}</p>
 	<form method="post" action="/backup/import" enctype="multipart/form-data" class="row">
 		<input type="file" name="archive" accept=".zip,application/zip" required>
 		<button type="submit">Show what it contains</button>
 	</form>
+	{% else %}
+	<p class="empty">An import writes route files, so it takes the right to change routes as well.</p>
+	{% endif %}
 </section>
 {% endif %}
 {% endblock %}
