@@ -37,7 +37,7 @@
 	{% if not new %}<small>A new password logs this account out everywhere.</small>
 	{% elif invite %}<small>Without a password the account gets a link by mail to set its own.</small>
 	{% else %}<small>Mail is not set up, so the password has to be given here. With
-		{% if "settings" in request.state.me.permissions %}<a href="/settings/mail">mail set up</a>{% else %}mail set up{% endif %},
+		{% if "smtp" in request.state.me.permissions %}<a href="/settings/mail">mail set up</a>{% else %}mail set up{% endif %},
 		the account can be invited and sets its own.</small>{% endif %}
 
 	{% if user.totp %}

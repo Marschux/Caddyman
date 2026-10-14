@@ -1102,15 +1102,40 @@ class TestUsers(RouteTest):
             self.assertEqual(viewer.get(path).status_code, 403)
             self.assertNotEqual(self.client.get(path).status_code, 403)
 
+    def test_finer_rights_for_groups_error_pages_and_each_settings_block(self):
+        self.add_user("router", right_routes="1")
+        router, _ = self.log_in("router")
+        self.assertEqual(router.get("/routes/new").status_code, 200)
+        for path in ("/groups", "/error-pages", "/hosts/h1/edit", "/settings/security", "/settings/mail"):
+            self.assertEqual(router.get(path).status_code, 403, path)
+        self.add_user("mailer", right_smtp="1", right_errors="1")
+        mailer, _ = self.log_in("mailer")
+        self.assertEqual(mailer.get("/settings").headers["location"], "/settings/mail")
+        self.assertEqual(mailer.get("/error-pages").status_code, 200)
+        page = mailer.get("/settings/mail").text
+        self.assertIn('href="/settings/mail"', page)
+        self.assertNotIn('href="/settings/caddy"', page)
+        for path in ("/hosts/h1/edit", "/settings/security", "/groups"):
+            self.assertEqual(mailer.get(path).status_code, 403, path)
+
+    def test_an_account_from_before_the_split_keeps_what_it_could_do(self):
+        users = main.load_users()
+        users.append({**users[0], "username": "old", "permissions": ["routes", "settings", "logs"]})
+        main.write_json(main.AUTH_FILE, [{key: value for key, value in user.items() if key != "rights"} for user in users])
+        self.assertEqual(main.find_user(main.load_users(), "old")["permissions"], ["routes", "groups", "errors", "logs", "caddy", "general", "smtp"])
+        # Once saved, a right taken away stays away.
+        self.client.post("/settings/users/old/edit", data={"right_routes": "1"})
+        self.assertEqual(main.find_user(main.load_users(), "old")["permissions"], ["routes"])
+
     def test_mail_settings_take_the_right_to_manage_users_too(self):
         # The reset links of all accounts travel through the mail server.
         mail = {"host": "smtp.lab.test", "port": "25", "sender": "c@lab.test", "security": "none", "public_url": "https://caddyman.lab.test"}
-        self.add_user("ops", right_settings="1")
+        self.add_user("ops", right_smtp="1")
         ops, _ = self.log_in("ops")
         self.assertEqual(ops.get("/settings/mail").status_code, 200)
         self.assertEqual(ops.post("/settings/mail", data=mail).status_code, 403)
         self.assertEqual(main.load_mail()["host"], "")
-        self.add_user("both", right_settings="1", right_users="1")
+        self.add_user("both", right_smtp="1", right_users="1")
         both, _ = self.log_in("both")
         self.assertEqual(both.post("/settings/mail", data=mail).headers["location"], "/settings/mail")
         self.assertEqual(main.load_mail()["host"], "smtp.lab.test")

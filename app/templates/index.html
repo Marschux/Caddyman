@@ -13,7 +13,7 @@
 	{% endif %}
 	{% if may_change %}
 	<div class="buttons">
-		<a class="button secondary" href="/groups">Add group</a>
+		{% if "groups" in request.state.me.permissions %}<a class="button secondary" href="/groups">Add group</a>{% endif %}
 		<a class="button" href="/routes/new">Add route</a>
 	</div>
 	{% endif %}

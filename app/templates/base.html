@@ -22,9 +22,9 @@
 		<nav>
 			<a href="/" {% if path == "/" or path.startswith(("/routes", "/groups")) %}aria-current="page"{% endif %}>Routes</a>
 			{% if "ca" in account.permissions %}<a href="/ca" {% if path.startswith("/ca") %}aria-current="page"{% endif %}>Root CA</a>{% endif %}
-			{% if "routes" in account.permissions %}<a href="/error-pages" {% if path.startswith("/error-pages") %}aria-current="page"{% endif %}>Error pages</a>{% endif %}
+			{% if "errors" in account.permissions %}<a href="/error-pages" {% if path.startswith("/error-pages") %}aria-current="page"{% endif %}>Error pages</a>{% endif %}
 			<a href="/status"{% if path.startswith(("/status", "/changes", "/logs", "/backup")) %}aria-current="page"{% endif %}>System</a>
-			{% if "settings" in account.permissions or "users" in account.permissions %}<a href="/settings" {% if path.startswith("/settings") or path.startswith("/hosts") %}aria-current="page"{% endif %}>Settings</a>{% endif %}
+			{% if account.permissions|select("in", ["caddy", "general", "smtp", "users"])|list %}<a href="/settings" {% if path.startswith("/settings") or path.startswith("/hosts") %}aria-current="page"{% endif %}>Settings</a>{% endif %}
 		</nav>
 		{# Sun in the dark look, moon in the light one: the button shows where a click leads. #}
 		{% set light = account.theme == "light" %}

@@ -189,12 +189,18 @@ LOCK_ROUND_SECONDS = 86400
 # One checkbox per area. Seeing the route list, the status page and the own profile needs none.
 PERMISSIONS = {
     "routes": "Change routes and reload Caddy",
+    "groups": "Groups",
+    "errors": "Error pages",
     "ca": "Root CA page",
     "backup": "Backup and import",
     "logs": "Logs",
-    "settings": "Settings: Caddy, root CA, mail, security",
+    "caddy": "Settings: Caddy",
+    "general": "Settings: General",
+    "smtp": "Settings: SMTP",
     "users": "Manage users",
 }
+# Rights that were split up: an account from before keeps what it could do (15.10.2026).
+SPLIT_RIGHTS = {"routes": ("groups", "errors"), "settings": ("caddy", "general", "smtp")}
 USERS_LOCK = threading.Lock()
 EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\Z")
 # Who is acting, for the change log. Set per request by the middleware.
@@ -208,11 +214,21 @@ def load_users() -> list[dict]:
     if isinstance(data, dict):
         # The file of the single admin from before there were users: that account keeps every right.
         return [{**data, "permissions": list(PERMISSIONS)}]
-    return data
+    return [split_rights(user) for user in data]
+
+
+def split_rights(user: dict) -> dict:
+    """An account saved before the rights were split, with the finer rights it had in the coarse ones."""
+    if user.get("rights") == 2 or not isinstance(user.get("permissions"), list):
+        return user
+    had = user["permissions"]
+    finer = [right for right in had if right in PERMISSIONS] + [new for old, news in SPLIT_RIGHTS.items() if old in had for new in news]
+    return {**user, "permissions": [right for right in PERMISSIONS if right in finer], "rights": 2}
 
 
 def save_users(users: list[dict]) -> None:
-    write_json(AUTH_FILE, users)
+    # Whatever is written already has the finer rights, so they are not added again on the next read.
+    write_json(AUTH_FILE, [{**user, "rights": 2} for user in users])
 
 
 def find_user(users: list[dict], username: str) -> dict | None:
@@ -465,11 +481,14 @@ LOGIN_PATHS = {"/login", "/login/code", "/forgot", "/reset"}
 # The first prefix that fits decides, so the users below /settings come before /settings itself.
 AREAS = (
     ("/settings/users", "users"),
-    ("/settings", "settings"),
-    ("/hosts", "settings"),
+    ("/settings/security", "general"),
+    ("/settings/general", "general"),
+    ("/settings/mail", "smtp"),
+    ("/settings", "caddy"),
+    ("/hosts", "caddy"),
     ("/routes", "routes"),
-    ("/groups", "routes"),
-    ("/error-pages", "routes"),
+    ("/groups", "groups"),
+    ("/error-pages", "errors"),
     ("/backup", "backup"),
     ("/logs", "logs"),
     ("/ca", "ca"),
@@ -1014,11 +1033,10 @@ def profile_2fa_disable(request: Request, current: str = Form("")):
 @app.get("/settings")
 def settings_home(request: Request):
     rights = request.state.me["permissions"]
-    if "settings" in rights:
-        return RedirectResponse("/settings/caddy", status_code=303)
-    if "users" in rights:
-        return RedirectResponse("/settings/users", status_code=303)
-    return page(request, "forbidden.html", status_code=403, right=PERMISSIONS["settings"])
+    for right, block in (("caddy", "/settings/caddy"), ("general", "/settings/security"), ("smtp", "/settings/mail"), ("users", "/settings/users")):
+        if right in rights:
+            return RedirectResponse(block, status_code=303)
+    return page(request, "forbidden.html", status_code=403, right=PERMISSIONS["caddy"])
 
 
 @app.get("/settings/caddy")
@@ -3400,7 +3418,7 @@ async def backup_restore(request: Request):
     # Into an empty install the hosts come back too; otherwise the routes go to the chosen host.
     fresh = current is None
     target = current
-    if fresh and "settings" not in request.state.me["permissions"]:
+    if fresh and not {"caddy", "general", "smtp"} <= set(request.state.me["permissions"]):
         # The connection to Caddy, the switches and the mail settings decide who gets in and where
         # reset links go. The right to restore routes alone must not be enough to set them.
         return refuse("No Caddy is set up yet. Importing its connection from an archive needs the right to change the settings.", 403)

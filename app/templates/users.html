@@ -20,7 +20,7 @@
 				{% if user.email %}<small>{{ user.email }}</small>{% endif %}</div></div></td>
 			<td><div class="tags">
 				{% if user.permissions|length == PERMISSIONS|length %}<span class="tag" title="{{ PERMISSIONS.values()|join(', ') }}">All rights</span>
-				{% else %}{% for right, label in PERMISSIONS.items() if right in user.permissions %}<span class="tag" title="{{ label }}">{{ {"ca": "Root CA"}.get(right, right|capitalize) }}</span>{% else %}<span class="empty">Read only</span>{% endfor %}{% endif %}
+				{% else %}{% for right, label in PERMISSIONS.items() if right in user.permissions %}<span class="tag" title="{{ label }}">{{ {"ca": "Root CA", "errors": "Error pages", "smtp": "SMTP"}.get(right, right|capitalize) }}</span>{% else %}<span class="empty">Read only</span>{% endfor %}{% endif %}
 			</div></td>
 			<td class="nowrap">{% if user.totp %}<span class="cert ok">On</span>{% else %}<span class="cert">Off</span>{% endif %}</td>
 			<td class="actions">

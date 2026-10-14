@@ -4,10 +4,8 @@
 {% set here = request.scope["path"] %}
 <h1>Settings</h1>
 <aside class="side">
-	{% if "settings" in rights %}
-	<a href="/settings/caddy" {% if here.startswith("/hosts") %}aria-current="page"{% endif %}>Caddy</a>
-	<a href="/settings/security" {% if here.startswith("/settings/security") %}aria-current="page"{% endif %}>General</a>
-	<a href="/settings/mail" {% if here.startswith("/settings/mail") %}aria-current="page"{% endif %}>SMTP</a>
-	{% endif %}
+	{% if "caddy" in rights %}<a href="/settings/caddy" {% if here.startswith("/hosts") %}aria-current="page"{% endif %}>Caddy</a>{% endif %}
+	{% if "general" in rights %}<a href="/settings/security" {% if here.startswith("/settings/security") %}aria-current="page"{% endif %}>General</a>{% endif %}
+	{% if "smtp" in rights %}<a href="/settings/mail" {% if here.startswith("/settings/mail") %}aria-current="page"{% endif %}>SMTP</a>{% endif %}
 	{% if "users" in rights %}<a href="/settings/users" {% if here.startswith("/settings/users") %}aria-current="page"{% endif %}>Users</a>{% endif %}
 </aside>
