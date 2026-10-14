@@ -298,6 +298,10 @@ section > ol li { margin: 6px 0; }
 
 .checks { list-style: none; margin: 0; padding: 0; background: var(--surface-1); border: 1px solid var(--hairline); border-radius: 12px; }
 .checks li { display: flex; gap: 16px; padding: 16px; border-bottom: 1px solid var(--hairline-soft); }
+/* As high as a check with a line under its name; one that explains a problem may grow. */
+.checks li { min-height: 79px; align-items: center; }
+.checks li:has(pre) { align-items: flex-start; }
+.checks .badge { align-self: auto; }
 .checks li:last-child { border-bottom: 0; }
 .checks div { min-width: 0; flex: 1; }
 .checks code { display: block; color: var(--ink-subtle); overflow-wrap: anywhere; }
