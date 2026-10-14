@@ -58,22 +58,5 @@
 	</form>
 	{% endif %}
 </section>
-
-<section>
-	<h2>Designs</h2>
-	<table class="spaced">
-		<thead><tr><th>Error</th><th>Shown when</th><th>Design</th><th></th></tr></thead>
-		<tbody>
-			{% for key, item in pages.items() %}
-			<tr>
-				<td class="nowrap"><strong>{{ key ~ " " if key != "blocked" }}{{ item[0] }}</strong></td>
-				<td>{{ item[1] }}</td>
-				<td>{{ designs[chosen.get(key, "caddyman")] or "Caddyman" }}</td>
-				<td class="actions"><a class="button" href="/error-pages/{{ key }}">Change</a></td>
-			</tr>
-			{% endfor %}
-		</tbody>
-	</table>
-</section>
 {% endif %}
 {% endblock %}
