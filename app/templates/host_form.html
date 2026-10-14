@@ -36,6 +36,12 @@
 	<small>The site in front of Caddy's admin API: <code>http://caddy:2020</code> on a shared Docker network,
 		or <code>https://admin.home.example</code>.</small>
 
+	{% if host.id %}
+	<label for="reach">Where Caddy reaches Caddyman</label>
+	<input id="reach" name="reach" value="{{ host.form_reach }}" required autocomplete="off">
+	<small>For error pages and the route to Caddyman. Same Docker network: container name and port, otherwise this machine's address.</small>
+	{% endif %}
+
 	<div class="for-mounted {{ 'show' if host.id and host.storage != 'managed' }}">
 		<label for="caddyfile">Base Caddyfile</label>
 		<input id="caddyfile" name="caddyfile" value="{{ host.caddyfile }}">

@@ -32,13 +32,7 @@
 	<p class="empty">Tick "Show Caddyman's error pages" in the form of a route. When Caddy cannot answer, it sends the
 		page from here with the same status code. Errors a service sends itself stay as they are.
 		{% if users %}Switched on for {{ users }} route{{ "s" if users != 1 }}.{% else %}No route uses them yet.{% endif %}</p>
-	<label for="upstream">Where Caddy reaches Caddyman</label>
-	<form method="post" action="/error-pages" class="row">
-		<input id="upstream" name="upstream" value="{{ upstream }}" required autocomplete="off">
-		<button type="submit">Save and reload Caddy</button>
-	</form>
-	<small>Only Caddy uses this address. In the same Docker network it is the container name and port; from another
-		machine, the address of this one.</small>
+	<p class="empty">Caddy fetches them from <code>{{ upstream }}</code>{% if "settings" in request.state.me.permissions %}, set under <a href="{{ settings_url }}">Settings, Caddy</a>{% endif %}.</p>
 </section>
 
 <section>

@@ -1589,6 +1589,7 @@ async def host_from_form(request: Request) -> dict:
     # Only the certificates are kept; text around them is dropped. Something that holds none stays, to be refused.
     pasted = str(form.get("admin_ca", "")).strip()
     host["form_ca"] = "\n".join(PEM_RE.findall(pasted)) or pasted
+    host["form_reach"] = str(form.get("reach", "")).strip()
     return host
 
 
@@ -2865,7 +2866,7 @@ def catch_all_state(host: dict) -> str:
 def error_pages_view(request: Request, code: str = ""):
     current = the_host()
     stored = load_errors()
-    context = {"code": code, "pages": ERROR_PAGES, "designs": ERROR_DESIGNS, "chosen": stored["designs"], "upstream": caddyman_upstream(current, request)}
+    context = {"code": code, "pages": ERROR_PAGES, "designs": ERROR_DESIGNS, "chosen": stored["designs"], "upstream": caddyman_upstream(current, request), "settings_url": host_settings_url()}
     if not code:
         routes = [item["route"] for item in list_routes(current) if item["route"]]
         context.update(catch_all=catch_all_state(current), users=sum(1 for route in routes if route.get("errors")))
@@ -2883,13 +2884,8 @@ def error_pages(request: Request):
     return error_pages_view(request)
 
 
-@app.post("/error-pages")
-def error_pages_save(upstream: str = Form("")):
+def move_caddyman_upstream(current: dict, upstream: str) -> tuple[str, str]:
     """Where Caddy finds Caddyman. The address stands in every route that shows error pages."""
-    current = pick_host()
-    upstream = upstream.strip()
-    if current is None or not valid_upstream(upstream):
-        return redirect("/error-pages", "error", "The address has to look like host:port or http://host:port.")
     changes = {}
     stamps = route_stamps(current)
     for item in list_routes(current):
@@ -2904,11 +2900,11 @@ def error_pages_save(upstream: str = Form("")):
     try:
         error = apply_route(current, changes, "error pages", upstream, expect={path: stamps.get(path) for path in changes}) if changes else None
     except Conflict:
-        return redirect("/error-pages", "warn", CHANGED_MEANWHILE)
+        return "warn", CHANGED_MEANWHILE
     if error:
-        return redirect("/error-pages", "error", f"Caddy rejected the reload, nothing was changed: {error}")
+        return "error", f"Caddy rejected the reload, the address was not changed: {error}"
     write_json(ERRORS_FILE, {**load_errors(), "upstream": upstream})
-    return redirect("/error-pages", "ok", "The address is saved." + (f" {len(changes)} route files were rewritten." if changes else ""))
+    return "ok", "Saved." + (f" {len(changes)} route files now use the new address." if changes else "")
 
 
 @app.post("/error-pages/catch-all")
@@ -2972,6 +2968,7 @@ def host_edit(request: Request, host_id: str):
             host["form_base"] = ""
     # The field shows a CA only when somebody put it there; one Caddyman fetched stays on the status page.
     host["form_ca"] = host.get("admin_ca", "") if host.get("admin_ca_pasted") else ""
+    host["form_reach"] = caddyman_upstream(host, request)
     return page(request, "host_form.html", host=host, route_count=len(list_routes(host)))
 
 
@@ -2986,8 +2983,10 @@ async def host_save(request: Request, host_id: str | None = None):
         return RedirectResponse("/hosts", status_code=303)
     # Routes live in different places per layout, so it is fixed once the host exists.
     host["storage"] = existing.get("storage", "mounted") if existing else host["storage"] or "mounted"
-    password, base, pasted_ca = host.pop("form_password"), host.pop("form_base"), host.pop("form_ca")
+    password, base, pasted_ca, reach = host.pop("form_password"), host.pop("form_base"), host.pop("form_ca"), host.pop("form_reach")
     error = None if host["storage"] in STORAGES else "Unknown layout."
+    if existing and reach and not valid_upstream(reach):
+        error = "Where Caddy reaches Caddyman has to look like host:port or http://host:port."
     error = error or host_problem(host) or (ca_problem(pasted_ca) if pasted_ca else None)
     if not error and host["storage"] == "managed" and not base:
         error = "This layout needs the base Caddyfile: global options, snippets and the site that exposes the admin API."
@@ -3000,7 +2999,7 @@ async def host_save(request: Request, host_id: str | None = None):
             # The stored one belongs to the address it was entered for and is not sent to another.
             error = "The admin API login needs a password. It is not kept for another login or address."
     if error:
-        context = {**host, "id": host_id, "form_base": base, "form_ca": pasted_ca}
+        context = {**host, "id": host_id, "form_base": base, "form_ca": pasted_ca, "form_reach": reach}
         return page(request, "host_form.html", status_code=400, error=error, host=context)
     host = with_paths({"id": host_id or secrets.token_hex(4), **host})
     if pasted_ca:
@@ -3021,6 +3020,10 @@ async def host_save(request: Request, host_id: str | None = None):
     # Before the host is rewritten without them: keep the root CA switches an older version stored in it.
     save_settings()
     save_hosts([host if item["id"] == host["id"] else item for item in hosts] if existing else [*hosts, host])
+    if existing and reach and reach != caddyman_upstream(host, request):
+        kind, message = move_caddyman_upstream(host, reach)
+        if kind != "ok":
+            return redirect(f"/hosts/{host['id']}/edit", kind, message)
     return RedirectResponse("/status", status_code=303)
 
 

@@ -459,6 +459,10 @@ class RouteTest(AppTest):
         with open(os.path.join(self.sites, name), mode, encoding="utf-8", newline="\n") as handle:
             handle.write(text)
 
+    def reach(self, upstream):
+        """Where Caddy reaches Caddyman, saved with the Caddy settings."""
+        return self.client.post("/hosts/h1/edit", data={**{key: self.host[key] for key in main.HOST_DEFAULTS}, "reach": upstream})
+
     def reject(self):
         self.load.return_value = mock.Mock(status_code=400, json=lambda: {"error": "unknown directive"})
 
@@ -500,15 +504,15 @@ class TestRoutes(RouteTest):
         self.assertGreater(get.call_count, asked)
 
     def test_error_pages_and_own_route_agree_where_caddyman_is(self):
-        guess = f'value="caddyman:{main.OWN_PORT}"'
-        self.assertIn(guess, self.client.get("/error-pages").text)
+        self.assertIn(f"<code>caddyman:{main.OWN_PORT}</code>", self.client.get("/error-pages").text)
         # The route to Caddyman knows better than the guess.
         self.create(host="caddyman", upstream=f"10.0.0.7:{main.OWN_PORT}")
-        self.assertIn(f'value="10.0.0.7:{main.OWN_PORT}"', self.client.get("/error-pages").text)
+        self.assertIn(f"<code>10.0.0.7:{main.OWN_PORT}</code>", self.client.get("/error-pages").text)
+        self.assertIn(f'name="reach" value="10.0.0.7:{main.OWN_PORT}"', self.client.get("/hosts/h1/edit").text)
         self.create(host="pdf", errors="on")
         self.assertIn(f'"errors":"10.0.0.7:{main.OWN_PORT}"', self.read("pdf.caddy"))
         # What was typed under Error pages comes first, for the own route too.
-        self.client.post("/error-pages", data={"upstream": "192.168.1.9:5052"})
+        self.reach("192.168.1.9:5052")
         self.assertIn('name="upstream" value="192.168.1.9:5052"', self.client.get("/routes/new?own=1").text)
 
     def test_status_offers_a_route_for_caddyman_itself(self):
@@ -1923,7 +1927,7 @@ class TestBackup(RouteTest):
         self.client.post("/settings/security", data={"public_ca": "1"})  # the hint on the login page goes off
         self.client.post("/settings/mail", data=self.MAIL)
         self.client.post("/error-pages/502", data={"design": "ghost"})
-        self.client.post("/error-pages", data={"upstream": "192.168.1.9:5052"})
+        self.reach("192.168.1.9:5052")
         self.client.post("/settings/general", data={"zone": "Europe/Berlin"})
         # "Only over HTTPS" is never part of a backup: restored without its route, it would lock everybody out.
         main.save_settings(https_only="1")
@@ -2260,9 +2264,9 @@ class TestEdit(RouteTest):
         # Fetching a page is not a route that leads to Caddyman.
         self.assertFalse(main.own_route_address(self.host)[0])
         # A new address goes into the routes that use it, and they stay files of Caddyman.
-        self.client.post("/error-pages", data={"upstream": "bad {"})
+        self.reach("bad {")
         self.assertEqual(self.read("pdf.caddy"), text)
-        self.client.post("/error-pages", data={"upstream": "192.168.1.9:5052"})
+        self.reach("192.168.1.9:5052")
         self.assertIn("\t\treverse_proxy 192.168.1.9:5052\n\t}\n}\n", self.read("pdf.caddy"))
         self.assertEqual(main.read_route(main.Path(self.sites) / "pdf.caddy", self.host)["errors"], "192.168.1.9:5052")
         # A redirect has no error to show.
@@ -2503,7 +2507,7 @@ class TestHardening(RouteTest):
 
         with mock.patch.object(main, "list_routes", slow):
             self.client.post("/groups/rename", data={"old": "Media", "new": "Films"})
-            self.client.post("/error-pages", data={"upstream": "192.168.1.9:5052"})
+            self.reach("192.168.1.9:5052")
         self.assertEqual(self.read("pdf.caddy"), before)
         self.client.post("/groups/rename", data={"old": "Media", "new": "Films"})
         self.assertIn('"group":"Films"', self.read("pdf.caddy"))
