@@ -54,7 +54,6 @@
 	<form method="post" action="/error-pages/catch-all" class="row">
 		{% if catch_all != "on" %}<input type="hidden" name="on" value="1">{% endif %}
 		<button type="submit" {% if catch_all == "on" %}class="secondary"{% endif %}>{{ "Switch off and reload Caddy" if catch_all == "on" else "Answer unknown names and reload Caddy" }}</button>
-		<a href="/error-pages/blocked">Choose the design of the page</a>
 	</form>
 	{% endif %}
 </section>
