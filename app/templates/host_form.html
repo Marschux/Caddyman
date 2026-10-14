@@ -27,15 +27,14 @@
 		<label><input type="radio" name="storage" value="mounted" {{ "checked" if host.storage != "managed" }}> Shared files</label>
 		<label><input type="radio" name="storage" value="managed" {{ "checked" if host.storage == "managed" }}> Network only</label>
 	</fieldset>
-	<small><strong>Shared files</strong> is the usual case: Caddy in a container next door, with its Caddyfile and sites
-		directory mounted into this one. <strong>Network only</strong> is for a Caddy whose files cannot be mounted here,
-		typically on another machine; Caddyman then reaches it over the network alone.</small>
+	<small><strong>Shared files</strong>: Caddy next door, its Caddyfile and sites directory mounted here.
+		<strong>Network only</strong>: a Caddy whose files cannot be mounted here, usually on another machine.</small>
 	{% endif %}
 
 	<label for="admin_url">Admin API</label>
 	<input id="admin_url" name="admin_url" value="{{ host.admin_url }}" required autofocus>
-	<small>The address of the site in front of Caddy's admin API, reachable from this container:
-		<code>http://caddy:2020</code> on a shared Docker network, or <code>https://admin.home.example</code> with "Network only".</small>
+	<small>The site in front of Caddy's admin API: <code>http://caddy:2020</code> on a shared Docker network,
+		or <code>https://admin.home.example</code>.</small>
 
 	<div class="for-mounted {{ 'show' if host.id and host.storage != 'managed' }}">
 		<label for="caddyfile">Base Caddyfile</label>
@@ -44,47 +43,42 @@
 
 		<label for="sites_dir">Sites directory</label>
 		<input id="sites_dir" name="sites_dir" value="{{ host.sites_dir }}">
-		<small>One file per route is written here. Same path as inside the Caddy container.</small>
+		<small>One file per route. Same path as in the Caddy container.</small>
 	</div>
 
 	<div class="for-managed {{ 'show' if host.id and host.storage == 'managed' }}">
 		<label for="base_caddyfile">Base Caddyfile</label>
 		<textarea id="base_caddyfile" name="base_caddyfile" rows="12" spellcheck="false">{{ host.form_base or '' }}</textarea>
-		<small>Global options, snippets and everything that is not a route. Caddyman keeps this copy and sends it together
-			with the routes; every push replaces Caddy's <strong>whole</strong> configuration. It therefore has to contain the
-			site that exposes the admin API, or the first push locks Caddyman out. Start that Caddy with
-			<code>caddy run --resume</code>, otherwise a restart drops all routes.</small>
+		<small>Everything that is not a route. Every push replaces Caddy's <strong>whole</strong> configuration, so it has
+			to contain the site that exposes the admin API. Start that Caddy with <code>caddy run --resume</code>.</small>
 	</div>
 
 	<label for="admin_user">Admin API username</label>
 	<input id="admin_user" name="admin_user" value="{{ host.admin_user or '' }}" autocomplete="off" maxlength="64" placeholder="caddyman">
-	<small>The login of that site. Caddy's admin API has none of its own, so without one anything that reaches it controls Caddy.</small>
+	<small>The login of that site. Without one, anything that reaches the admin API controls Caddy.</small>
 	<div>
 		<label for="admin_password">Admin API password</label>
 		<input id="admin_password" name="admin_password" type="password" autocomplete="new-password"
 			placeholder="{{ 'Leave empty to keep the current password' if host.admin_password_enc }}">
-		<small>Stored encrypted with <code>CADDYMAN_SECRET_KEY</code>. Without that key it has to be entered again.</small>
+		<small>Stored encrypted with <code>CADDYMAN_SECRET_KEY</code>.</small>
 	</div>
 
 	<label for="admin_ca">CA certificate of the admin API <span class="optional">optional</span></label>
 	<textarea id="admin_ca" name="admin_ca" rows="4" spellcheck="false" placeholder="-----BEGIN CERTIFICATE-----">{{ host.form_ca or '' }}</textarea>
-	<small>Only for an <code>https://</code> address with a certificate from your own CA. Left empty, Caddyman fetches
-		that CA itself when you save, unchecked, and shows its check code on the status page. Pasted here as PEM, it is
-		taken as it stands and nothing is fetched.</small>
+	<small>Only for <code>https://</code> with a certificate from your own CA. Left empty, Caddyman fetches the CA
+		when you save and shows its check code on the status page.</small>
 
 	<label for="tls_snippet">TLS snippet <span class="optional">optional</span></label>
 	<input id="tls_snippet" name="tls_snippet" value="{{ host.tls_snippet }}" placeholder="stepca">
-	<small>Name of the snippet in the base Caddyfile that points at your own ACME CA.</small>
+	<small>The snippet that points at your own ACME CA.</small>
 
 	<label for="dns_snippet">DNS snippet <span class="optional">optional</span></label>
 	<input id="dns_snippet" name="dns_snippet" value="{{ host.dns_snippet }}" placeholder="dns">
-	<small>Name of the snippet in the base Caddyfile that holds <code>tls { dns ... }</code> for Let's Encrypt over the
-		DNS challenge. It needs a Caddy built with the plugin of your DNS provider; the token stays with Caddy.</small>
+	<small>The snippet with <code>tls { dns ... }</code>. Needs a Caddy built with the plugin of your DNS provider.</small>
 	{# Nothing is written from here: the three blocks are to be copied to where Caddy lives. #}
 	<details class="guide">
 		<summary>What Caddy needs for it, by provider</summary>
-		<p>Pick your DNS provider. Build Caddy from the Dockerfile, give it the variables, and put the snippet into
-			the base Caddyfile above the line that imports the routes. The status page then says whether Caddy can read it.</p>
+		<p>Build Caddy from the Dockerfile, give it the variables, and put the snippet above the line that imports the routes.</p>
 		{% for guide in dns_guides(host.dns_snippet or "dns") %}
 		<details>
 			<summary>{{ guide.name }}</summary>
@@ -96,13 +90,12 @@
 			<pre>{{ guide.snippet }}</pre>
 		</details>
 		{% endfor %}
-		<p>Not in the list? Most providers have a plugin under <code>github.com/caddy-dns</code>; its page shows the lines for the snippet.</p>
+		<p>Not in the list? See <code>github.com/caddy-dns</code>.</p>
 	</details>
 
 	<label for="sso_snippet">SSO snippet <span class="optional">optional</span></label>
 	<input id="sso_snippet" name="sso_snippet" value="{{ host.sso_snippet }}" placeholder="sso">
-	<small>Name of the snippet in the base Caddyfile that holds the <code>forward_auth</code> of your login service,
-		such as Authelia or Authentik. A route can then be put behind that login with one tick.</small>
+	<small>The snippet with the <code>forward_auth</code> of your login service, such as Authelia or Authentik.</small>
 
 	<label for="root_ca_url">Root CA source <span class="optional">optional</span></label>
 	<input id="root_ca_url" name="root_ca_url" value="{{ host.root_ca_url }}" placeholder="https://ca.home.example:9001/roots.pem">

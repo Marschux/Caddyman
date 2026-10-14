@@ -1167,7 +1167,7 @@ class TestCa(RouteTest):
         self.answer(text=f"junk before\n{self.PEM}\ntrailing junk")
         page = self.client.get("/ca").text
         self.assertIn(self.SHA256, page)
-        self.assertNotIn("internal CA, because", page)
+        self.assertNotIn("Caddy's internal CA:", page)
         self.assertEqual(self.get.call_args.args[0], "https://ca.lab.test:9001/roots.pem")
         download = self.client.get("/ca/root-ca.crt")
         self.assertEqual(download.text, self.PEM + "\n")  # only the certificate, nothing around it
@@ -1177,7 +1177,7 @@ class TestCa(RouteTest):
         self.answer(json={"root_certificate": self.PEM + "\n"})
         page = self.client.get("/ca").text
         self.assertIn(self.SHA256, page)
-        self.assertIn("internal CA, because", page)
+        self.assertIn("Caddy's internal CA:", page)
         self.assertTrue(self.get.call_args.args[0].endswith("/pki/ca/local"))
 
     def test_unusable_source_is_reported_and_not_served(self):

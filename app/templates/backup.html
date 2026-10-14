@@ -35,15 +35,12 @@
 {% if host %}
 <section>
 	<h2>Export</h2>
-	<p class="empty">One ZIP with all routes and their groups, a copy of the base Caddyfile, the host settings, the
-		switches under Settings, General, the designs of the error pages and the mail settings without the password.
-		It does <strong>not</strong> contain the root CA: that lives in the volume of your CA and needs its own backup,
-		see <a href="/ca">Root CA</a>. It does <strong>not</strong> contain the accounts or any
-		password either; to keep those, back up the data volume of Caddyman.</p>
+	<p class="empty">One ZIP with all routes, groups, the base Caddyfile and the settings.
+		<strong>Not</strong> in it: the root CA, the accounts and any password.</p>
 	{% if "routes" in request.state.me.permissions %}
 	<a class="button" href="/backup/download">Download backup</a>
 	{% else %}
-	<p class="empty">Downloading takes the right to change routes as well: the archive holds every route file word for word.</p>
+	<p class="empty">Downloading takes the right to change routes as well.</p>
 	{% endif %}
 </section>
 {% endif %}
@@ -58,7 +55,7 @@
 		<button type="submit">Show what it contains</button>
 	</form>
 	{% else %}
-	<p class="empty">An import writes route files, so it takes the right to change routes as well.</p>
+	<p class="empty">An import takes the right to change routes as well.</p>
 	{% endif %}
 </section>
 {% endif %}

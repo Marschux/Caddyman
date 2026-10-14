@@ -7,16 +7,14 @@
 	<label for="zone">Time zone</label>
 	<input id="zone" name="zone" value="{{ chosen }}" list="zones" placeholder="{{ fallback }}" autocomplete="off">
 	<datalist id="zones">{% for zone in zones %}<option value="{{ zone }}">{% endfor %}</datalist>
-	<small>The zone the Logs and Changes pages show their times in, like <code>Europe/Berlin</code>. Empty means
-		<code>{{ fallback }}</code>, which comes from the variable <code>TZ</code> in the <code>.env</code> file.</small>
+	<small>For the times on the Logs and Changes pages, like <code>Europe/Berlin</code>. Empty means <code>{{ fallback }}</code>.</small>
 	<button type="submit">Save</button>
 </form>
 <form method="post" action="/settings/security" class="card wide">
 	<label class="check"><input type="checkbox" name="require_2fa" value="1" {{ "checked" if settings.require_2fa }}>
 		Require two-factor login for every account</label>
-	<small>An account without it gets no further than its own profile after logging in, until it has set one up.
-		That includes yours.
-		{% if without %}Without a second factor right now: {{ without|join(", ") }}.{% else %}Every account has one.{% endif %}</small>
+	<small>An account without one gets no further than its profile. That includes yours.
+		{% if without %}Without one right now: {{ without|join(", ") }}.{% else %}Every account has one.{% endif %}</small>
 
 	<label class="check"><input type="checkbox" name="public_ca" value="1" {{ "checked" if settings.public_ca }}>
 		Offer the root CA without a login</label>
@@ -24,14 +22,12 @@
 
 	<label class="check"><input type="checkbox" name="login_ca_hint" value="1" {{ "checked" if settings.login_ca_hint }}>
 		Point to the root CA on the login page</label>
-	<small>A card below the login form. It only shows while the root CA is offered without a login.</small>
+	<small>Only shows while the root CA is offered without a login.</small>
 
 	<label class="check"><input type="checkbox" name="https_only_on" value="1" {{ "checked" if settings.https_only }}>
 		Only answer over HTTPS</label>
-	<small>Caddyman then refuses plain HTTP, also on its own port, and sends a browser to its route where it
-		knows one. Can only be switched on from a page that came in over HTTPS. If the route to Caddyman is ever
-		lost: put <code>CADDYMAN_RESET_HTTPS_ONLY=true</code> into the <code>.env</code> file, start the container
-		again, and set it back to <code>false</code> afterwards. The root CA page and the error pages stay reachable either way.</small>
+	<small>Refuses plain HTTP, also on its own port. Can only be switched on over HTTPS. Locked out? Start once with
+		<code>CADDYMAN_RESET_HTTPS_ONLY=true</code> in the <code>.env</code> file.</small>
 
 	<button type="submit">Save</button>
 </form>

@@ -1362,7 +1362,7 @@ def preflight(host: dict) -> list[dict]:
                 "Base Caddyfile is readable",
                 False,
                 str(error),
-                "Mount Caddy's Caddyfile into this container at the path Caddy itself uses. In this tool's compose file:",
+                "Mount Caddy's Caddyfile into this container, at the path Caddy uses. In this tool's compose file:",
                 f"    volumes:\n      - /opt/caddy/Caddyfile:{caddyfile}:ro",
             )
     else:
@@ -1377,8 +1377,7 @@ def preflight(host: dict) -> list[dict]:
                 "Base Caddyfile imports no files",
                 not file_import,
                 file_import.group(0).strip() if file_import else "",
-                'With the layout "Network only" Caddy cannot read files from here, so the routes are sent inline. '
-                "Remove this line from the base Caddyfile of this host:",
+                'With "Network only" the routes are sent inline. Remove this line from the base Caddyfile:',
                 file_import.group(0).strip() if file_import else "",
             )
         else:
@@ -1411,9 +1410,8 @@ def preflight(host: dict) -> list[dict]:
                     "ACME CA answers",
                     ca_ok,
                     f"{ca_url} - {detail}",
-                    "This is the address from the TLS snippet, asked from the Caddyman container. While the CA does not "
-                    "answer, Caddy can neither issue nor renew certificates. If Caddy reaches the CA under a name this "
-                    "container cannot resolve, the check fails although all is well.",
+                    "Without the CA, Caddy can neither issue nor renew certificates. Asked from the Caddyman "
+                    "container: if only Caddy can resolve that name, all is well.",
                     "",
                 )
         if dns := host["dns_snippet"]:
@@ -1421,8 +1419,7 @@ def preflight(host: dict) -> list[dict]:
                 f"DNS snippet '{dns}' exists",
                 snippet_exists(text, dns),
                 "",
-                "Add the snippet to the base Caddyfile, with the plugin and the token of your DNS provider. "
-                "This one is for Cloudflare; the Caddy settings show the snippet, the image and the variables for other providers:",
+                "Add the snippet to the base Caddyfile. This one is for Cloudflare; the Caddy settings show other providers:",
                 f"({dns}) {{\n\ttls {{\n\t\tdns cloudflare {{env.CLOUDFLARE_API_TOKEN}}\n\t}}\n}}",
             )
         if sso := host["sso_snippet"]:
@@ -1430,8 +1427,7 @@ def preflight(host: dict) -> list[dict]:
                 f"SSO snippet '{sso}' exists",
                 snippet_exists(text, sso),
                 "",
-                "Add the snippet to the base Caddyfile, with the forward auth address of your login service. "
-                "This one is for Authelia; Authentik and others document their own:",
+                "Add the snippet to the base Caddyfile. This one is for Authelia; other login services document their own:",
                 f"({sso}) {{\n\tforward_auth authelia:9091 {{\n\t\turi /api/authz/forward-auth\n"
                 "\t\tcopy_headers Remote-User Remote-Groups Remote-Email Remote-Name\n\t}\n}",
             )
@@ -1444,8 +1440,7 @@ def preflight(host: dict) -> list[dict]:
                     f"Snippet '{name}' stands above the import of the routes",
                     found.start() < imported.start(),
                     "",
-                    "Move the snippet above this line in the base Caddyfile. Caddy reads from top to bottom, "
-                    "and a route cannot use a snippet that only comes after it:",
+                    "Move the snippet above this line in the base Caddyfile. A route cannot use one that comes after it:",
                     import_line,
                 )
 
@@ -1465,14 +1460,12 @@ def preflight(host: dict) -> list[dict]:
         admin_ok, detail = False, said(error)
     if "CERTIFICATE_VERIFY_FAILED" in detail:
         hint, block = (
-            "Caddyman does not know the CA behind this certificate. Open the Caddy settings and press "
-            '"Save and check": it then fetches the CA and remembers it for this address.'
+            'Caddyman does not know the CA behind this certificate. Press "Save and check" in the Caddy settings to fetch it.'
         ), ""
     elif managed:
         hint, block = (
-            "Caddy's admin API has no login of its own: whoever reaches it controls Caddy. Expose it through a "
-            "site with basic auth like the one below, keep that site in the base Caddyfile of this host (every "
-            "push replaces Caddy's whole configuration), and enter the login here. At the very least, firewall the port to this machine."
+            "Caddy's admin API has no login of its own. Expose it through a site with basic auth like this one, "
+            "keep that site in the base Caddyfile of this host, and enter the login in the settings."
         ), (
             "admin.home.example {\n\tbasic_auth {\n\t\tcaddyman <bcrypt hash from: caddy hash-password>\n\t}\n"
             "\treverse_proxy localhost:2019 {\n\t\theader_up Host {upstream_hostport}\n\t}\n}"
@@ -1481,9 +1474,8 @@ def preflight(host: dict) -> list[dict]:
         hint, block = "The login was refused. Check username and password in the settings.", ADMIN_SITE_SNIPPET
     else:
         hint, block = (
-            "Caddy's admin API only listens inside its own container and has no login of its own. Add this site "
-            "to the base Caddyfile, restart Caddy, and enter the address (http://caddy:2020) and the login in the "
-            "settings. Create the hash with: docker exec -it caddy caddy hash-password"
+            "Add this site to the base Caddyfile, restart Caddy, and enter the address (http://caddy:2020) and the "
+            "login in the settings. Create the hash with: docker exec -it caddy caddy hash-password"
         ), ADMIN_SITE_SNIPPET
     add("Admin API is reachable", admin_ok, f"{host['admin_url']} - {detail}", hint, block)
     if admin_ok and text is not None and snippet_exists(text, host["dns_snippet"]):
@@ -1492,8 +1484,8 @@ def preflight(host: dict) -> list[dict]:
             "Caddy understands the DNS snippet",
             not problem,
             problem,
-            "Caddy was asked to read the snippet and refused. If it says that a module is not registered, this Caddy "
-            "was built without the plugin of your DNS provider. The Caddy settings show the Dockerfile for it, next to the DNS snippet.",
+            "Caddy refused the snippet. \"Module not registered\" means this Caddy was built without the plugin of your "
+            "DNS provider; the Caddy settings show the Dockerfile for it.",
         )
     if host.get("admin_ca"):
         # Remembered on first use, so it is shown: the codes are the ones the Root CA page gives.
@@ -1505,9 +1497,9 @@ def preflight(host: dict) -> list[dict]:
             "Admin API asks for a login",
             bool(host.get("admin_user")),
             "",
-            "Right now anything that reaches this address can reconfigure Caddy, including every service behind "
-            "the proxy. Remove 'admin :2019' from the global options, add this site instead, and enter its "
-            "address and login in the settings. Create the hash with: docker exec -it caddy caddy hash-password",
+            "Anything that reaches this address can reconfigure Caddy. Remove 'admin :2019' from the global options, "
+            "add this site instead, and enter its address and login in the settings. Create the hash with: "
+            "docker exec -it caddy caddy hash-password",
             ADMIN_SITE_SNIPPET,
         )
     # Caddy's own CA comes through the admin API: when that is down, the line above says so already.
@@ -1520,7 +1512,7 @@ def preflight(host: dict) -> list[dict]:
                 "Root CA can be downloaded",
                 False,
                 str(error),
-                "The Root CA page and the page without a login have nothing to offer until this answers. "
+                "The Root CA page has nothing to offer until this answers. "
                 + ("Check the root CA source in the settings." if host["root_ca_url"] else "Caddy's own CA did not answer."),
                 "",
             )
@@ -1538,8 +1530,8 @@ def preflight(host: dict) -> list[dict]:
             "Caddy runs what Caddyman pushed",
             pushed_digest(host) == hashlib.sha256(running).hexdigest(),
             "",
-            "Either nothing has been pushed yet, or Caddy was restarted without --resume and went back to its own "
-            "file, dropping every route. Start Caddy with the command below, then use 'Reload Caddy' on this page.",
+            "Nothing was pushed yet, or Caddy was restarted without --resume and dropped every route. "
+            "Start Caddy with this command, then use 'Reload Caddy':",
             "command: caddy run --resume --config /etc/caddy/Caddyfile --adapter caddyfile",
         )
     if text is not None:
@@ -1550,9 +1542,8 @@ def preflight(host: dict) -> list[dict]:
                 "Requests of routes with an access log stay out of Caddy's own log",
                 "exclude http.log.access" in text,
                 "",
-                "A route writes an access log of its own, and the logger in the base Caddyfile takes the same lines as "
-                "well, so every request is written twice. Add this line inside that logger's block, then restart Caddy "
-                "or use 'Reload Caddy':",
+                "Requests of a route with its own access log are written twice. Add this line to the logger in the "
+                "base Caddyfile, then use 'Reload Caddy':",
                 "exclude http.log.access",
             )
         if managed and LOG_REMOTE_DIR in text:
@@ -1560,8 +1551,8 @@ def preflight(host: dict) -> list[dict]:
                 "Rotated logs are listed",
                 re.search(r"\bfile_server\s+browse\b", text),
                 "",
-                "The site that serves the log has no directory listing, so the Logs page only offers caddy.log. "
-                "Write it like this in the base Caddyfile under Settings, then use 'Reload Caddy':",
+                "Without a directory listing the Logs page only offers caddy.log. Write it like this in the base "
+                "Caddyfile, then use 'Reload Caddy':",
                 f"handle_path {LOG_REMOTE_DIR}/* {{\n\troot * /var/log/caddy\n\tfile_server browse\n}}",
             )
     # About Caddyman, not about Caddy, but this is the list people look at. The key itself is
@@ -1570,10 +1561,8 @@ def preflight(host: dict) -> list[dict]:
         "Secret key comes from the environment",
         SECRET_KEY_FROM_ENV,
         "CADDYMAN_SECRET_KEY" if SECRET_KEY_FROM_ENV else str(SECRET_FILE),
-        "Without CADDYMAN_SECRET_KEY, Caddyman made a key of its own and keeps it in the data volume, next to what "
-        "it protects: a copy of that volume is then enough to read the passwords for the admin API and the mail "
-        "server and the keys of two-factor logins. Print the key that is in use and put it into the .env file next "
-        "to the compose file. With the same key nothing has to be entered again.",
+        "Caddyman made a key of its own and keeps it in the data volume, next to the passwords it protects. "
+        "Print it and put it into the .env file next to the compose file; nothing has to be entered again.",
         "docker exec caddyman cat /data/secret.key\n\n# .env\nCADDYMAN_SECRET_KEY=<what the command printed>",
     )
     if SECRET_KEY_FROM_ENV and len(SECRET_KEY) < MIN_SECRET_KEY_CHARS:
@@ -1581,9 +1570,8 @@ def preflight(host: dict) -> list[dict]:
             "Secret key is long enough",
             False,
             f"{len(SECRET_KEY)} characters",
-            f"A key under {MIN_SECRET_KEY_CHARS} characters can be guessed by anybody who holds a session cookie, and it "
-            "also encrypts the stored passwords. Make a new one and put it into the .env file. Every session ends, and "
-            "the passwords for the admin API and the mail server and every two-factor login have to be set up again.",
+            f"A key under {MIN_SECRET_KEY_CHARS} characters can be guessed from a session cookie. Put a new one into the "
+            ".env file. Every session ends; stored passwords and two-factor logins have to be set up again.",
             "openssl rand -base64 32",
         )
     return checks
@@ -3660,13 +3648,10 @@ def status(request: Request):
             "label": "HTTPS in front of Caddyman is recognised",
             "ok": way == "https",
             "detail": "" if way == "https" else f"{caddy} says HTTPS, but is not the Caddy from the settings",
-            "hint": "Caddyman believes the Caddy it manages, which it finds under the name in the admin API address "
-            f"({', '.join(sorted(caddy_addresses())) or 'no address found for it'}). This page came through something "
-            "else: another proxy in front, or Caddy under an address that name does not lead to. Until that is "
-            "trusted too, the session cookie is not marked Secure and the login limit counts everybody as one. "
-            "Add the address to the .env file next to the compose file and start the container again. Only do "
-            "that if nothing but your proxy reaches Caddyman from this address: everybody who does is believed "
-            "as well, which is the case for the gateway address of a Docker network:",
+            "hint": "Caddyman believes the Caddy it manages "
+            f"({', '.join(sorted(caddy_addresses())) or 'no address found for it'}); this page came through something "
+            "else. To trust it too, add its address to the .env file and start the container again. Only if "
+            "nothing but your proxy reaches Caddyman from that address, so not for the gateway of a Docker network:",
             "block": f"CADDYMAN_FORWARDED_ALLOW_IPS={caddy}",
         })
     context = {"no_https": bool(hosts) and way == "plain", "has_own_route": has_route, "own_address": address}

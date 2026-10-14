@@ -3,7 +3,7 @@
 {% block content %}
 <form method="post" action="/routes/{{ name|urlencode }}/edit" class="card wide">
 	<h1>Edit {{ name }}.caddy</h1>
-	<p>This file was not created here or was changed by hand, so it opens as text. Caddy checks it on save; if Caddy rejects it, the file is put back as it was.</p>
+	<p>Not created here or changed by hand, so it opens as text. If Caddy rejects it, the file is put back.</p>
 	{% if error %}<p class="error" role="alert">{{ error }}</p>{% endif %}
 	{% include "conflict.html" %}
 	<input type="hidden" name="mode" value="raw">
@@ -14,7 +14,7 @@
 </form>
 {% if adoptable %}
 <form method="post" action="/routes/{{ name|urlencode }}/adopt" class="card wide">
-	<p>This file matches a pattern Caddyman knows. Adopting it adds a metadata line, after which it opens in the form.</p>
+	<p>Caddyman knows this pattern. Adopting adds a metadata line, then it opens in the form.</p>
 	<button type="submit" class="secondary">Adopt this route</button>
 </form>
 {% endif %}

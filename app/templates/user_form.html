@@ -24,7 +24,7 @@
 		{% for right, label in PERMISSIONS.items() %}
 		<label class="check"><input type="checkbox" name="right_{{ right }}" value="1" {{ "checked" if right in user.permissions }}> {{ label }}</label>
 		{% endfor %}
-		<small>Without any, the account can still see the route list, the status page and its own profile.</small>
+		<small>Without any: route list, status page and own profile only.</small>
 	</fieldset>
 
 	{# With mail set up a new account can be invited instead: both fields stay empty then. #}
@@ -35,7 +35,7 @@
 	<label for="repeat">Repeat password</label>
 	<input id="repeat" name="repeat" type="password" autocomplete="new-password" minlength="8" {{ "required" if must }}>
 	{% if not new %}<small>A new password logs this account out everywhere.</small>
-	{% elif invite %}<small>Without a password the account gets a mail with a link to set its own. The link works once, for one day.</small>
+	{% elif invite %}<small>Without a password the account gets a link by mail to set its own.</small>
 	{% else %}<small>Mail is not set up, so the password has to be given here. With
 		{% if "settings" in request.state.me.permissions %}<a href="/settings/mail">mail set up</a>{% else %}mail set up{% endif %},
 		the account can be invited and sets its own.</small>{% endif %}

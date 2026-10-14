@@ -5,7 +5,7 @@
 	<h1>Groups</h1>
 	<a class="button secondary" href="/">Back to the routes</a>
 </div>
-<p class="empty">Groups only sort the list of routes; Caddy does not know about them. A route gets its group in its form.</p>
+<p class="empty">Groups only sort the route list. A route gets its group in its form.</p>
 
 <form method="post" action="/groups" class="row">
 	<input name="name" required maxlength="40" placeholder="Media" aria-label="Name of the new group" autofocus>
@@ -39,6 +39,5 @@
 		{% endfor %}
 	</tbody>
 </table>
-<p class="empty">The group is written into the route file. Renaming or deleting a group that has routes rewrites those
-	files and reloads Caddy. Routes edited as text have no group.</p>
+<p class="empty">Renaming or deleting a group rewrites its route files and reloads Caddy.</p>
 {% endblock %}

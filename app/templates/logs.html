@@ -5,25 +5,23 @@
 <div class="heading"><h2>Logs</h2></div>
 
 {% if not files %}
-<p class="empty">Caddy's log is where it says why a certificate did not arrive. Nothing to read was found yet;
-	this page starts working by itself once the steps below are done.</p>
+<p class="empty">Nothing to read yet. This page works by itself once the steps below are done.</p>
 <section>
 	<h2>1. Let Caddy write its log to a file</h2>
-	<p class="empty">In the global options block of the base Caddyfile. This is a second logger, so <code>docker logs</code> keeps working.</p>
+	<p class="empty">In the global options of the base Caddyfile. <code>docker logs</code> keeps working.</p>
 	<pre>{{ snippet }}</pre>
 </section>
 {% if host.storage == "managed" %}
 <section>
 	<h2>2. Serve that file next to the admin API</h2>
-	<p class="empty">The layout is "Network only", so Caddyman fetches the end of the log over the address and login it
-		already uses for the admin API. Extend that site in the base Caddyfile under
-		<a href="/hosts/{{ host.id }}/edit">Settings</a>, then use "Reload Caddy" on the <a href="/status">status page</a>:</p>
+	<p class="empty">Extend the admin site in the base Caddyfile under <a href="/hosts/{{ host.id }}/edit">Settings</a>,
+		then use "Reload Caddy" on the <a href="/status">status page</a>:</p>
 	<pre>{{ remote_snippet }}</pre>
 </section>
 {% else %}
 <section>
 	<h2>2. Mount the log directory into this container</h2>
-	<p class="empty">Read only, in this tool's compose file. Caddy needs the same directory mounted writable. Restart both containers afterwards.</p>
+	<p class="empty">In this tool's compose file. Caddy needs the same directory writable. Restart both containers.</p>
 	<pre>    volumes:
       - /opt/caddy/logs:{{ log_dir }}:ro</pre>
 </section>

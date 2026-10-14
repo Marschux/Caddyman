@@ -9,8 +9,7 @@
 <p class="flash error" role="alert">The certificate is not available right now.</p>
 {% elif error %}
 <p class="flash error" role="alert">{{ error }}</p>
-<p class="empty">The source is part of the <a href="/hosts/{{ host.id }}/edit">Caddy settings</a>.
-	Without a root CA source, Caddy's own internal CA is used.</p>
+<p class="empty">The source is set in the <a href="/hosts/{{ host.id }}/edit">Caddy settings</a>. Without one, Caddy's internal CA is used.</p>
 {% else %}
 {# One system at a time, picked from the list at the left edge. /ca starts with the certificate
    itself, /trust with Windows. #}
@@ -29,17 +28,16 @@
 	<div class="buttons"><a class="button" href="/root-ca.crt{{ '?' ~ pick if pick }}">Download {{ file_name }}</a></div>
 </div>
 {% if public %}
-<p class="empty">Every device that should open the sites behind this proxy without a warning needs this certificate once.
-	Whoever runs this Caddyman gives you a <strong>check code</strong>. Ask for it in person or on the phone:
-	it is what proves that the certificate you got is the real one.</p>
+<p class="empty">Every device that should open these sites without a warning needs this certificate once. Ask whoever runs this
+	Caddyman for the <strong>check code</strong>, in person or on the phone: it proves the certificate is the real one.</p>
 {% else %}
-<p class="empty">Every device that should trust the routes behind this Caddy needs this certificate once.
-	{% if internal %}This is Caddy's own internal CA, because the host has no root CA source configured.{% endif %}</p>
+<p class="empty">Every device that should trust these routes needs this certificate once.
+	{% if internal %}This is Caddy's internal CA: no root CA source is set.{% endif %}</p>
 {% endif %}
 {% if many %}
 {# A device takes only the first certificate out of a file, so each one is its own round. #}
 <p class="empty">This CA hands out <strong>{{ certs|length }} certificates</strong>, and a device needs all of them.
-	Go through the steps once for each; each has its own download and its own check code:
+	Each has its own download and check code:
 	{% for item in certs %}
 	{% if item.number == cert.number %}<strong>Certificate {{ item.number }}</strong>{% else %}<a href="?os={{ shown }}&amp;cert={{ item.number }}">Certificate {{ item.number }}</a>{% endif %}{{ " · " if not loop.last }}
 	{% endfor %}</p>
@@ -50,18 +48,18 @@
 <section>
 	{% if open_page %}
 	<h2>For people without a login</h2>
-	<p class="empty">The page <a href="/trust">/trust</a> and the download work without logging in. Send the link, and
-		give {{ "these check codes" if many else "this check code" }} another way, in person or on the phone:</p>
+	<p class="empty"><a href="/trust">/trust</a> and the download work without a login. Send the link and give
+		{{ "these check codes" if many else "this check code" }} another way, in person or on the phone:</p>
 	{% else %}
 	<h2>Check code</h2>
-	<p class="empty">The page without a login is switched off in the <a href="/settings/security">settings</a>,
-		so pass on the file or the command below yourself. Give {{ "these check codes" if many else "this check code" }} another way, in person or on the phone:</p>
+	<p class="empty">The page without a login is switched off in the <a href="/settings/security">settings</a>. Pass on the file or the
+		command yourself, and give {{ "these check codes" if many else "this check code" }} another way, in person or on the phone:</p>
 	{% endif %}
 	{% for item in certs %}
 	{% if many %}<p><strong>Certificate {{ item.number }}</strong>{% if item.subject %} <span class="empty">{{ item.subject }}</span>{% endif %}</p>{% endif %}
 	<pre>{{ item.check_code }}</pre>
 	{% endfor %}
-	<p class="empty">Somebody who can tamper with the connection can swap the certificate, but not what you say out loud.</p>
+	<p class="empty">A tampered connection can swap the certificate, but not what you say out loud.</p>
 </section>
 
 <section>
@@ -81,17 +79,15 @@ SHA-1    {{ item.sha1 }}</pre>
 {% if shown == "windows" %}
 <section>
 	<h2>Windows</h2>
-	<p class="empty">Paste this into PowerShell <strong>as administrator</strong>. The certificate is part of the command, so
-		there is nothing to download, which makes it long; the box shows only its start. It asks for the check code and
-		installs only if the code fits:</p>
+	<p class="empty">Paste this into PowerShell <strong>as administrator</strong>. The certificate is part of the command; the box shows
+		only its start. It installs only if the check code fits:</p>
 	<pre class="cut">$cert = [Security.Cryptography.X509Certificates.X509Certificate2]::new([Convert]::FromBase64String("{{ cert.der_base64 }}"))
 $code = -join ([Security.Cryptography.SHA256]::Create().ComputeHash($cert.RawData)[0..5] | ForEach-Object { $_.ToString("X2") })
 if (((Read-Host "Check code") -replace "[^0-9A-Fa-f]") -eq $code) { $store = [Security.Cryptography.X509Certificates.X509Store]::new("Root", "LocalMachine"); $store.Open("ReadWrite"); $store.Add($cert); $store.Close(); "Installed: " + $cert.Subject } else { "Wrong check code, nothing was installed." }</pre>
-	<p class="empty">Or with the downloaded file. The path points at your download folder; change it if the file is
-		somewhere else:</p>
+	<p class="empty">Or with the downloaded file from your download folder:</p>
 	<pre>Import-Certificate -FilePath "$env:USERPROFILE\Downloads\{{ file_name }}" -CertStoreLocation Cert:\LocalMachine\Root</pre>
-	<p class="empty">Do not use the import wizard with "automatically select the certificate store": it files a CA under
-		intermediate authorities of the current user, where Windows does not trust it and says nothing.</p>
+	<p class="empty">Do not use the import wizard with "automatically select the certificate store": Windows then does not trust
+		the CA and says nothing.</p>
 </section>
 {% endif %}
 
@@ -101,9 +97,8 @@ if (((Read-Host "Check code") -replace "[^0-9A-Fa-f]") -eq $code) { $store = [Se
 	<p class="empty">Print the check code of the downloaded file first and compare it:</p>
 	<pre>openssl x509 -in ~/Downloads/{{ file_name }} -noout -fingerprint -sha256 | cut -d= -f2 | tr -d : | cut -c1-12</pre>
 	<pre>sudo security add-trusted-cert -d -r trustRoot -k /Library/Keychains/System.keychain ~/Downloads/{{ file_name }}</pre>
-	<p class="empty">Or by hand: open the file, add it to the keychain <strong>System</strong>, then double-click the
-		certificate in Keychain Access and set "When using this certificate" under Trust to "Always Trust". Without that
-		last step it is installed but not trusted.</p>
+	<p class="empty">Or by hand: add the file to the keychain <strong>System</strong>, then set "When using this certificate" to
+		"Always Trust" in Keychain Access.</p>
 </section>
 {% endif %}
 
@@ -123,10 +118,9 @@ sudo update-ca-certificates</pre>
 	<h2>iPhone and iPad</h2>
 	<ol class="empty">
 		<li>Tap the download button above in <strong>Safari</strong> and allow the configuration profile.</li>
-		<li>Settings, General, VPN &amp; Device Management: open the downloaded profile. Under "More Details" the
-			certificate shows its SHA-256 fingerprint; its first 12 characters are the check code. Then tap Install.</li>
-		<li>Settings, General, About, Certificate Trust Settings: switch the certificate on. Without this step it is
-			installed but not trusted.</li>
+		<li>Settings, General, VPN &amp; Device Management: open the profile. Under "More Details", the first 12 characters
+			of the SHA-256 fingerprint are the check code. Then tap Install.</li>
+		<li>Settings, General, About, Certificate Trust Settings: switch the certificate on.</li>
 	</ol>
 </section>
 {% endif %}
@@ -137,51 +131,42 @@ sudo update-ca-certificates</pre>
 	<ol class="empty">
 		<li>Download the file with the button above.</li>
 		<li>Settings, Security &amp; privacy, More security settings, Encryption &amp; credentials, Install a certificate,
-			<strong>CA certificate</strong>. Confirm the warning and pick the file. The path differs between
-			manufacturers; searching the settings for "CA certificate" finds it.</li>
-		<li>Under "Trusted credentials", tab "User", the certificate shows its SHA-256 fingerprint; its first 12
-			characters are the check code. Remove it again if they differ.</li>
+			<strong>CA certificate</strong>. Or search the settings for "CA certificate".</li>
+		<li>Under "Trusted credentials", tab "User": the first 12 characters of the SHA-256 fingerprint are the check code.
+			Remove it if they differ.</li>
 	</ol>
-	<p class="empty">Chrome trusts a certificate installed this way. Many other apps ignore certificates the user
-		installed and keep showing a warning; that is a decision of the app and cannot be changed here.</p>
+	<p class="empty">Chrome trusts it. Many other apps ignore certificates the user installed.</p>
 </section>
 {% endif %}
 
 {% if shown == "chrome" %}
 <section>
 	<h2>Chrome and Edge</h2>
-	<p class="empty">On Windows, macOS and Android these browsers use the store of the system, and so do Brave, Vivaldi,
-		Opera and Safari: follow the steps for the system, then close the browser completely and open it again.</p>
-	<p class="empty">On <strong>Linux</strong> they keep their own list and ignore the system store. Print the check code
-		of the downloaded file first and compare it:</p>
+	<p class="empty">On Windows, macOS and Android these browsers use the system store: follow the steps for the system, then restart the browser.</p>
+	<p class="empty">On <strong>Linux</strong> they keep their own list. Print the check code of the downloaded file first and compare it:</p>
 	<pre>openssl x509 -in {{ file_name }} -noout -fingerprint -sha256 | cut -d= -f2 | tr -d : | cut -c1-12</pre>
 	<pre>certutil -d sql:$HOME/.pki/nssdb -A -t "C,," -n "{{ file_name }}" -i {{ file_name }}</pre>
-	<p class="empty"><code>certutil</code> is part of the package <code>libnss3-tools</code> on Debian and Ubuntu. Or import
-		the file in the browser itself at <code>chrome://certificate-manager</code>; older versions have it at
-		<code>chrome://settings/certificates</code> under Authorities.</p>
+	<p class="empty"><code>certutil</code> comes with <code>libnss3-tools</code> on Debian and Ubuntu. Or import the file at
+		<code>chrome://certificate-manager</code>.</p>
 </section>
 {% endif %}
 
 {% if shown == "firefox" %}
 <section>
 	<h2>Firefox</h2>
-	<p class="empty">Firefox keeps its own list and ignores the system store by default. Either import it there:
-		Settings, Privacy &amp; Security, Certificates, View Certificates, Authorities, Import, and tick "Trust this CA to identify websites".
-		Or let Firefox use the system store by setting this to <code>true</code> in <code>about:config</code>:</p>
+	<p class="empty">Firefox keeps its own list. Import it under Settings, Privacy &amp; Security, Certificates, View Certificates,
+		Authorities, and tick "Trust this CA to identify websites". Or set this to <code>true</code> in <code>about:config</code>:</p>
 	<pre>security.enterprise_roots.enabled</pre>
-	<p class="empty">Firefox on <strong>Android</strong> has neither. Install the certificate as described under Android,
-		then open Settings, About Firefox, tap the logo five times and switch on "Use third party CA certificates"
-		under Secret Settings.</p>
+	<p class="empty">Firefox on <strong>Android</strong>: install the certificate as under Android, then open Settings, About Firefox,
+		tap the logo five times and switch on "Use third party CA certificates".</p>
 </section>
 {% endif %}
 
 {% if not public and not shown %}
 <section>
 	<h2>Back up the CA itself</h2>
-	<p class="empty">This matters more than a backup of the routes. Routes are retyped in an hour; if the root key is lost,
-		a new root has to be imported on <strong>every</strong> device again. Caddyman cannot back it up, because it lives
-		{% if internal %}in Caddy's data volume{% else %}in the volume of your CA, not here{% endif %}.
-		Adjust the volume name to your setup:</p>
+	<p class="empty">If the root key is lost, a new root has to be imported on <strong>every</strong> device. Caddyman cannot back it up:
+		it lives {% if internal %}in Caddy's data volume{% else %}in the volume of your CA{% endif %}. Adjust the volume name:</p>
 	{% if internal %}
 	<pre>docker run --rm -v caddy_caddy_data:/data -v "$PWD":/backup alpine \
   tar czf /backup/caddy-pki-backup.tar.gz -C /data/caddy pki</pre>
