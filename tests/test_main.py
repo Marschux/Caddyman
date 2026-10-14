@@ -1628,12 +1628,17 @@ class TestLogs(RouteTest):
 
     def test_a_log_can_be_downloaded_whole(self):
         self.assertIn('href="/logs/download?file=caddy.log"', self.client.get("/logs").text)
-        self.assertEqual(self.client.get("/logs/download", params={"file": "caddy.log"}).text, "\n".join(self.LINES) + "\n")
+        # In the columns of the page, oldest first, the time in the chosen zone.
+        got = self.client.get("/logs/download", params={"file": "caddy.log"}).text.splitlines()
+        self.assertEqual(len(got), len(self.LINES))
+        self.assertTrue(got[2].endswith('\tERROR\ttls.obtain\twill retry\t{"error": "pdf.lab.test: no challenge"}'), got[2])
+        self.assertTrue(got[2].startswith(main.parse_log_line(self.LINES[2])["time"]))
+        self.assertEqual(got[4], "\t-\t\tnot json at all <script>alert(1)</script>")
         # A packed one comes unpacked, a name that is not listed not at all.
         with gzip.open(os.path.join(self.logs, "older.log.gz"), "wt", encoding="utf-8") as handle:
             handle.write("packed line\n")
         got = self.client.get("/logs/download", params={"file": "older.log.gz"})
-        self.assertEqual((got.text, got.headers["content-disposition"]), ("packed line\n", 'attachment; filename="older.log"'))
+        self.assertEqual((got.text, got.headers["content-disposition"]), ("\t-\t\tpacked line\n", 'attachment; filename="older.log"'))
         for name in ("notes.txt", "../caddy.log", "sub.log"):
             self.assertEqual(self.client.get("/logs/download", params={"file": name}).status_code, 303, name)
 

@@ -3679,11 +3679,12 @@ def open_log(host: dict, wanted: str):
 
 @app.get("/logs/download")
 def logs_download(file: str = ""):
-    """One log as text, with the same links hidden as on the page."""
+    """One log as text in the columns of the page, oldest first, with the same links hidden."""
     opened = open_log(the_host(), file)
     if opened is None:
         return redirect("/logs", "error", "This log could not be read.")
     name, handle = opened
+    zone = time_zone()
 
     def lines():
         read = 0
@@ -3693,7 +3694,10 @@ def logs_download(file: str = ""):
                     read += len(raw)
                     if read > LOG_UNPACK_MAX:
                         break
-                    yield LINK_TOKEN_RE.sub(r"\1[hidden]", raw.decode("utf-8", errors="replace")).encode()
+                    line = LINK_TOKEN_RE.sub(r"\1[hidden]", raw.decode("utf-8", errors="replace").rstrip("\r\n"))
+                    entry = parse_log_line(line, zone)
+                    columns = (entry["time"], entry["level"].upper() or "-", entry["logger"], entry["msg"], entry["extra"])
+                    yield ("\t".join(column.replace("\t", " ") for column in columns).rstrip("\t") + "\n").encode()
             except (OSError, EOFError, zlib.error):
                 return
 
