@@ -39,7 +39,7 @@
 			<td class="nowrap">
 				{% if item.site %}<a class="out" href="{{ item.site }}" target="_blank" rel="noopener noreferrer"><strong>{{ route.host }}{{ ":" ~ route.port if route.port }}</strong></a>
 				{% else %}<strong>{{ route.host }}{{ ":" ~ route.port if route.port }}</strong>{% endif %}
-				{# Folded away: a route with many names would otherwise be as tall as several. #}
+				{# Folded away next to the name, so every row stays one line high. #}
 				{% if route.aliases %}<details class="more"><summary>{{ route.aliases|length }} more name{{ "s" if route.aliases|length != 1 }}</summary>
 					{% for alias in route.aliases %}<small>{{ alias }}{{ ":" ~ route.port if route.port }}</small>{% endfor %}</details>{% endif %}
 			</td>
@@ -47,7 +47,8 @@
 			{# A redirect can point at a long address and may wrap; host:port and a path stay on one line. #}
 			<td{% if route.type != "redirect" %} class="nowrap"{% endif %}>{% if item.link %}<a class="out" href="{{ item.link }}" target="_blank" rel="noopener noreferrer"><code>{{ route.upstream or route.target }}</code></a>
 				{% else %}<code>{{ route.upstream or route.target or route.root }}</code>{% endif %}
-				{% for path, target in route.paths or [] %}<small><code>{{ path }}</code> to <code>{{ target }}</code></small>{% endfor %}
+				{% if route.paths %}<details class="more"><summary>{{ route.paths|length }} path{{ "s" if route.paths|length != 1 }}</summary>
+					{% for path, target in route.paths %}<small><code>{{ path }}</code> to <code>{{ target }}</code></small>{% endfor %}</details>{% endif %}
 				{% if item.target_down %}<span class="cert warn" title="No TCP connection from Caddyman to {{ item.target_down|join(', ') }}. Caddy may see it differently.">Not reachable</span>{% endif %}</td>
 			{# What is switched on for the route, always in the same place and order. The long name is the tooltip. #}
 			<td class="nowrap">
