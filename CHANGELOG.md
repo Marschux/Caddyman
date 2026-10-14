@@ -1,5 +1,10 @@
 # Changelog
 
+## 2026-10-14 02:10
+- chore: version 0.17.4
+- feat: the hints in the route form are much shorter, a target copied from the browser is taken, and further hostnames are folded in the route list
+
+
 ## 2026-10-14 01:59
 - chore: version 0.17.0
 - fix: the lock on a second factor grows, the own password and the last account that manages users are guarded, groups and error pages no longer overwrite a change made meanwhile, and smaller hardening from the audit
