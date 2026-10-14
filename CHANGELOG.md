@@ -1,5 +1,10 @@
 # Changelog
 
+## 2026-10-14 02:17
+- chore: version 0.17.5
+- feat: the descriptions on every page are shorter
+
+
 ## 2026-10-14 02:10
 - chore: version 0.17.4
 - feat: the hints in the route form are much shorter, a target copied from the browser is taken, and further hostnames are folded in the route list
