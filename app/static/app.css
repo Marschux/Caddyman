@@ -24,6 +24,13 @@
 	--warn-bg: rgba(255, 207, 37, 0.1);
 	--error: #ff6b61;
 	--error-bg: rgba(230, 43, 30, 0.16);
+	/* Soft tones for the options of a route, by what they are about: access, connection, Caddyman. */
+	--tag-access: #c4b5fd;
+	--tag-access-bg: rgba(167, 139, 250, 0.16);
+	--tag-link: #93c5fd;
+	--tag-link-bg: rgba(96, 165, 250, 0.16);
+	--tag-own: #f9a8d4;
+	--tag-own-bg: rgba(244, 114, 182, 0.14);
 	--sans: system-ui, -apple-system, "Segoe UI", Helvetica, Arial, sans-serif;
 	--mono: ui-monospace, "Cascadia Code", Consolas, monospace;
 }
@@ -54,6 +61,12 @@
 	--warn-bg: rgba(255, 191, 0, 0.18);
 	--error: #c0271b;
 	--error-bg: rgba(192, 39, 27, 0.1);
+	--tag-access: #6d28d9;
+	--tag-access-bg: rgba(109, 40, 217, 0.1);
+	--tag-link: #1d4ed8;
+	--tag-link-bg: rgba(29, 78, 216, 0.1);
+	--tag-own: #be185d;
+	--tag-own-bg: rgba(190, 24, 93, 0.1);
 }
 
 * { box-sizing: border-box; }
@@ -312,6 +325,9 @@ section > ol li { margin: 6px 0; }
 .badge.ok { color: var(--ok); background: var(--ok-bg); }
 .badge.fail { color: var(--error); background: var(--error-bg); }
 .tag { display: inline-block; margin-left: 8px; padding: 2px 10px; background: var(--surface-2); border-radius: 9999px; color: var(--ink-muted); font-size: 12px; line-height: 1.38; letter-spacing: 0.2px; white-space: nowrap; }
+.tag.access { color: var(--tag-access); background: var(--tag-access-bg); }
+.tag.link { color: var(--tag-link); background: var(--tag-link-bg); }
+.tag.own { color: var(--tag-own); background: var(--tag-own-bg); }
 
 /* A standing hint with one action, unlike a flash that is shown once. */
 .notice { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 16px; padding: 16px; background: var(--surface-1); border: 1px solid var(--hairline); border-radius: 12px; }

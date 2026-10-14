@@ -52,14 +52,14 @@
 					{% for path, target in route.paths %}<small><code>{{ path }}</code> to <code>{{ target }}</code></small>{% endfor %}</details>{% endif %}</td>
 			{# What is switched on for the route, always in the same place and order. The long name is the tooltip. #}
 			<td class="nowrap">
-				{% if route.sso %}<span class="tag" title="Single sign-on: the login service is asked first">SSO</span>{% endif %}
-				{% if route.auth_user %}<span class="tag" title="Basic auth: asks for a login">Auth</span>{% endif %}
-				{% if route.host_header %}<span class="tag" title="Host header: the target gets its own name as Host">Host</span>{% endif %}
-				{% if route.skip_verify %}<span class="tag" title="The target's certificate is not checked">No verify</span>{% endif %}
-				{% if route.hsts %}<span class="tag" title="HSTS: browsers use HTTPS only for this name">HSTS</span>{% endif %}
-				{% if route.allow %}<span class="tag" title="Only reachable from: {{ route.allow }}">IP</span>{% endif %}
-				{% if route.errors %}<span class="tag" title="Error pages: Caddy's own errors show a page from Caddyman">Errors</span>{% endif %}
-				{% if route.log %}{% if "logs" in request.state.me.permissions %}<a class="tag" title="Access log: open it" href="/logs?file=access-{{ item.name|urlencode }}.log">Log</a>{% else %}<span class="tag" title="Access log">Log</span>{% endif %}{% endif %}
+				{% if route.sso %}<span class="tag access" title="Single sign-on: the login service is asked first">SSO</span>{% endif %}
+				{% if route.auth_user %}<span class="tag access" title="Basic auth: asks for a login">Auth</span>{% endif %}
+				{% if route.host_header %}<span class="tag link" title="Host header: the target gets its own name as Host">Host</span>{% endif %}
+				{% if route.skip_verify %}<span class="tag link" title="The target's certificate is not checked">No verify</span>{% endif %}
+				{% if route.hsts %}<span class="tag link" title="HSTS: browsers use HTTPS only for this name">HSTS</span>{% endif %}
+				{% if route.allow %}<span class="tag access" title="Only reachable from: {{ route.allow }}">IP</span>{% endif %}
+				{% if route.errors %}<span class="tag own" title="Error pages: Caddy's own errors show a page from Caddyman">Errors</span>{% endif %}
+				{% if route.log %}{% if "logs" in request.state.me.permissions %}<a class="tag own" title="Access log: open it" href="/logs?file=access-{{ item.name|urlencode }}.log">Log</a>{% else %}<span class="tag own" title="Access log">Log</span>{% endif %}{% endif %}
 			</td>
 			<td class="nowrap"><span class="tag">{{ {"acme_ca": "Own ACME CA", "default": "Caddy default", "dns": "DNS challenge", "internal": "Caddy internal", "none": "None"}[route.tls] }}</span></td>
 			{% else %}
