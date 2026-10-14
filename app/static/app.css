@@ -352,8 +352,10 @@ form.row input:not([type]) { width: auto; flex: 0 1 320px; }
 /* One step up from the card it sits in. */
 details { margin-top: 24px; padding: 12px 16px; background: var(--surface-2); border-radius: 8px; }
 details[open] { padding-bottom: 20px; }
-/* In a table cell it is only a word next to the value that unfolds: further names or paths of a route. */
-td details.more, td details.more[open] { display: inline-block; margin: 0 0 0 8px; padding: 0; background: none; vertical-align: top; }
+/* In a table cell it is only a line that unfolds: further names or paths of a route. */
+td details.more, td details.more[open] { margin: 4px 0 0; padding: 0; background: none; }
+/* Every route is as high as one with that second line, so the list stays even. */
+table.routes tbody tr:not(.group) > td { height: 80px; }
 td details.more summary { color: var(--ink-subtle); font-size: 13px; font-weight: 400; }
 /* The block has the colour of a grey button: the outline keeps the button visible on it. */
 details button.secondary { border-color: var(--hairline-strong); }
