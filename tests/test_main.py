@@ -1,4 +1,5 @@
 import base64
+import gzip
 import io
 import os
 import shutil
@@ -1619,6 +1620,22 @@ class TestLogs(RouteTest):
         page = self.client.get("/logs", params={"file": "access-caddyman.log"}).text
         self.assertIn("GET /reset?token=[hidden] - 200", page)
         self.assertNotIn("WyJhZG1pbiJd", page)
+        # The download hides them just the same.
+        got = self.client.get("/logs/download", params={"file": "access-caddyman.log"})
+        self.assertIn('filename="access-caddyman.log"', got.headers["content-disposition"])
+        self.assertIn("/reset?token=[hidden]", got.text)
+        self.assertNotIn("WyJhZG1pbiJd", got.text)
+
+    def test_a_log_can_be_downloaded_whole(self):
+        self.assertIn('href="/logs/download?file=caddy.log"', self.client.get("/logs").text)
+        self.assertEqual(self.client.get("/logs/download", params={"file": "caddy.log"}).text, "\n".join(self.LINES) + "\n")
+        # A packed one comes unpacked, a name that is not listed not at all.
+        with gzip.open(os.path.join(self.logs, "older.log.gz"), "wt", encoding="utf-8") as handle:
+            handle.write("packed line\n")
+        got = self.client.get("/logs/download", params={"file": "older.log.gz"})
+        self.assertEqual((got.text, got.headers["content-disposition"]), ("packed line\n", 'attachment; filename="older.log"'))
+        for name in ("notes.txt", "../caddy.log", "sub.log"):
+            self.assertEqual(self.client.get("/logs/download", params={"file": name}).status_code, 303, name)
 
     def test_newest_file_newest_line_first(self):
         page = self.client.get("/logs").text

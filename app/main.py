@@ -37,7 +37,7 @@ from cryptography import x509
 from cryptography.fernet import Fernet, InvalidToken
 from cryptography.x509.oid import NameOID
 from fastapi import FastAPI, Form, Request
-from fastapi.responses import RedirectResponse, Response
+from fastapi.responses import RedirectResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from itsdangerous import BadSignature, URLSafeTimedSerializer
@@ -3654,6 +3654,51 @@ def logs_page(request: Request, file: str = "", level: str = "", q: str = "", qu
     context.update(older=older, end=max(0, end))
     snippets = {"snippet": LOG_SNIPPET, "remote_snippet": LOG_REMOTE_SNIPPET, "log_dir": str(LOG_DIR)}
     return page(request, "logs.html", host=current, shown=LOG_SHOWN, **snippets, **context)
+
+
+def open_log(host: dict, wanted: str):
+    """The name and an open binary handle of a whole log, unpacked, or None. Only names from the listing."""
+    try:
+        if host.get("storage") != "managed":
+            path = next((path for path in local_log_files() if path.name == wanted), None)
+            if path is None:
+                return None
+            handle = gzip.open(path, "rb") if path.name.endswith(".gz") else open(path, "rb")
+            return path.name, handle
+        if wanted not in remote_log_names(host):
+            return None
+        # Up to the limit for a packed file; Caddy rolls its logs far below it.
+        response = admin_get(host, f"{LOG_REMOTE_DIR}/{quote(wanted)}", headers={"Range": f"bytes=0-{LOG_REMOTE_PACKED_MAX - 1}"})
+        if response.status_code not in (200, 206):
+            return None
+        handle = io.BytesIO(response.content)
+        return wanted, gzip.GzipFile(fileobj=handle) if wanted.endswith(".gz") else handle
+    except (OSError, httpx.HTTPError):
+        return None
+
+
+@app.get("/logs/download")
+def logs_download(file: str = ""):
+    """One log as text, with the same links hidden as on the page."""
+    opened = open_log(the_host(), file)
+    if opened is None:
+        return redirect("/logs", "error", "This log could not be read.")
+    name, handle = opened
+
+    def lines():
+        read = 0
+        with handle:
+            try:
+                for raw in handle:
+                    read += len(raw)
+                    if read > LOG_UNPACK_MAX:
+                        break
+                    yield LINK_TOKEN_RE.sub(r"\1[hidden]", raw.decode("utf-8", errors="replace")).encode()
+            except (OSError, EOFError, zlib.error):
+                return
+
+    filename = name.removesuffix(".gz")
+    return StreamingResponse(lines(), media_type="text/plain; charset=utf-8", headers={"Content-Disposition": f'attachment; filename="{filename}"'})
 
 
 # The status page is open to every account, and its checks ask Caddy, the CA and the admin API
