@@ -1621,9 +1621,6 @@ ROUTE_NAME_RE = re.compile(r"^[A-Za-z0-9]([A-Za-z0-9._-]*[A-Za-z0-9])?\Z")
 GROUPS_FILE = DATA_DIR / "groups.json"
 GROUP_RE = re.compile(r"\w[\w .-]{0,39}")
 GROUP_HINT = "A group name is up to 40 letters, digits, spaces, '.', '_' and '-'."
-# The colour of a group's dot in the route list. Apart from groups.json, whose format older installs read.
-GROUP_COLORS_FILE = DATA_DIR / "group_colors.json"
-COLOR_RE = re.compile(r"#[0-9a-f]{6}\Z")
 # Where a route with an access log has Caddy write it: the directory of Caddy's own log, as
 # Caddy sees it, so the Logs page shows both. The file is named after the route file.
 ACCESS_LOG_DIR, ACCESS_LOG_PREFIX = "/var/log/caddy", "access-"
@@ -2095,19 +2092,6 @@ def stored_groups() -> list[str]:
 
 def save_groups(names) -> None:
     write_json(GROUPS_FILE, sorted(set(names), key=str.lower))
-
-
-def group_colors() -> dict:
-    return {name: color for name, color in read_json(GROUP_COLORS_FILE, {}).items() if COLOR_RE.match(str(color))}
-
-
-def recolor(old: str, new: str = "", color: str = "") -> None:
-    """Move a group's colour to its new name, change it, or drop it with the group."""
-    colors = group_colors()
-    colors.pop(old, None)
-    if new and COLOR_RE.match(color):
-        colors[new] = color
-    write_json(GROUP_COLORS_FILE, colors)
 
 
 def load_groups(host: dict) -> list[str]:
@@ -2603,7 +2587,7 @@ def index(request: Request):
         item["own"] = own_route(item["route"], request)
     # Groups in order, what has none at the end.
     routes.sort(key=lambda item: (not item["group"], item["group"].lower()))
-    return page(request, "index.html", host=current, routes=routes, own_port=OWN_PORT, colors=group_colors())
+    return page(request, "index.html", host=current, routes=routes, own_port=OWN_PORT)
 
 
 @app.get("/routes/new")
@@ -2793,7 +2777,7 @@ def route_adopt(name: str):
 def groups_page(request: Request):
     current = the_host()
     members = [route_group(item["route"]) for item in list_routes(current)]
-    return page(request, "groups.html", groups=[(name, members.count(name)) for name in load_groups(current)], colors=group_colors())
+    return page(request, "groups.html", groups=[(name, members.count(name)) for name in load_groups(current)])
 
 
 def taken(name: str, groups: list[str]) -> bool:
@@ -2813,7 +2797,7 @@ def group_add(name: str = Form("")):
 
 
 @app.post("/groups/rename")
-def group_rename(old: str = Form(""), new: str = Form(""), color: str = Form("")):
+def group_rename(old: str = Form(""), new: str = Form("")):
     current = pick_host()
     new = new.strip()
     groups = load_groups(current) if current else []
@@ -2823,10 +2807,6 @@ def group_rename(old: str = Form(""), new: str = Form(""), color: str = Form("")
         return redirect("/groups", "error", GROUP_HINT)
     if taken(new, [group for group in groups if group != old]):
         return redirect("/groups", "error", f"A group {new} already exists.")
-    color = color.lower()
-    if new == old:
-        recolor(old, new, color)
-        return redirect("/groups", "ok", f"{old} has its new colour.")
     try:
         error = regroup(current, old, new)
     except Conflict:
@@ -2834,7 +2814,6 @@ def group_rename(old: str = Form(""), new: str = Form(""), color: str = Form("")
     if error:
         return redirect("/groups", "error", f"Caddy rejected the reload, nothing was changed: {error}")
     save_groups([new if group == old else group for group in [*stored_groups(), old]])
-    recolor(old, new, color)
     return redirect("/groups", "ok", f"{old} is now {new}.")
 
 
@@ -2850,7 +2829,6 @@ def group_delete(name: str = Form("")):
     if error:
         return redirect("/groups", "error", f"Caddy rejected the reload, nothing was changed: {error}")
     save_groups(group for group in stored_groups() if group != name)
-    recolor(name)
     return redirect("/groups", "ok", f"{name} was removed. Its routes are kept, without a group.")
 
 

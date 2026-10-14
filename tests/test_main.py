@@ -616,22 +616,6 @@ class TestRoutes(RouteTest):
         self.assertNotIn('colspan="7">', self.client.get("/").text)
         self.assertNotIn('name="flat"', self.client.get("/").text)
 
-    def test_a_group_has_a_colour_that_follows_its_name(self):
-        self.client.post("/groups", data={"name": "Media"})
-        self.create(host="wiki", group="Media")
-        self.assertNotIn('class="dot"', self.client.get("/").text)
-        # The same name only changes the colour: no file is written, Caddy is not asked.
-        loads = self.load.call_count
-        self.client.post("/groups/rename", data={"old": "Media", "new": "Media", "color": "#FF0000"})
-        self.assertEqual(self.load.call_count, loads)
-        self.assertIn('colspan="7">Media<span class="dot" style="background: #ff0000">', self.client.get("/").text)
-        self.client.post("/groups/rename", data={"old": "Media", "new": "Media", "color": "red; x: y"})
-        self.assertEqual(main.group_colors(), {})
-        self.client.post("/groups/rename", data={"old": "Media", "new": "Films", "color": "#00ff00"})
-        self.assertEqual(main.group_colors(), {"Films": "#00ff00"})
-        self.client.post("/groups/delete", data={"name": "Films"})
-        self.assertEqual(main.group_colors(), {})
-
     def test_other_types_and_tls_modes(self):
         self.create(type="redirect", host="old", target="https://new.lab.test/", code="301", tls="internal")
         self.assertIn("old.lab.test {\n\ttls internal\n\tredir https://new.lab.test{uri} 301\n}\n", self.read("old.caddy"))
