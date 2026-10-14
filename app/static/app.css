@@ -384,6 +384,13 @@ details { margin-top: 24px; padding: 12px 16px; background: var(--surface-2); bo
 details[open] { padding-bottom: 20px; }
 /* In a table cell it is only a line that unfolds: further names or paths of a route. */
 td details.more, td details.more[open] { margin: 4px 0 0; padding: 0; background: none; }
+/* The bar for the ticked routes: there once one is ticked. The group only matters for its action. */
+form.bulk { display: none; }
+main:has(input.pick:checked) form.bulk { display: flex; }
+form.bulk { margin: 0 0 12px; align-items: center; }
+form.bulk select { flex: none; width: auto; }
+form.bulk:not(:has(option[value="group"]:checked)) select[name="group"] { display: none; }
+input.pick { margin: 0 10px 0 0; vertical-align: middle; }
 /* Every row is as high as one with a second line under its value, so the list stays even. */
 table.even tbody tr:not(.group) > td { height: 80px; }
 td details.more summary { color: var(--ink-subtle); font-size: 13px; font-weight: 400; }
