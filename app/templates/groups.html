@@ -19,13 +19,14 @@
 	<tbody>
 		{% for name, count in groups %}
 		<tr>
-			<td><strong>{{ name }}</strong></td>
+			<td><strong>{{ name }}</strong>{% if colors.get(name) %}<span class="dot" style="background: {{ colors[name] }}"></span>{% endif %}</td>
 			<td>{{ count }}</td>
 			<td class="actions">
 				<form method="post" action="/groups/rename">
 					<input type="hidden" name="old" value="{{ name }}">
+					<input type="color" name="color" value="{{ colors.get(name, '#14c6cb') }}" aria-label="Colour of {{ name }}" title="Colour of its dot in the route list">
 					<input name="new" value="{{ name }}" required maxlength="40" aria-label="New name for {{ name }}">
-					<button type="submit">Rename</button>
+					<button type="submit">Save</button>
 				</form>
 				<form method="post" action="/groups/delete"
 					data-confirm="Remove the group {{ name }}? Its routes are kept." onsubmit="return confirm(this.dataset.confirm)">

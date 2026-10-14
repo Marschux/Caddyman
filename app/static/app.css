@@ -287,6 +287,12 @@ tbody tr.off:hover { background: var(--surface-2); }
 th.grow { width: 100%; }
 /* The name of a group above its routes. */
 tr.group th { padding: 10px 16px; color: var(--ink-muted); background: var(--surface-2); }
+/* A group's own colour, picked under Groups. */
+input[type="color"] { flex: none; width: 44px; padding: 6px; cursor: pointer; }
+input[type="color"]::-webkit-color-swatch-wrapper { padding: 0; }
+input[type="color"]::-webkit-color-swatch { border: 0; border-radius: 4px; }
+input[type="color"]::-moz-color-swatch { border: 0; border-radius: 4px; }
+.dot { display: inline-block; width: 10px; height: 10px; margin-left: 8px; border-radius: 50%; vertical-align: baseline; }
 td > .tag:first-child { margin-left: 0; }
 a.tag:hover { color: var(--ink); text-decoration: none; }
 /* Opens somewhere else: reads as the value it wraps, the arrow shows on hover. */

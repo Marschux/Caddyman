@@ -31,7 +31,7 @@
 		{% for item in routes %}
 		{% set route = item.route %}
 		{% if grouped and loop.changed(item.group) %}
-		<tr class="group"><th colspan="7">{{ item.group or "No group" }}</th></tr>
+		<tr class="group"><th colspan="7">{{ item.group or "No group" }}{% if colors.get(item.group) %}<span class="dot" style="background: {{ colors[item.group] }}"></span>{% endif %}</th></tr>
 		{% endif %}
 		{# A problem: the target does not answer, or the certificate is not what it should be. #}
 		<tr data-group="{{ item.group }}"{% if route and route.off %} class="off"{% endif %}{% if item.target_down or (item.certificate and item.certificate.level in ("warn", "fail")) %} data-problem{% endif %}>
