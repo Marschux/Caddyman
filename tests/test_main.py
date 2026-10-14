@@ -733,7 +733,7 @@ class TestRoutes(RouteTest):
 
     def test_target_without_port(self):
         self.assertEqual(self.create(upstream="http://10.0.0.5").headers["location"], "/")
-        self.assertIn("reverse_proxy http://10.0.0.5\n", self.read("pdf.caddy"))
+        self.assertIn("reverse_proxy 10.0.0.5\n", self.read("pdf.caddy"))  # http:// says nothing Caddy needs
         # The reachability test falls back to the port Caddy would take.
         connect = self.patch(main.socket, "create_connection", mock.MagicMock())
         for upstream, port in (("10.0.0.5", 80), ("http://10.0.0.5", 80), ("https://10.0.0.5", 443), ("10.0.0.5:9005", 9005)):
@@ -2541,6 +2541,25 @@ class TestHardening(RouteTest):
         with self.assertRaises(ValueError):
             main.fetch_root_ca(host, first=True)  # saving the settings: trust on first use
         self.assertIsNotNone(get.call_args.kwargs["auth"])
+
+
+class TestComfort(RouteTest):
+    def test_a_target_copied_from_the_browser_is_taken(self):
+        for typed, kept in (("http://10.0.0.5:9005/", "10.0.0.5:9005"), ("HTTP://nas", "nas"), ("HTTPS://nas:5001/", "https://nas:5001"), (" 10.0.0.5:9005 ", "10.0.0.5:9005")):
+            self.assertEqual(main.typed_target(typed), kept)
+        self.create(upstream="http://10.0.0.5:9005/", path=["/api/*"], path_upstream=["https://10.0.0.8:8443/"])
+        text = self.read("pdf.caddy")
+        self.assertIn("\treverse_proxy 10.0.0.5:9005", text)
+        self.assertIn("https://10.0.0.8:8443", text)
+        self.assertNotIn("http://", text)
+        # A path is not dropped without a word: Caddy would send the requests somewhere else.
+        self.assertEqual(self.create(host="other", upstream="http://10.0.0.5:9005/admin").status_code, 400)
+
+    def test_further_names_are_folded_in_the_route_list(self):
+        self.create(aliases=["docs", "files"])
+        page = self.client.get("/").text
+        self.assertIn('<details class="more"><summary>2 more names</summary>', page)
+        self.assertIn("<small>docs.lab.test</small>", page)
 
 
 if __name__ == "__main__":

@@ -39,7 +39,9 @@
 			<td class="nowrap">
 				{% if item.site %}<a class="out" href="{{ item.site }}" target="_blank" rel="noopener noreferrer"><strong>{{ route.host }}{{ ":" ~ route.port if route.port }}</strong></a>
 				{% else %}<strong>{{ route.host }}{{ ":" ~ route.port if route.port }}</strong>{% endif %}
-				{% for alias in route.aliases or [] %}<small>{{ alias }}{{ ":" ~ route.port if route.port }}</small>{% endfor %}
+				{# Folded away: a route with many names would otherwise be as tall as several. #}
+				{% if route.aliases %}<details class="more"><summary>{{ route.aliases|length }} more name{{ "s" if route.aliases|length != 1 }}</summary>
+					{% for alias in route.aliases %}<small>{{ alias }}{{ ":" ~ route.port if route.port }}</small>{% endfor %}</details>{% endif %}
 			</td>
 			<td class="nowrap">{{ {"reverse_proxy": "Reverse proxy", "redirect": "Redirect", "static": "Static files"}[route.type] }}</td>
 			{# A redirect can point at a long address and may wrap; host:port and a path stay on one line. #}

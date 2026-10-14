@@ -1648,6 +1648,20 @@ def valid_upstream(value) -> bool:
     return bool(match) and (not match.group(4) or valid_port(match.group(4)))
 
 
+def typed_target(value: str) -> str:
+    """A target as somebody copies it out of a browser, brought to what Caddy needs.
+
+    http:// and a slash at the end say nothing: plain HTTP is what Caddy speaks anyway.
+    https:// stays, it is what makes Caddy speak TLS to the target.
+    """
+    value = value.strip()
+    if value.lower().startswith("https://"):
+        value = "https://" + value[8:]
+    elif value.lower().startswith("http://"):
+        value = value[7:]
+    return value.rstrip("/")
+
+
 def valid_port(value: str) -> bool:
     return value.isdigit() and 1 <= int(value) <= 65535
 
@@ -1880,7 +1894,7 @@ def route_from_form(form, host: dict, previous: dict | None = None) -> tuple[dic
     if route["tls"] in ("acme_ca", "default") and any(item.startswith("*.") for item in (name, *aliases)):
         return route, "A wildcard name needs the DNS challenge or Caddy's internal CA. A certificate for it cannot be obtained over HTTP."
     if route["type"] == "reverse_proxy":
-        route["upstream"] = get("upstream")
+        route["upstream"] = typed_target(get("upstream"))
         if not valid_upstream(route["upstream"]):
             return route, "The target has to look like host, host:port or http://host:port."
         if auth_user := get("auth_user"):
@@ -1905,7 +1919,7 @@ def route_from_form(form, host: dict, previous: dict | None = None) -> tuple[dic
             route["host_header"] = True
         # Paths that go to a target of their own: one pair of fields each, an empty pair is dropped.
         typed = zip(form.getlist("path"), form.getlist("path_upstream")) if hasattr(form, "getlist") else form.get("paths", [])
-        paths = [[str(path).strip(), str(target).strip()] for path, target in typed if str(path).strip() or str(target).strip()]
+        paths = [[str(path).strip(), typed_target(str(target))] for path, target in typed if str(path).strip() or str(target).strip()]
         # Only where TLS is spoken at all: on a plain target the block would switch TLS on.
         if get("skip_verify") and any(target.startswith("https://") for target in (route["upstream"], *(pair[1] for pair in paths))):
             route["skip_verify"] = True
