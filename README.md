@@ -22,6 +22,12 @@ Caddyman writes one file per route into the directory Caddy already reads, then 
 There is no database that could drift from those files, your base Caddyfile is never written,
 and a change Caddy rejects is undone on the spot.
 
+## Requirements
+
+- Docker with Compose 2.24 or newer, on an x86-64 machine (no ARM image yet)
+- Caddy 2, tested with 2.11, with the admin API on (the default)
+- About 80 MB of RAM
+
 ## Installation
 
 **1. Add two blocks to Caddy's base Caddyfile** and restart Caddy. Create the hash with
