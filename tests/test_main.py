@@ -2504,6 +2504,31 @@ class TestEdit(RouteTest):
             self.assertEqual(self.create(host="c", header_name=name, header_value=value).status_code, 400, (name, value))
         self.assertFalse(os.path.exists(os.path.join(self.sites, "c.caddy")))
 
+    def test_maintenance_shows_the_page_and_keeps_the_route(self):
+        self.assertEqual(self.create(host="mt", auth_user="ada", auth_password="secret-pass", sso="", hsts="1").status_code, 303)
+        before = self.read("mt.caddy")
+        self.client.post("/routes/mt/maintenance")
+        text = self.read("mt.caddy")
+        self.assertIn(f'"maintenance":"caddyman:{main.OWN_PORT}"', text.splitlines()[0])
+        self.assertIn(f"\trewrite * /error/maintenance\n\treverse_proxy caddyman:{main.OWN_PORT}\n", text)
+        self.assertNotIn("basic_auth", text.split("\n", 1)[1])  # the page is for everybody
+        self.assertIn("Strict-Transport-Security", text)  # what is not about answering stays
+        page = self.client.get("/").text
+        self.assertIn(">Maintenance</span>", page)
+        self.assertIn(">End maintenance</button>", page)
+        # The form keeps it, the route switched off keeps it before "off".
+        self.assertIn('name="maintenance" value="1"', self.client.get("/routes/mt/edit").text)
+        self.client.post("/routes/mt/toggle")
+        self.assertTrue(self.read("mt.caddy").splitlines()[0].endswith(f'"maintenance":"caddyman:{main.OWN_PORT}","off":true}}'))
+        self.client.post("/routes/mt/toggle")
+        self.client.post("/routes/mt/maintenance")
+        self.assertEqual(self.read("mt.caddy"), before)
+        # The page itself: 503, its own wording, a design of its own.
+        self.client.post("/logout")
+        answer = self.client.get("/error/maintenance")
+        self.assertEqual(answer.status_code, 503)
+        self.assertIn(main.ERROR_PAGES["maintenance"][1], answer.text)
+
     def test_adopt_refuses_what_it_does_not_fully_understand(self):
         refused = [
             "a.lab.test {\n\treverse_proxy 10.0.0.7:3000\n\theader X-Frame-Options DENY\n}\n",

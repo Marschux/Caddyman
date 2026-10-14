@@ -70,6 +70,7 @@
 			<td class="nowrap">
 				{% set cert = item.certificate %}
 				{% if route and route.off %}<span class="cert" title="Caddy does not serve this route. Its file and settings are kept.">Off</span>
+				{% elif route and route.maintenance %}<span class="cert warn" title="Every request gets the maintenance page from Caddyman, with 503.">Maintenance</span>
 				{% elif cert %}
 				{# The explanation lives in the tooltip, so a route with a problem stays one line like the others. #}
 				{# A good certificate on a route with a TLS label only says how long it lasts; the issuer moves into the tooltip. #}
@@ -95,6 +96,12 @@
 					{% if item.own and not route.off %}data-confirm="This route leads to Caddyman itself{{ ', and you are using it right now' if item.own == 'used' }}. Without it Caddyman only answers on port {{ own_port }} of its machine. Switch it off?" onsubmit="return confirm(this.dataset.confirm)"{% endif %}>
 					<button type="submit" title="{{ 'Caddy serves this route again' if route.off else 'Caddy stops serving this route. Its file and settings are kept.' }}">{{ "Enable" if route.off else "Disable" }}</button>
 				</form>
+				{# Not on the way to Caddyman itself: the page comes from there. #}
+				{% if not item.own %}
+				<form method="post" action="/routes/{{ item.name|urlencode }}/maintenance">
+					<button type="submit" title="{{ 'Serve the route again' if route.maintenance else 'Show the maintenance page instead. Settings are kept.' }}">{{ "End maintenance" if route.maintenance else "Maintenance" }}</button>
+				</form>
+				{% endif %}
 				{% endif %}
 				<form method="post" action="/routes/{{ item.name|urlencode }}/delete"
 					data-confirm="{% if item.own %}This route leads to Caddyman itself{{ ', and you are using it right now' if item.own == 'used' }}. Without it Caddyman only answers on port {{ own_port }} of its machine. {% endif %}Delete {{ item.name }}.caddy and reload Caddy?" onsubmit="return confirm(this.dataset.confirm)">
