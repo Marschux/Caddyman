@@ -1,5 +1,6 @@
 {% extends "errors/base.html" %}
-{# Night in the woods: two rows of firs along the bottom, a moon, a few fireflies. #}
+{# Night in the woods: two rows of firs along the bottom, a moon, a few fireflies. The row is
+   wide enough for a wide screen, so it does not have to grow into the text there. #}
 {% block style %}
 		body { justify-content: flex-start; padding-top: 14vh; color: #a9c4ae; background: #0c1f1a; overflow: hidden; }
 		.moon { position: fixed; top: 9vh; right: 12vw; width: 72px; height: 72px; background: #f4f1d0; border-radius: 50%; box-shadow: 0 0 60px rgba(244, 241, 208, 0.35); }
@@ -7,7 +8,7 @@
 		h1 { margin-top: 8px; color: #e3efe0; font-size: 26px; font-weight: 600; }
 		p { margin-top: 8px; }
 		small { margin-top: 18px; color: #6f8f78; font-size: 13px; }
-		.trees { position: fixed; left: 0; bottom: 0; width: 100%; height: 42vh; }
+		.trees { position: fixed; left: 0; bottom: 0; width: 100%; height: 42vh; overflow: visible; }
 		.fly { position: fixed; width: 5px; height: 5px; background: #e8ff8a; border-radius: 50%; box-shadow: 0 0 10px 3px rgba(232, 255, 138, 0.6); animation: glow 3s ease-in-out infinite; }
 		@keyframes glow { 50% { opacity: 0.1; transform: translate(10px, -14px); } }
 		@media (prefers-reduced-motion: reduce) { .fly { animation: none; } }
@@ -18,14 +19,14 @@
 	<h1>{{ title }}</h1>
 	<p>{{ text }}</p>
 	{% if host %}<small>{{ host }}</small>{% endif %}
-	<svg class="trees" viewBox="0 0 1200 300" preserveAspectRatio="xMidYMax slice" aria-hidden="true">
+	<svg class="trees" viewBox="0 0 2400 300" preserveAspectRatio="xMidYMax slice" aria-hidden="true">
 		<defs><path id="fir" d="M0-150 26-96H14l28 50H24l34 56H8v40H-8V10h-50l34-56h-18l28-50h-12z"/></defs>
 		<g fill="#173a2c">
-			{% for x in range(40, 1200, 95) %}<use href="#fir" transform="translate({{ x }} {{ 250 - (x * 7) % 40 }}) scale({{ 1.1 + (x % 3) * 0.15 }})"/>{% endfor %}
+			{% for x in range(40, 2400, 95) %}<use href="#fir" transform="translate({{ x }} {{ 250 - (x * 7) % 40 }}) scale({{ 1.1 + (x % 3) * 0.15 }})"/>{% endfor %}
 		</g>
 		<g fill="#081611">
-			{% for x in range(0, 1260, 80) %}<use href="#fir" transform="translate({{ x }} {{ 285 - (x * 3) % 25 }}) scale({{ 0.8 + (x % 4) * 0.12 }})"/>{% endfor %}
-			<rect y="285" width="1200" height="15"/>
+			{% for x in range(0, 2460, 80) %}<use href="#fir" transform="translate({{ x }} {{ 285 - (x * 3) % 25 }}) scale({{ 0.8 + (x % 4) * 0.12 }})"/>{% endfor %}
+			<rect y="285" width="2400" height="15"/>
 		</g>
 	</svg>
 	<span class="fly" style="left: 18%; bottom: 30vh"></span>
