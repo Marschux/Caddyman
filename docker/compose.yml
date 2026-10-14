@@ -6,21 +6,18 @@ services:
       dockerfile: docker/Dockerfile
     container_name: caddyman
     restart: unless-stopped
-    # Optional: without a .env in the repository root the defaults apply.
     env_file:
       - path: ../.env
         required: false
-    # Keep this port published even when a Caddy route points here: it is the way
-    # back in if that route is ever broken or deleted.
+    # Keep it: the way back in if the route to Caddyman breaks
     ports:
       - "5052:5052"
     volumes:
       - data:/data
-      # Caddy's own files, at the same paths the Caddy container uses. Adjust the
-      # left side to where they live on this machine.
+      # Caddy's files; adjust the left side
       - /opt/caddy/Caddyfile:/etc/caddy/Caddyfile:ro
       - /opt/caddy/sites:/etc/caddy/sites
-      # For the Logs page: the directory Caddy writes its log files to. Found here, it just works.
+      # Caddy's logs, for the Logs page
       - /opt/caddy/logs:/var/log/caddy:ro
     networks:
       - proxy-net
@@ -40,7 +37,7 @@ volumes:
   data:
     driver: local
 
-# The network shared with Caddy (docker network create proxy-net)
+# Shared with Caddy: docker network create proxy-net
 networks:
   proxy-net:
     external: true
