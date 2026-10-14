@@ -9,7 +9,9 @@
 	<input id="realname" name="realname" value="{{ form.realname if form else me.realname or '' }}" maxlength="64" autocomplete="name">
 	<label for="email">Email <span class="optional">optional</span></label>
 	<input id="email" name="email" type="email" value="{{ form.email if form else me.email or '' }}" maxlength="254" autocomplete="email">
-	<small>Only used to mail you a link when you forgot your password.</small>
+	<small>For a link when you forgot your password, and for alerts.</small>
+	<label class="check"><input type="checkbox" name="alerts" value="1" {{ "checked" if me.alerts }}> Mail me alerts</label>
+	<small>When a reload fails, Caddy or a target stops answering, or a certificate is about to end.</small>
 	<label for="profile-current">Current password <span class="optional">only to change the email address</span></label>
 	<input id="profile-current" name="current" type="password" autocomplete="current-password">
 	<button type="submit">Save</button>

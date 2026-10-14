@@ -23,7 +23,7 @@ import zipfile
 import zlib
 from concurrent.futures import ThreadPoolExecutor, wait
 from contextlib import asynccontextmanager
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from email.message import EmailMessage
 from functools import lru_cache
 from pathlib import Path
@@ -197,10 +197,12 @@ PERMISSIONS = {
     "caddy": "Settings: Caddy",
     "general": "Settings: General",
     "smtp": "Settings: SMTP",
+    "alerts": "Settings: Alerts",
     "users": "Manage users",
 }
 # Rights that were split up: an account from before keeps what it could do (15.10.2026).
-SPLIT_RIGHTS = {"routes": ("groups", "errors"), "settings": ("caddy", "general", "smtp")}
+RIGHTS_VERSION = 3
+SPLIT_RIGHTS = {"routes": ("groups", "errors"), "settings": ("caddy", "general", "smtp", "alerts")}
 USERS_LOCK = threading.Lock()
 EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\Z")
 # Who is acting, for the change log. Set per request by the middleware.
@@ -218,17 +220,23 @@ def load_users() -> list[dict]:
 
 
 def split_rights(user: dict) -> dict:
-    """An account saved before the rights were split, with the finer rights it had in the coarse ones."""
-    if user.get("rights") == 2 or not isinstance(user.get("permissions"), list):
+    """An account saved before the rights were split, with the finer rights it had in the coarse ones.
+
+    Version 2 had the split without Alerts: whoever held every other settings block gets it too.
+    """
+    version = user.get("rights", 1)
+    if version >= RIGHTS_VERSION or not isinstance(user.get("permissions"), list):
         return user
     had = user["permissions"]
     finer = [right for right in had if right in PERMISSIONS] + [new for old, news in SPLIT_RIGHTS.items() if old in had for new in news]
-    return {**user, "permissions": [right for right in PERMISSIONS if right in finer], "rights": 2}
+    if version == 2 and {"caddy", "general", "smtp"} <= set(had):
+        finer.append("alerts")
+    return {**user, "permissions": [right for right in PERMISSIONS if right in finer], "rights": RIGHTS_VERSION}
 
 
 def save_users(users: list[dict]) -> None:
     # Whatever is written already has the finer rights, so they are not added again on the next read.
-    write_json(AUTH_FILE, [{**user, "rights": 2} for user in users])
+    write_json(AUTH_FILE, [{**user, "rights": RIGHTS_VERSION} for user in users])
 
 
 def find_user(users: list[dict], username: str) -> dict | None:
@@ -420,6 +428,7 @@ async def lifespan(app: FastAPI):
     if not SECRET_KEY_FROM_ENV:
         print("CADDYMAN_SECRET_KEY is not set, using a generated key from the data directory.", flush=True)
     reset_https_only()
+    start_watcher()
     yield
 
 
@@ -442,6 +451,9 @@ PUBLIC_PATHS = {"/trust", "/root-ca.crt"}
 # Switches that belong to Caddyman itself, not to the Caddy it manages. "1" or "".
 SETTINGS_FILE = DATA_DIR / "settings.json"
 SETTING_DEFAULTS = {"public_ca": "1", "login_ca_hint": "1", "require_2fa": ""}
+# What is mailed to the accounts that ask for alerts in their profile. "1" or "", the days a number.
+ALERT_DEFAULTS = {"alert_reload": "1", "alert_cert": "1", "alert_cert_days": "14", "alert_admin": "1", "alert_target": "1"}
+SETTING_DEFAULTS.update(ALERT_DEFAULTS)
 
 
 def load_settings() -> dict:
@@ -484,6 +496,7 @@ AREAS = (
     ("/settings/security", "general"),
     ("/settings/general", "general"),
     ("/settings/mail", "smtp"),
+    ("/settings/alerts", "alerts"),
     ("/settings", "caddy"),
     ("/hosts", "caddy"),
     ("/routes", "routes"),
@@ -955,7 +968,7 @@ def profile(request: Request):
 
 
 @app.post("/profile")
-def profile_save(request: Request, realname: str = Form(""), email: str = Form(""), current: str = Form("")):
+def profile_save(request: Request, realname: str = Form(""), email: str = Form(""), current: str = Form(""), alerts: str = Form("")):
     users, me = load_users(), request.state.me
     fields = {"realname": realname.strip(), "email": email.strip()}
     others = [user for user in users if user["username"] != request.state.user]
@@ -964,7 +977,7 @@ def profile_save(request: Request, realname: str = Form(""), email: str = Form("
     # The reset links go to this address, so changing it takes the password, like changing that does.
     if fields["email"] != me.get("email", "") and (error := own_password_problem(me, current, "Changing the email address takes your current password.")):
         return profile_page(request, status_code=400, error=error, form=fields)
-    update_user(request.state.user, **fields)
+    update_user(request.state.user, **fields, alerts=True if alerts else None)
     return redirect("/profile", "ok", "Your profile is saved.")
 
 
@@ -1033,7 +1046,7 @@ def profile_2fa_disable(request: Request, current: str = Form("")):
 @app.get("/settings")
 def settings_home(request: Request):
     rights = request.state.me["permissions"]
-    for right, block in (("caddy", "/settings/caddy"), ("general", "/settings/security"), ("smtp", "/settings/mail"), ("users", "/settings/users")):
+    for right, block in (("caddy", "/settings/caddy"), ("general", "/settings/security"), ("smtp", "/settings/mail"), ("alerts", "/settings/alerts"), ("users", "/settings/users")):
         if right in rights:
             return RedirectResponse(block, status_code=303)
     return page(request, "forbidden.html", status_code=403, right=PERMISSIONS["caddy"])
@@ -1042,6 +1055,22 @@ def settings_home(request: Request):
 @app.get("/settings/caddy")
 def settings_caddy():
     return RedirectResponse(host_settings_url(), status_code=303)
+
+
+@app.get("/settings/alerts")
+def settings_alerts(request: Request):
+    receivers = [user["username"] for user in load_users() if user.get("alerts") and user.get("email")]
+    return page(request, "settings_alerts.html", settings=load_settings(), receivers=receivers, mail=mail_ready())
+
+
+@app.post("/settings/alerts")
+async def settings_alerts_save(request: Request):
+    form = await request.form()
+    days = str(form.get("alert_cert_days", "")).strip()
+    if not days.isdigit() or not 1 <= int(days) <= 90:
+        return redirect("/settings/alerts", "error", "The days before a certificate ends are a number from 1 to 90.")
+    save_settings(**{key: "1" if form.get(key) else "" for key in ALERT_DEFAULTS if key != "alert_cert_days"}, alert_cert_days=days)
+    return redirect("/settings/alerts", "ok", "Saved.")
 
 
 @app.get("/settings/security")
@@ -2288,6 +2317,9 @@ def apply_route(
         # What the route list knew about certificates and targets is from before this change.
         PROBE_CACHE.clear()
         audit(host, label, action, error)
+        if error:
+            alert("alert_reload", f"Caddy rejected a change to {label}",
+                  f"{CURRENT_USER.get()} tried to {action} {label}. Caddy refused, and the change was undone.\n\n{error}")
         return error
 
 
@@ -2447,7 +2479,7 @@ def certificate_status(host: dict, route: dict | None) -> dict | None:
         return {"level": "fail", "text": f"Expired - {issuer}", "detail": detail}
     left = f"{time_left(expires)} left"
     # short is what the list shows where the TLS label next to it already says who issues.
-    status = {"level": "ok", "text": f"{issuer} - {left}", "short": left, "issuer": issuer, "detail": detail}
+    status = {"level": "ok", "text": f"{issuer} - {left}", "short": left, "issuer": issuer, "detail": detail, "expires": expires}
     if route["tls"] == "acme_ca" and CADDY_INTERNAL_ISSUER in issuer:
         # The failure that went unnoticed longest: a route quietly served from Caddy's own CA.
         status.update(level="warn", detail=f"Issued by Caddy's internal CA instead of your ACME CA. {detail}")
@@ -3085,6 +3117,7 @@ def host_push(host_id: str):
         PROBE_CACHE.clear()
         audit(host, "-", "reload", error)
     if error:
+        alert("alert_reload", "Caddy rejected a reload", f"{CURRENT_USER.get()} pressed Reload Caddy. Caddy refused:\n\n{error}")
         return redirect(f"/status#host-{host_id}", "error", f"Caddy rejected the configuration: {error}")
     return redirect(f"/status#host-{host_id}", "ok", "Caddy now runs the configuration from Caddyman.")
 
@@ -3808,6 +3841,105 @@ def caddy_addresses() -> frozenset[str]:
         if first:
             wait([looking], timeout=1)
     return state["found"]
+
+
+# Alerts: mailed to every account that asks for them in its profile. The watcher looks every
+# WATCH_SECONDS; something that is down is only told after WATCH_AFTER looks in a row, and
+# told again when it is back. Kept in memory: a restart forgets what was already said.
+WATCH_SECONDS = 300
+WATCH_AFTER = 2
+CERT_WATCH_SECONDS = 6 * 3600
+WATCH_STATE: dict = {}
+ALERT_SENT: dict = {}
+WATCHER = {"started": False}
+
+
+def alert(setting: str, subject: str, body: str, key: str = "", every: int = 0) -> bool:
+    """Mail an alert if it is switched on, mail works and somebody wants it. key with every: at most once per every seconds."""
+    if not flag(setting) or not mail_ready():
+        return False
+    now = time.monotonic()
+    if key and every and ALERT_SENT.get(key, -every) > now - every:
+        return False
+    receivers = [user["email"] for user in load_users() if user.get("alerts") and user.get("email")]
+    if not receivers:
+        return False
+    if key:
+        ALERT_SENT[key] = now
+
+    def send() -> None:
+        for receiver in receivers:
+            send_mail(receiver, f"Caddyman: {subject}", body + "\n\nSwitch alerts off in your profile in Caddyman.")
+
+    threading.Thread(target=send, daemon=True).start()
+    return True
+
+
+def watched(key: str, ok: bool, setting: str, down: tuple[str, str], up: tuple[str, str]) -> None:
+    """Count looks in a row that found something down; tell when it has been down a while, and when it is back."""
+    failures = WATCH_STATE.get(key, 0)
+    if ok:
+        if failures >= WATCH_AFTER:
+            alert(setting, *up)
+        WATCH_STATE.pop(key, None)
+        return
+    WATCH_STATE[key] = failures + 1
+    if failures + 1 == WATCH_AFTER:
+        alert(setting, *down)
+
+
+def watch_once() -> None:
+    """One look at everything an alert can be about."""
+    host = pick_host()
+    if host is None or not mail_ready():
+        return
+    try:
+        admin_ok = admin_get(host, "/config/").status_code == 200
+    except httpx.HTTPError:
+        admin_ok = False
+    minutes = WATCH_SECONDS * WATCH_AFTER // 60
+    watched("admin", admin_ok, "alert_admin",
+            ("Caddy's admin API does not answer", f"{host['admin_url']} has not answered for {minutes} minutes. Changes to routes cannot be made."),
+            ("Caddy's admin API answers again", f"{host['admin_url']} answers again."))
+    routes = [item["route"] for item in list_routes(host) if item["route"] and not item["route"].get("off")]
+    if flag("alert_target"):
+        targets = {target for route in routes if route["type"] == "reverse_proxy"
+                   for target in (route["upstream"], *(pair[1] for pair in route.get("paths", [])))}
+        for target, ok in zip(targets, PROBES.map(target_reachable, targets)):
+            watched(f"target:{target}", ok, "alert_target",
+                    (f"{target} does not answer", f"Caddyman has had no TCP connection to {target} for {minutes} minutes. Caddy may see it differently."),
+                    (f"{target} answers again", f"{target} answers again."))
+    now = time.monotonic()
+    if flag("alert_cert") and WATCH_STATE.get("certs", -CERT_WATCH_SECONDS) <= now - CERT_WATCH_SECONDS:
+        WATCH_STATE["certs"] = now
+        days = int(load_settings()["alert_cert_days"] or 14)
+        names = [(route, name) for route in routes if route["tls"] != "none" and "*" not in route["host"]
+                 for name in (route["host"], *route.get("aliases", []))]
+        found = PROBES.map(lambda pair: certificate_status(host, {**pair[0], "host": pair[1]}), names)
+        for (route, name), status in zip(names, found):
+            expires = status and status.get("expires")
+            if expires and expires - datetime.now(timezone.utc) < timedelta(days=days):
+                alert("alert_cert", f"The certificate of {name} ends in {time_left(expires)}",
+                      f"{name} is served with a certificate that ends {expires:%Y-%m-%d %H:%M} UTC, issued by {status['issuer']}. "
+                      "Caddy renews on its own; when it does not, its log says why.",
+                      key=f"cert:{name}", every=24 * 3600)
+
+
+def start_watcher() -> None:
+    """The watcher runs in the background for the life of the process, once."""
+    if WATCHER["started"]:
+        return
+    WATCHER["started"] = True
+
+    def loop() -> None:
+        while True:
+            time.sleep(WATCH_SECONDS)
+            try:
+                watch_once()
+            except Exception as error:  # a broken look must not end the watching
+                print(f"Alert watcher: {error!r}", flush=True)
+
+    threading.Thread(target=loop, daemon=True, name="watcher").start()
 
 
 class TrustCaddy:

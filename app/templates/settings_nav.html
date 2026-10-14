@@ -7,5 +7,6 @@
 	{% if "caddy" in rights %}<a href="/settings/caddy" {% if here.startswith("/hosts") %}aria-current="page"{% endif %}>Caddy</a>{% endif %}
 	{% if "general" in rights %}<a href="/settings/security" {% if here.startswith("/settings/security") %}aria-current="page"{% endif %}>General</a>{% endif %}
 	{% if "smtp" in rights %}<a href="/settings/mail" {% if here.startswith("/settings/mail") %}aria-current="page"{% endif %}>SMTP</a>{% endif %}
+	{% if "alerts" in rights %}<a href="/settings/alerts" {% if here.startswith("/settings/alerts") %}aria-current="page"{% endif %}>Alerts</a>{% endif %}
 	{% if "users" in rights %}<a href="/settings/users" {% if here.startswith("/settings/users") %}aria-current="page"{% endif %}>Users</a>{% endif %}
 </aside>

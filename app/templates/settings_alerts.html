@@ -1,0 +1,26 @@
+{% extends "base.html" %}
+{% block title %}Alerts - Caddyman{% endblock %}
+{% block content %}
+{% include "settings_nav.html" %}
+<div class="heading"><h2>Alerts</h2></div>
+{% if not mail %}<p class="flash warn" role="status">Mail is not set up, so no alert goes out.{% if "smtp" in request.state.me.permissions %} <a href="/settings/mail">Set up SMTP</a>.{% endif %}</p>{% endif %}
+<form method="post" action="/settings/alerts" class="card wide">
+	<label class="check"><input type="checkbox" name="alert_reload" value="1" {{ "checked" if settings.alert_reload }}> A reload fails</label>
+	<small>Caddy refused a change and Caddyman undid it. Mailed right away.</small>
+
+	<label class="check"><input type="checkbox" name="alert_admin" value="1" {{ "checked" if settings.alert_admin }}> Caddy's admin API stops answering</label>
+	<small>After about 10 minutes, and again when it is back.</small>
+
+	<label class="check"><input type="checkbox" name="alert_target" value="1" {{ "checked" if settings.alert_target }}> A target stops answering</label>
+	<small>Checked from Caddyman, like in the route list. After about 10 minutes, and again when it is back.</small>
+
+	<label class="check"><input type="checkbox" name="alert_cert" value="1" {{ "checked" if settings.alert_cert }}> A certificate is about to end</label>
+	<label for="alert_cert_days">Days before the end</label>
+	<input id="alert_cert_days" name="alert_cert_days" type="number" min="1" max="90" value="{{ settings.alert_cert_days }}" required>
+	<small>Checked every 6 hours, at most one mail a day per name.</small>
+
+	<button type="submit">Save</button>
+</form>
+<p class="empty">Alerts go to every account that ticks "Mail me alerts" in its profile.
+	{% if receivers %}Right now: {{ receivers|join(", ") }}.{% else %}Nobody does yet.{% endif %}</p>
+{% endblock %}

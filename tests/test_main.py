@@ -1122,7 +1122,11 @@ class TestUsers(RouteTest):
         users = main.load_users()
         users.append({**users[0], "username": "old", "permissions": ["routes", "settings", "logs"]})
         main.write_json(main.AUTH_FILE, [{key: value for key, value in user.items() if key != "rights"} for user in users])
-        self.assertEqual(main.find_user(main.load_users(), "old")["permissions"], ["routes", "groups", "errors", "logs", "caddy", "general", "smtp"])
+        self.assertEqual(main.find_user(main.load_users(), "old")["permissions"], ["routes", "groups", "errors", "logs", "caddy", "general", "smtp", "alerts"])
+        # Saved with the split before Alerts existed: Alerts comes with the other settings blocks.
+        users = [{**user, "rights": 2, "permissions": ["caddy", "general", "smtp"]} if user["username"] == "old" else user for user in main.load_users()]
+        main.write_json(main.AUTH_FILE, users)
+        self.assertEqual(main.find_user(main.load_users(), "old")["permissions"], ["caddy", "general", "smtp", "alerts"])
         # Once saved, a right taken away stays away.
         self.client.post("/settings/users/old/edit", data={"right_routes": "1"})
         self.assertEqual(main.find_user(main.load_users(), "old")["permissions"], ["routes"])
@@ -2638,6 +2642,72 @@ class TestComfort(RouteTest):
         page = self.client.get("/").text
         self.assertIn('<details class="more"><summary>2 more names</summary>', page)
         self.assertIn("<small>docs.lab.test</small>", page)
+
+
+class TestAlerts(RouteTest):
+    MAIL = {"host": "smtp.lab.test", "port": "25", "sender": "c@lab.test", "security": "none", "public_url": "https://caddyman.lab.test"}
+
+    def setUp(self):
+        super().setUp()
+        main.WATCH_STATE.clear()
+        main.ALERT_SENT.clear()
+        self.client.post("/settings/mail", data=self.MAIL)
+        self.client.post("/profile", data={"email": "ada@lab.test", "current": PASSWORD, "alerts": "1"})
+        self.sent = []
+        self.patch(main, "send_mail", lambda to, subject, body: self.sent.append((to, subject, body)))
+        # The mail goes out at once instead of beside the request.
+        self.patch(main.threading, "Thread", lambda target, daemon: mock.Mock(start=target))
+
+    def test_settings_block_and_the_switch_in_the_profile(self):
+        self.assertIn('name="alerts" value="1" checked', self.client.get("/profile").text)
+        page = self.client.get("/settings/alerts").text
+        self.assertIn("Right now: admin.", page)
+        self.client.post("/settings/alerts", data={"alert_reload": "1", "alert_cert_days": "0"})
+        self.assertEqual(main.load_settings()["alert_cert_days"], "14")  # refused
+        self.client.post("/settings/alerts", data={"alert_reload": "1", "alert_cert_days": "30"})
+        self.assertEqual((main.flag("alert_target"), main.load_settings()["alert_cert_days"]), (False, "30"))
+        self.client.post("/profile", data={"email": "ada@lab.test"})
+        self.assertNotIn("alerts", main.find_user(main.load_users(), "admin"))
+
+    def test_a_rejected_reload_is_mailed(self):
+        self.reject()
+        self.create()
+        self.assertEqual(len(self.sent), 1)
+        to, subject, body = self.sent[0]
+        self.assertEqual((to, subject), ("ada@lab.test", "Caddyman: Caddy rejected a change to pdf"))
+        self.assertIn("unknown directive", body)
+        # Switched off, nothing goes out.
+        main.save_settings(alert_reload="")
+        self.create()
+        self.assertEqual(len(self.sent), 1)
+
+    def test_watcher_tells_when_something_is_down_a_while_and_when_it_is_back(self):
+        self.create()
+        down = self.patch(main, "admin_get", mock.Mock(side_effect=main.httpx.ConnectError("refused")))
+        self.patch(main, "target_reachable", mock.Mock(return_value=False))
+        self.patch(main, "certificate_status", mock.Mock(return_value=None))
+        main.watch_once()
+        self.assertEqual(self.sent, [])  # once is not yet "a while"
+        main.watch_once()
+        main.watch_once()
+        self.assertEqual(sorted(subject for _, subject, _ in self.sent),
+                         ["Caddyman: 10.0.0.5:9005 does not answer", "Caddyman: Caddy's admin API does not answer"])
+        down.side_effect, down.return_value = None, mock.Mock(status_code=200)
+        main.target_reachable.return_value = True
+        main.watch_once()
+        self.assertIn("Caddyman: Caddy's admin API answers again", [subject for _, subject, _ in self.sent])
+        self.assertIn("Caddyman: 10.0.0.5:9005 answers again", [subject for _, subject, _ in self.sent])
+
+    def test_a_certificate_about_to_end_is_mailed_once_a_day(self):
+        self.create()
+        self.patch(main, "admin_get", mock.Mock(return_value=mock.Mock(status_code=200)))
+        soon = main.datetime.now(main.timezone.utc) + main.timedelta(days=3)
+        self.patch(main, "certificate_status", mock.Mock(return_value={"level": "ok", "issuer": "Lab CA", "expires": soon}))
+        main.watch_once()
+        self.assertEqual([subject for _, subject, _ in self.sent], ["Caddyman: The certificate of pdf.lab.test ends in 2 days"])
+        main.WATCH_STATE.pop("certs")  # the next round of certificate checks
+        main.watch_once()
+        self.assertEqual(len(self.sent), 1)
 
 
 if __name__ == "__main__":
