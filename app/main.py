@@ -1786,10 +1786,23 @@ CATCH_ALL = "catch-all"
 
 
 def load_errors() -> dict:
-    """Where Caddy finds Caddyman, and the design chosen for each error."""
+    """Where Caddy finds Caddyman if somebody typed it in, and the design chosen for each error."""
     stored = read_json(ERRORS_FILE, {})
-    # A Caddy next door reaches this container by name. One elsewhere needs the address typed in.
-    return {"upstream": stored.get("upstream") or f"caddyman:{OWN_PORT}", "designs": stored.get("designs", {})}
+    return {"upstream": stored.get("upstream", ""), "designs": stored.get("designs", {})}
+
+
+def caddyman_upstream(host: dict, request: Request | None = None) -> str:
+    """Where Caddy reaches Caddyman: the address saved under Error pages, else the target of a
+    route to Caddyman, else a guess. Error pages and the own route ask here, so both agree."""
+    if stored := load_errors()["upstream"]:
+        return stored
+    for item in list_routes(host):
+        route = item["route"]
+        if route and not route.get("off") and route["type"] == "reverse_proxy" and route["upstream"].endswith(f":{OWN_PORT}"):
+            return route["upstream"]
+    # A Caddy next door reaches this container by name, one elsewhere by the address the browser used.
+    there = asked_host(request)[0] if request and host.get("storage") == "managed" else "caddyman"
+    return f"{there}:{OWN_PORT}"
 
 
 # A path that goes to a target of its own. Never '/' alone: that is what the main target is for.
@@ -1819,7 +1832,7 @@ def allowed_networks(text: str) -> str | None:
     return " ".join(dict.fromkeys(found)) if len(found) <= MAX_NETWORKS else None
 
 
-def route_from_form(form, host: dict, previous: dict | None = None) -> tuple[dict, str | None]:
+def route_from_form(form, host: dict, previous: dict | None = None, request: Request | None = None) -> tuple[dict, str | None]:
     """Normalise the form into route metadata and name the first problem, if any.
 
     previous is the route as it is on disk when editing; its password hash is kept
@@ -1867,7 +1880,7 @@ def route_from_form(form, host: dict, previous: dict | None = None) -> tuple[dic
         route["hsts"] = True
     # Caddy's own errors as a page from Caddyman. A redirect has no error to show.
     if get("errors") and get("type") != "redirect":
-        route["errors"] = load_errors()["upstream"]
+        route["errors"] = caddyman_upstream(host, request)
     if not usable(name):
         return route, "The hostname may only contain lowercase letters, digits, '-' and '.'."
     if route["port"] and not valid_port(route["port"]):
@@ -2583,9 +2596,7 @@ def route_new(request: Request, own: bool = False):
     tls = "acme_ca" if has_snippet(current, "tls_snippet") else "default"
     route = {"type": "reverse_proxy", "tls": tls, "code": "308"}
     if own:
-        # A Caddy next door reaches this container by name, one elsewhere by the address the browser used.
-        there = asked_host(request)[0] if current.get("storage") == "managed" else "caddyman"
-        route.update(host="caddyman" if current["domain_suffix"] else "", upstream=f"{there}:{OWN_PORT}")
+        route.update(host="caddyman" if current["domain_suffix"] else "", upstream=caddyman_upstream(current, request))
     return route_form_page(request, current, route)
 
 
@@ -2627,7 +2638,7 @@ def own_route_address(host: dict) -> tuple[bool, str]:
 @app.post("/routes/new")
 async def route_create(request: Request):
     current = the_host()
-    route, error = route_from_form(await request.form(), current)
+    route, error = route_from_form(await request.form(), current, request=request)
     if error:
         return route_form_page(request, current, route, error)
     path = route_path(current, route_file_name(route, current))
@@ -2692,7 +2703,7 @@ async def route_update(request: Request, name: str):
         content = str(form.get("content", "")).replace("\r\n", "\n").rstrip() + "\n"
         error = None if content.strip() else "The file would be empty. Delete the route instead."
     else:
-        route, error = route_from_form(form, current, previous=read_route(path, current))
+        route, error = route_from_form(form, current, previous=read_route(path, current), request=request)
         if not error:
             content = render_route(route, current)
             new_path = route_path(current, route_file_name(route, current))
@@ -2854,7 +2865,7 @@ def catch_all_state(host: dict) -> str:
 def error_pages_view(request: Request, code: str = ""):
     current = the_host()
     stored = load_errors()
-    context = {"code": code, "pages": ERROR_PAGES, "designs": ERROR_DESIGNS, "chosen": stored["designs"], "upstream": stored["upstream"]}
+    context = {"code": code, "pages": ERROR_PAGES, "designs": ERROR_DESIGNS, "chosen": stored["designs"], "upstream": caddyman_upstream(current, request)}
     if not code:
         routes = [item["route"] for item in list_routes(current) if item["route"]]
         context.update(catch_all=catch_all_state(current), users=sum(1 for route in routes if route.get("errors")))
@@ -2901,13 +2912,13 @@ def error_pages_save(upstream: str = Form("")):
 
 
 @app.post("/error-pages/catch-all")
-def error_pages_catch_all(on: str = Form("")):
+def error_pages_catch_all(request: Request, on: str = Form("")):
     """The route for every name no other route knows. A file like the others, but not in the route list."""
     current = the_host()
     path, state = route_path(current, CATCH_ALL), catch_all_state(current)
     if state == "taken":
         return redirect("/error-pages", "error", f"{path.name} exists and was not written here. Rename or delete it first.")
-    route = {"type": "error_page", "host": "*", "port": "", "tls": "none", "upstream": load_errors()["upstream"], "page": "blocked"}
+    route = {"type": "error_page", "host": "*", "port": "", "tls": "none", "upstream": caddyman_upstream(current, request), "page": "blocked"}
     if (on or state) and (error := apply_route(current, {path: render_route(route, current) if on else None}, "create" if on else "delete", CATCH_ALL)):
         return redirect("/error-pages", "error", f"Caddy rejected the reload, nothing was changed: {error}")
     return redirect("/error-pages", "ok", "Every unknown name now gets the Blocked page." if on else "Unknown names are no longer answered.")
@@ -3236,7 +3247,7 @@ def build_backup(host: dict) -> bytes:
         archive.writestr("groups.json", json.dumps(load_groups(host), indent=2))
         # The designs, and where Caddy finds Caddyman if somebody changed that: new routes need it again.
         errors = load_errors()
-        there = {} if errors["upstream"] == f"caddyman:{OWN_PORT}" else {"upstream": errors["upstream"]}
+        there = {"upstream": errors["upstream"]} if errors["upstream"] else {}
         archive.writestr("errors.json", json.dumps({"designs": errors["designs"], **there}, indent=2))
         try:
             archive.writestr("Caddyfile", Path(host["caddyfile"]).read_bytes())

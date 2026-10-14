@@ -499,6 +499,18 @@ class TestRoutes(RouteTest):
         self.client.get("/status")
         self.assertGreater(get.call_count, asked)
 
+    def test_error_pages_and_own_route_agree_where_caddyman_is(self):
+        guess = f'value="caddyman:{main.OWN_PORT}"'
+        self.assertIn(guess, self.client.get("/error-pages").text)
+        # The route to Caddyman knows better than the guess.
+        self.create(host="caddyman", upstream=f"10.0.0.7:{main.OWN_PORT}")
+        self.assertIn(f'value="10.0.0.7:{main.OWN_PORT}"', self.client.get("/error-pages").text)
+        self.create(host="pdf", errors="on")
+        self.assertIn(f'"errors":"10.0.0.7:{main.OWN_PORT}"', self.read("pdf.caddy"))
+        # What was typed under Error pages comes first, for the own route too.
+        self.client.post("/error-pages", data={"upstream": "192.168.1.9:5052"})
+        self.assertIn('name="upstream" value="192.168.1.9:5052"', self.client.get("/routes/new?own=1").text)
+
     def test_status_offers_a_route_for_caddyman_itself(self):
         hint = 'href="/routes/new?own=1"'
         self.assertIn(hint, self.client.get("/status").text)
