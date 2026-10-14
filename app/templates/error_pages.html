@@ -23,6 +23,12 @@
 		</label>
 		{% endfor %}
 	</div>
+	{% set own = texts.get(code, {}) %}
+	<label for="title">Title <span class="optional">optional</span></label>
+	<input id="title" name="title" value="{{ own.title }}" placeholder="{{ pages[code][0] }}" maxlength="{{ limits.title }}">
+	<label for="text">Text <span class="optional">optional</span></label>
+	<input id="text" name="text" value="{{ own.text }}" placeholder="{{ pages[code][1] }}" maxlength="{{ limits.text }}">
+	<small>Empty fields show the text in grey.</small>
 	<label class="check"><input type="checkbox" name="everywhere" value="1"> Use this design for every error</label>
 	<div class="row"><button type="submit">Save</button></div>
 </form>

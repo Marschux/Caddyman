@@ -1776,6 +1776,7 @@ ERROR_PAGES = {
     "504": ("Gateway timeout", "The service behind this address took too long to answer."),
     "blocked": ("Blocked", "This address is blocked on this network."),
 }
+ERROR_TEXT_LIMITS = {"title": 60, "text": 200}
 ERROR_DESIGNS = {
     "caddyman": "Caddyman", "ghost": "Ghost", "terminal": "Terminal", "connection": "Connection", "minimal": "Minimal",
     "unicorn": "Unicorn", "space": "Space", "gaming": "Gaming", "forest": "Forest",
@@ -1789,7 +1790,20 @@ CATCH_ALL = "catch-all"
 def load_errors() -> dict:
     """Where Caddy finds Caddyman if somebody typed it in, and the design chosen for each error."""
     stored = read_json(ERRORS_FILE, {})
-    return {"upstream": stored.get("upstream", ""), "designs": stored.get("designs", {})}
+    return {"upstream": stored.get("upstream", ""), "designs": stored.get("designs", {}), "texts": error_texts(stored.get("texts"))}
+
+
+def error_texts(texts) -> dict:
+    """Own wording for an error page, where somebody wrote one: {code: {"title": ..., "text": ...}}."""
+    if not isinstance(texts, dict):
+        return {}
+    kept = {}
+    for code, item in texts.items():
+        if code in ERROR_PAGES and isinstance(item, dict):
+            item = {key: str(item.get(key, "")).strip()[:limit] for key, limit in ERROR_TEXT_LIMITS.items()}
+            if any(item.values()):
+                kept[code] = item
+    return kept
 
 
 def caddyman_upstream(host: dict, request: Request | None = None) -> str:
@@ -2840,10 +2854,12 @@ def error_page(request: Request, code: str, design: str = ""):
     # Only the errors Caddy is told to hand over, not any status somebody asks for by address.
     if code not in ERROR_PAGES:
         return Response(status_code=404)
-    title, text = ERROR_PAGES[code]
+    stored = load_errors()
+    own = stored["texts"].get(code, {})
+    title, text = own.get("title") or ERROR_PAGES[code][0], own.get("text") or ERROR_PAGES[code][1]
     status = int(code) if code.isdigit() else 403
     # Only an account that is logged in picks the design in the address: that is the preview.
-    chosen = design if request.state.me and design else load_errors()["designs"].get(code)
+    chosen = design if request.state.me and design else stored["designs"].get(code)
     if chosen not in ERROR_DESIGNS:
         chosen = "caddyman"
     # Caddy keeps the name the visitor asked for. It is shown, so it has to look like a name.
@@ -2866,7 +2882,7 @@ def catch_all_state(host: dict) -> str:
 def error_pages_view(request: Request, code: str = ""):
     current = the_host()
     stored = load_errors()
-    context = {"code": code, "pages": ERROR_PAGES, "designs": ERROR_DESIGNS, "chosen": stored["designs"], "upstream": caddyman_upstream(current, request), "settings_url": host_settings_url()}
+    context = {"code": code, "pages": ERROR_PAGES, "designs": ERROR_DESIGNS, "chosen": stored["designs"], "texts": stored["texts"], "limits": ERROR_TEXT_LIMITS, "upstream": caddyman_upstream(current, request), "settings_url": host_settings_url()}
     if not code:
         routes = [item["route"] for item in list_routes(current) if item["route"]]
         context.update(catch_all=catch_all_state(current), users=sum(1 for route in routes if route.get("errors")))
@@ -2928,12 +2944,14 @@ def error_design(request: Request, code: str):
 
 
 @app.post("/error-pages/{code}")
-def error_design_save(code: str, design: str = Form(""), everywhere: str = Form("")):
+def error_design_save(code: str, design: str = Form(""), everywhere: str = Form(""), title: str = Form(""), text: str = Form("")):
     if code not in ERROR_PAGES or design not in ERROR_DESIGNS:
         return redirect("/error-pages", "error", "Unknown error or design.")
     stored = load_errors()
     designs = dict.fromkeys(ERROR_PAGES, design) if everywhere else {**stored["designs"], code: design}
-    write_json(ERRORS_FILE, {**stored, "designs": designs})
+    # Empty fields bring back the wording Caddyman ships with.
+    texts = error_texts({**stored["texts"], code: {"title": title, "text": text}})
+    write_json(ERRORS_FILE, {**stored, "designs": designs, "texts": texts})
     return redirect(f"/error-pages/{code}", "ok", f"Every error now shows {ERROR_DESIGNS[design]}." if everywhere else f"{ERROR_PAGES[code][0]} now shows {ERROR_DESIGNS[design]}.")
 
 
@@ -3216,7 +3234,7 @@ Caddyfile      the base Caddyfile, as a copy for reference. Caddyman never write
 hosts.json     where Caddy is reachable. Only used when restoring into an empty install.
 settings.json  the switches and the time zone under Settings, General. Only used when restoring into an empty install.
 mail.json      the mail settings without the password. Only used when restoring into an empty install.
-errors.json    the design chosen for each error page, and the address Caddy fetches them from if it was changed.
+errors.json    the design and own wording chosen for each error page, and the address Caddy fetches them from if it was changed.
                Only used when restoring into an empty install.
 
 NOT IN HERE: the root CA.
@@ -3251,7 +3269,7 @@ def build_backup(host: dict) -> bytes:
         # The designs, and where Caddy finds Caddyman if somebody changed that: new routes need it again.
         errors = load_errors()
         there = {"upstream": errors["upstream"]} if errors["upstream"] else {}
-        archive.writestr("errors.json", json.dumps({"designs": errors["designs"], **there}, indent=2))
+        archive.writestr("errors.json", json.dumps({"designs": errors["designs"], "texts": errors["texts"], **there}, indent=2))
         try:
             archive.writestr("Caddyfile", Path(host["caddyfile"]).read_bytes())
         except OSError:
@@ -3320,6 +3338,7 @@ def read_backup(data: bytes) -> dict:
     designs = {code: design for code, design in designs.items() if code in ERROR_PAGES and design in ERROR_DESIGNS} if isinstance(designs, dict) else {}
     there = errors.get("upstream") if isinstance(errors, dict) else None
     there = {"upstream": there} if valid_upstream(there) else {}
+    texts = error_texts(errors.get("texts")) if isinstance(errors, dict) else {}
     return {
         "routes": routes,
         "hosts": hosts,
@@ -3329,7 +3348,7 @@ def read_backup(data: bytes) -> dict:
         "settings": settings,
         "mail": mail if mail and mail["host"] and mail_problem(mail) is None else {},
         "groups": groups,
-        "errors": {"designs": designs, **there} if designs or there else {},
+        "errors": {"designs": designs, "texts": texts, **there} if designs or texts or there else {},
     }
 
 

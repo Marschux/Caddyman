@@ -2292,6 +2292,21 @@ class TestEdit(RouteTest):
         self.assertEqual(self.client.get("/error/599").status_code, 404)
         self.assertEqual(self.client.get("/error-pages").status_code, 303)
 
+    def test_error_page_takes_its_own_wording(self):
+        self.client.post("/error-pages/502", data={"design": "minimal", "title": "Kaputt", "text": "<b>Gleich wieder da</b>"})
+        self.assertEqual(main.load_errors()["texts"], {"502": {"title": "Kaputt", "text": "<b>Gleich wieder da</b>"}})
+        self.assertIn('value="Kaputt"', self.client.get("/error-pages/502").text)
+        page = self.client.get("/error/502").text
+        self.assertIn("Kaputt", page)
+        self.assertIn("&lt;b&gt;Gleich wieder da", page)
+        self.assertIn(main.ERROR_PAGES["504"][0], self.client.get("/error/504").text)  # the others keep theirs
+        # It travels with a backup, and empty fields bring the shipped wording back.
+        with zipfile.ZipFile(io.BytesIO(main.build_backup(main.pick_host()))) as packed:
+            self.assertIn(b"Kaputt", packed.read("errors.json"))
+        self.client.post("/error-pages/502", data={"design": "minimal", "title": "", "text": " "})
+        self.assertEqual(main.load_errors()["texts"], {})
+        self.assertIn(main.ERROR_PAGES["502"][1], self.client.get("/error/502").text)
+
     def test_catch_all_route_for_a_dns_blocker(self):
         self.client.post("/error-pages/catch-all", data={"on": "1"})
         written = f"http:// {{\n\trewrite * /error/blocked\n\treverse_proxy caddyman:{main.OWN_PORT}\n}}\n"
