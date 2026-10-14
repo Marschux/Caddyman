@@ -144,6 +144,22 @@
 		<small><code>/api/*</code> sends everything below <code>/api/</code> to its own target. The path is passed on unchanged.</small>
 	</details>
 
+	<details {{ "open" if route.headers or route.headers_up }}>
+		<summary>Headers</summary>
+
+		<label>Headers to the browser <span class="optional">optional</span></label>
+		<div class="fields">{% for name, value in route.headers or [] %}<span class="entry pair"><input name="header_name" value="{{ name }}" aria-label="Header name" autocomplete="off"><input name="header_value" value="{{ value }}" aria-label="Header value" autocomplete="off"><button type="button" class="remove" title="Remove" aria-label="Remove">&times;</button></span>{% endfor %}</div>
+		<button type="button" class="secondary" data-add='[["header_name", "Name, like X-Frame-Options"], ["header_value", "Value, like DENY"]]'>Add header</button>
+		<small>On every answer, for CORS or security headers. <code>-Server</code> without a value removes one.</small>
+
+		<div class="for-reverse_proxy">
+			<label>Headers to the target <span class="optional">optional</span></label>
+			<div class="fields">{% for name, value in route.headers_up or [] %}<span class="entry pair"><input name="header_up_name" value="{{ name }}" aria-label="Header name" autocomplete="off"><input name="header_up_value" value="{{ value }}" aria-label="Header value" autocomplete="off"><button type="button" class="remove" title="Remove" aria-label="Remove">&times;</button></span>{% endfor %}</div>
+			<button type="button" class="secondary" data-add='[["header_up_name", "Name, like X-Real-IP"], ["header_up_value", "Value, like {remote_host}"]]'>Add header</button>
+			<small>On every request to the target. Placeholders like <code>{remote_host}</code> work.</small>
+		</div>
+	</details>
+
 	<details {{ "open" if route.errors or route.hsts or route.log }}>
 		<summary>Error pages, HSTS and log</summary>
 

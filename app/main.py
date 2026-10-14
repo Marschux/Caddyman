@@ -1867,6 +1867,35 @@ def caddyman_upstream(host: dict, request: Request | None = None) -> str:
     return f"{there}:{OWN_PORT}"
 
 
+# A header of the answer or of the request to the target. A '-' in front removes it; the
+# value is written in quotes, so it may hold spaces, never a quote or a backslash.
+HEADER_NAME_RE = re.compile(r"^-?[A-Za-z0-9][A-Za-z0-9-]{0,63}\Z")
+HEADER_VALUE_RE = re.compile(r'^[^"\\\x00-\x1f\x7f]{0,200}\Z')
+MAX_HEADERS = 10
+
+
+def header_pairs(form, names: str, values: str, given: str) -> list[list[str]] | str:
+    """The headers of one list in the form, or what is wrong with them. An empty pair is dropped."""
+    typed = zip(form.getlist(names), form.getlist(values)) if hasattr(form, "getlist") else form.get(given, [])
+    pairs = [[str(name).strip(), str(value).strip()] for name, value in typed if str(name).strip() or str(value).strip()]
+    if len(pairs) > MAX_HEADERS:
+        return f"Up to {MAX_HEADERS} headers per list."
+    for name, value in pairs:
+        if not HEADER_NAME_RE.match(name) or not HEADER_VALUE_RE.match(value):
+            return "A header name is letters, digits and '-'; its value has no quotes or backslashes."
+        # Caddy fills these in when it reads the file: an environment variable or a file of
+        # Caddy's machine, such as a DNS token, would be sent to any visitor.
+        if any(secret in value.lower() for secret in ("{env.", "{$", "{file.")):
+            return "Header values cannot read Caddy's environment or files ({env.*}, {$*}, {file.*})."
+        if name.startswith("-") == bool(value):
+            return f"{name}: a header needs a value, or a '-' in front of its name to remove it, not both."
+    return pairs
+
+
+def header_line(directive: str, name: str, value: str) -> str:
+    return f'{directive} {name} "{value}"' if value else f"{directive} {name}"
+
+
 # A path that goes to a target of its own. Never '/' alone: that is what the main target is for.
 PATH_RE = re.compile(r"^/[A-Za-z0-9._~-][A-Za-z0-9._~/-]*\*?\Z")
 
@@ -1943,6 +1972,12 @@ def route_from_form(form, host: dict, previous: dict | None = None, request: Req
     # Caddy's own errors as a page from Caddyman. A redirect has no error to show.
     if get("errors") and get("type") != "redirect":
         route["errors"] = caddyman_upstream(host, request)
+    # Headers of every answer of the route.
+    headers = header_pairs(form, "header_name", "header_value", "headers")
+    if isinstance(headers, str):
+        return route, headers
+    if headers:
+        route["headers"] = headers
     if not usable(name):
         return route, "The hostname may only contain lowercase letters, digits, '-' and '.'."
     if route["port"] and not valid_port(route["port"]):
@@ -1986,6 +2021,12 @@ def route_from_form(form, host: dict, previous: dict | None = None, request: Req
         # Only where TLS is spoken at all: on a plain target the block would switch TLS on.
         if get("skip_verify") and any(target.startswith("https://") for target in (route["upstream"], *(pair[1] for pair in paths))):
             route["skip_verify"] = True
+        # Headers of the request on its way to the target, for every target of the route.
+        headers_up = header_pairs(form, "header_up_name", "header_up_value", "headers_up")
+        if isinstance(headers_up, str):
+            return route, headers_up
+        if headers_up:
+            route["headers_up"] = headers_up
         if paths:
             # Longest first. Caddy sorts them like that anyway, except in the route block
             # around allowed networks, where the lines run as written.
@@ -2038,6 +2079,7 @@ def render_route(route: dict, host: dict) -> str:
     if route.get("hsts"):
         # One year, this name only. Caddy puts headers first, so every answer of the route carries it.
         lines.append(HSTS_LINE)
+    lines += [header_line("header", name, value) for name, value in route.get("headers", [])]
     # Everything that answers a request starts here; with allowed networks it is wrapped below.
     handlers = len(lines)
     if route.get("sso"):
@@ -2050,6 +2092,7 @@ def render_route(route: dict, host: dict) -> str:
             options = []
             if route.get("host_header"):
                 options.append("\theader_up Host {upstream_hostport}")
+            options += [f"\t{header_line('header_up', name, value)}" for name, value in route.get("headers_up", [])]
             if route.get("skip_verify") and target.startswith("https://"):
                 options += ["\ttransport http {", "\t\ttls_insecure_skip_verify", "\t}"]
             proxy = f"reverse_proxy {path} {target}" if path else f"reverse_proxy {target}"
@@ -2110,8 +2153,11 @@ def well_formed(route) -> bool:
     """Whether the metadata of a file has the shapes route_from_form gives it."""
     if not isinstance(route, dict) or not all(isinstance(route.get(key, ""), str) for key in ROUTE_TEXTS):
         return False
-    aliases, paths = route.get("aliases", []), route.get("paths", [])
-    pairs = isinstance(paths, list) and all(isinstance(pair, list) and len(pair) == 2 and all(isinstance(part, str) for part in pair) for pair in paths)
+    aliases = route.get("aliases", [])
+    pairs = all(
+        isinstance(items, list) and all(isinstance(pair, list) and len(pair) == 2 and all(isinstance(part, str) for part in pair) for pair in items)
+        for items in (route.get("paths", []), route.get("headers", []), route.get("headers_up", []))
+    )
     return pairs and isinstance(aliases, list) and all(isinstance(name, str) for name in aliases)
 
 
@@ -2331,6 +2377,16 @@ PROXY_OPTIONS = {
 }
 
 
+def written_header(tokens: list[str]) -> list[str] | None:
+    """Name and value of a header line as render_route writes it, else None."""
+    if len(tokens) == 2:
+        return [tokens[1], ""]
+    value = " ".join(tokens[2:])
+    if len(tokens) > 2 and len(value) >= 2 and value[0] == value[-1] == '"':
+        return [tokens[1], value[1:-1]]
+    return None
+
+
 def adopt_route(content: str, host: dict) -> tuple[dict | None, str]:
     """Metadata for a hand-written file, or the reason it cannot be taken over.
 
@@ -2361,6 +2417,8 @@ def adopt_route(content: str, host: dict) -> tuple[dict | None, str]:
             form["hsts"] = "1"
         elif tokens == ["tls", "internal"]:
             form["tls"] = "internal"
+        elif tokens[0] == "header" and (pair := written_header(tokens)):
+            form.setdefault("headers", []).append(pair)
         elif tokens[:3] == ["@outside", "not", "client_ip"]:
             form["allow"] = " ".join(tokens[3:]).replace("private_ranges", "private")
         elif tokens == ["handle_errors", *ERRORS_HANDLED.split(), "{"] and len(inner) >= index + 3:
@@ -2388,10 +2446,18 @@ def adopt_route(content: str, host: dict) -> tuple[dict | None, str]:
             else:
                 return None, f"it contains a line Caddyman would not write: {' '.join(tokens)}"
             if opens:
+                up = []
                 for option, shape in PROXY_OPTIONS.items():
                     if inner[index : index + len(shape)] == shape:
                         form[option] = "1"
                         index += len(shape)
+                    # Own headers stand between the Host header and the transport block.
+                    while option == "host_header" and index < len(inner) and inner[index][0] == "header_up" and (pair := written_header(inner[index])):
+                        up.append(pair)
+                        index += 1
+                # The same for every target; the comparison at the end tells if they differ.
+                if up:
+                    form["headers_up"] = up
                 if inner[index : index + 1] != [["}"]]:
                     return None, f"it contains a line Caddyman would not write: {' '.join(tokens)}"
                 index += 1

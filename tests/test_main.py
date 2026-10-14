@@ -2484,6 +2484,26 @@ class TestEdit(RouteTest):
                     text.replace("\t\tada " + bcrypt_hash + "\n", "")):
             self.assertIsNone(main.adopt_route(odd, self.host)[0], odd)
 
+    def test_own_headers_to_the_browser_and_to_the_target(self):
+        form = {"header_name": ["X-Frame-Options", "-Server"], "header_value": ["DENY", ""],
+                "header_up_name": ["X-Real-IP"], "header_up_value": ["{remote_host}"], "host_header": "1"}
+        self.assertEqual(self.create(host="hd", **form, path="/api/*", path_upstream="10.0.0.6:8080").status_code, 303)
+        text = self.read("hd.caddy")
+        self.assertIn('\theader X-Frame-Options "DENY"\n\theader -Server\n', text)
+        # For every target, after the Host header.
+        self.assertEqual(text.count('\t\theader_up Host {upstream_hostport}\n\t\theader_up X-Real-IP "{remote_host}"\n'), 2)
+        self.assertIn('value="X-Frame-Options"', self.client.get("/routes/hd/edit").text)
+        # A file like that, written by hand, is taken over and written back the same.
+        body = text.split("\n", 1)[1]
+        self.put("b.caddy", body.replace("hd.lab.test", "b.lab.test"))
+        self.client.post("/routes/b/adopt")
+        self.assertEqual(self.read("b.caddy").split("\n", 1)[1], body.replace("hd.lab.test", "b.lab.test"))
+        # Refused: a value without a name, a removal with a value, quotes, and what reads Caddy's secrets.
+        for name, value in (("", "x"), ("-Server", "x"), ("X-A", 'a"b'), ("X-A", "{env.CF_TOKEN}"), ("X-A", "{$CF_TOKEN}"),
+                            ("X-A", "{file./etc/passwd}"), ("X A", "x"), ("X-A", "")):
+            self.assertEqual(self.create(host="c", header_name=name, header_value=value).status_code, 400, (name, value))
+        self.assertFalse(os.path.exists(os.path.join(self.sites, "c.caddy")))
+
     def test_adopt_refuses_what_it_does_not_fully_understand(self):
         refused = [
             "a.lab.test {\n\treverse_proxy 10.0.0.7:3000\n\theader X-Frame-Options DENY\n}\n",
