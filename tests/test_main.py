@@ -598,8 +598,8 @@ class TestRoutes(RouteTest):
         self.assertIn('<option value="Media" selected', self.client.get("/routes/wiki/edit").text)
         self.assertEqual(self.create(host="bad.lab.test", group="{}").status_code, 400)
         page = self.client.get("/").text
-        self.assertLess(page.index('colspan="6">Media<'), page.index("wiki.lab.test"))
-        self.assertLess(page.index('colspan="6">No group<'), page.index("pdf.lab.test"))
+        self.assertLess(page.index('colspan="7">Media<'), page.index("wiki.lab.test"))
+        self.assertLess(page.index('colspan="7">No group<'), page.index("pdf.lab.test"))
         # The box that shows the list without its groups is there as long as there are groups.
         self.assertIn('name="flat"', page)
         # A rejected rename leaves file and list alone, a good one rewrites the file and stays editable.
@@ -617,7 +617,7 @@ class TestRoutes(RouteTest):
         self.assertEqual(self.read("wiki.caddy").replace("wiki", "pdf"), self.read("pdf.caddy"))
         self.assertEqual(self.read("pdf.caddy").splitlines()[0], plain)
         self.assertEqual(main.stored_groups(), [])
-        self.assertNotIn('colspan="6">', self.client.get("/").text)
+        self.assertNotIn('colspan="7">', self.client.get("/").text)
         self.assertNotIn('name="flat"', self.client.get("/").text)
 
     def test_other_types_and_tls_modes(self):
@@ -2192,8 +2192,8 @@ class TestEdit(RouteTest):
             "\t\treverse_proxy 10.0.0.5:9005\n\t}\n}\n",
             text,
         )
-        # The list folds them away next to the target.
-        self.assertIn('title="Only reachable from 192.168.2.0/24, private, 10.0.0.9">3</span>', self.client.get("/").text)
+        # The list shows them in a column of their own, one per line.
+        self.assertIn('<td class="access"><span>192.168.2.0/24</span><span>private</span><span>10.0.0.9</span>', self.client.get("/").text)
         form = self.client.get("/routes/pdf/edit").text
         for network in ("192.168.2.0/24", "private", "10.0.0.9"):
             self.assertIn(f'<input name="allow" value="{network}"', form)

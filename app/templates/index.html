@@ -19,9 +19,9 @@
 </div>
 <table class="even routes">
 	{# Fixed widths, so every group lines up the same and the table never runs past the page. #}
-	<colgroup><col><col><col><col><col><col></colgroup>
+	<colgroup><col><col><col><col><col><col><col></colgroup>
 	<thead>
-		<tr><th>Host</th><th>Type</th><th>Target</th><th>Options</th><th>TLS</th>
+		<tr><th>Host</th><th>Type</th><th>Target</th><th>Access</th><th>Options</th><th>TLS</th>
 			{# "Only problems", and one list without the names of the groups in between (only where there
 			   are groups at all). Shown by routes.js; both belong to the filter form above although they sit here. #}
 			<th class="actions"><label class="check problems" hidden><input type="checkbox" name="problems" form="route-filter"> Only problems</label>
@@ -33,7 +33,7 @@
 		{% for item in routes %}
 		{% set route = item.route %}
 		{% if grouped and loop.changed(item.group) %}
-		<tr class="group"><th colspan="6">{{ item.group or "No group" }}</th></tr>
+		<tr class="group"><th colspan="7">{{ item.group or "No group" }}</th></tr>
 		{% endif %}
 		{# A problem: the target does not answer, the certificate is not what it should be, or a file cannot be adopted. #}
 		<tr data-group="{{ item.group }}"{% if route and route.off %} class="off"{% endif %}{% if item.target_down or item.refused or (item.certificate and item.certificate.level in ("warn", "fail")) %} data-problem{% endif %}>
@@ -48,16 +48,14 @@
 			</td>
 			<td class="nowrap">{{ {"reverse_proxy": "Reverse proxy", "redirect": "Redirect", "static": "Static files"}[route.type] }}</td>
 			{# A redirect can point at a long address and may wrap; host:port and a path stay on one line. #}
-			<td{% if route.type != "redirect" %} class="nowrap"{% endif %}>
-				{% set goal %}{% if item.link %}<a class="out" href="{{ item.link }}" target="_blank" rel="noopener noreferrer"><code>{{ route.upstream or route.target }}</code></a>
-				{% else %}<code>{{ route.upstream or route.target or route.root }}</code>{% endif %}{% endset %}
-				{# Allowed networks fold away next to the target, like further names next to the host. #}
-				{% if route.allow %}{% set nets = route.allow.split() %}<details class="more names"><summary>{{ goal }}<span class="tag opt ip" title="Only reachable from {{ nets|join(', ') }}">{{ nets|length }}</span></summary>
-					{% for net in nets %}<small>{{ net }}</small>{% endfor %}</details>
-				{% else %}{{ goal }}{% endif %}
+			<td{% if route.type != "redirect" %} class="nowrap"{% endif %}>{% if item.link %}<a class="out" href="{{ item.link }}" target="_blank" rel="noopener noreferrer"><code>{{ route.upstream or route.target }}</code></a>
+				{% else %}<code>{{ route.upstream or route.target or route.root }}</code>{% endif %}
 				{% if item.target_down %}<span class="cert warn" title="No TCP connection from Caddyman to {{ item.target_down|join(', ') }}. Caddy may see it differently.">Not reachable</span>{% endif %}
 				{% if route.paths %}<details class="more"><summary>{{ route.paths|length }} path{{ "s" if route.paths|length != 1 }}</summary>
 					{% for path, target in route.paths %}<small><code>{{ path }}</code> to <code>{{ target }}</code></small>{% endfor %}</details>{% endif %}</td>
+			{# Who may reach the route at all: one network per line, or everybody. #}
+			<td class="access">{% if route.allow %}{% for net in route.allow.split() %}<span>{{ net }}</span>{% endfor %}
+				{% else %}<span class="empty" title="No allowed networks set: reachable from everywhere">All</span>{% endif %}</td>
 			{# What is switched on for the route, always in the same place and order. The long name is the tooltip. #}
 			<td><div class="tags">
 				{% if route.sso %}<span class="tag opt sso" title="Single sign-on: the login service is asked first">SSO</span>{% endif %}
@@ -65,15 +63,14 @@
 				{% if route.host_header %}<span class="tag opt host" title="Host header: the target gets its own name as Host">Host</span>{% endif %}
 				{% if route.skip_verify %}<span class="tag opt verify" title="The target's certificate is not checked">No verify</span>{% endif %}
 				{% if route.hsts %}<span class="tag opt hsts" title="HSTS: browsers use HTTPS only for this name">HSTS</span>{% endif %}
-				{% if route.allow %}<span class="tag opt ip" title="Allowed networks: only reachable from {{ route.allow.split()|join(', ') }}">Networks</span>{% endif %}
 				{% if route.errors %}<span class="tag opt errors" title="Error pages: Caddy's own errors show a page from Caddyman">Errors</span>{% endif %}
 				{% if route.log %}{% if "logs" in request.state.me.permissions %}<a class="tag opt log" title="Access log: open it" href="/logs?file=access-{{ item.name|urlencode }}.log">Log</a>{% else %}<span class="tag opt log" title="Access log">Log</span>{% endif %}{% endif %}
 			</div></td>
 			{% else %}
 			<td><code>{{ item.name }}.caddy</code></td>
 			{# In the column of the type: one word, the whole reason unfolds under it like further hostnames. #}
-			{# Across target and options as well, which a file by hand leaves empty, so the reason has room. #}
-			<td colspan="3">{% if item.refused %}<details class="more problem"><summary title="Cannot be adopted: {{ item.refused }}.">{{ item.refused|refusal_label }}</summary><small>Cannot be adopted: {{ item.refused }}.</small></details>
+			{# Across target, options and access as well, which a file by hand leaves empty, so the reason has room. #}
+			<td colspan="4">{% if item.refused %}<details class="more problem"><summary title="Cannot be adopted: {{ item.refused }}.">{{ item.refused|refusal_label }}</summary><small>Cannot be adopted: {{ item.refused }}.</small></details>
 				{% else %}<span class="tag" title="Not created here, or edited by hand. Adopt opens it in the form.">By hand</span>{% endif %}</td>
 			{% endif %}
 			{# The certificate on top, the TLS mode of the route under it. The certificate also for a file
@@ -122,7 +119,7 @@
 			</td>
 		</tr>
 		{% else %}
-		<tr><td colspan="6" class="empty">No routes yet.</td></tr>
+		<tr><td colspan="7" class="empty">No routes yet.</td></tr>
 		{% endfor %}
 	</tbody>
 </table>
