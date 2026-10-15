@@ -1,5 +1,52 @@
 # Changelog
 
+## 2026-10-15 03:32
+- chore: version 0.25.0
+- feat: no CA certificate for the mail server; only publicly trusted ones or no encryption
+- feat: one DNS snippet per DNS provider, picked per route
+- fix: an alert about a reload no longer says Caddy refused when it was not reached
+- feat: no domain suffix; a suffix set before still names the route files
+- Revert "feat: several domain suffixes, picked next to the hostname"
+- Revert "fix: a domain suffix without a dot is accepted again"
+- fix: a domain suffix without a dot is accepted again
+- feat: several domain suffixes, picked next to the hostname
+- feat: alerts no longer watch the targets of the routes
+- feat: no arrow next to links that open in a new tab
+- feat: no note per route
+- feat: the note is a folding field with a counter, up to 100 characters
+- feat: the note is the tooltip of the hostname, without a mark
+- feat: a note is a tooltip on a mark next to the hostname
+- feat: no ticking of several routes in the list
+- feat: a note per route, shown under its name in the list
+- feat: when each error page comes up is listed on the setup page
+- feat: each error page says when it comes up
+- feat: one Disable button; what a switched off route shows is set under Error pages
+- feat: tick routes in the list and switch, put in maintenance or move them together
+- feat: maintenance mode per route, with a page of its own under Error pages
+- feat: own headers per route, to the browser and to the target
+- feat: alerts by mail, set up under Settings, Alerts and asked for in the profile
+- feat: finer rights: groups and error pages apart from routes, and one right per settings block
+- feat: a downloaded log reads like the table on the page
+- feat: a log can be downloaded whole
+- fix: the firs of the Forest error page keep their tops on a wide screen
+- feat: title and text of each error page can be changed
+- feat: where Caddy reaches Caddyman is set under Settings, Caddy
+- feat: no extra link to the design of the Blocked page
+- feat: the error pages setup no longer lists the designs, the list at the left leads to them
+- Revert "feat: a group can have a colour, shown as a dot next to its name in the route list"
+- feat: a group can have a colour, shown as a dot next to its name in the route list
+- feat: each option of a route has a colour of its own
+- feat: soft colours for the options of a route, by access, connection and Caddyman
+- feat: every check on the status page is equally high
+- feat: every row in the user list is equally high
+- feat: further names and paths fold out below again, every route row is as high as one with them
+- feat: every row in the route list is one line high
+- fix: error pages and the route to Caddyman agree on where Caddy reaches it
+- docs: requirements in the README
+- docs: full example Caddyfile in the README, collapsed
+- docs: shorter comments in compose.yml and .env.example
+
+
 ## 2026-10-14 02:17
 - chore: version 0.17.5
 - feat: the descriptions on every page are shorter
