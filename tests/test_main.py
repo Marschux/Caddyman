@@ -2506,6 +2506,19 @@ class TestEdit(RouteTest):
             self.assertEqual(self.create(host="c", header_name=name, header_value=value).status_code, 400, (name, value))
         self.assertFalse(os.path.exists(os.path.join(self.sites, "c.caddy")))
 
+    def test_a_note_stays_in_the_first_line_and_shows_in_the_list(self):
+        self.client.post("/groups", data={"name": "Media"})
+        self.assertEqual(self.create(host="nt", group="Media", note="  Jellyfin on the NAS,\n ask Ada  ").status_code, 303)
+        first, body = self.read("nt.caddy").split("\n", 1)
+        self.assertIn('"group":"Media","note":"Jellyfin on the NAS, ask Ada","upstream"', first)
+        self.assertNotIn("Jellyfin", body)  # Caddy never sees it
+        self.assertIn('<small class="note" title="Jellyfin on the NAS, ask Ada">', self.client.get("/").text)
+        self.assertIn('value="Jellyfin on the NAS, ask Ada"', self.client.get("/routes/nt/edit").text)
+        # Renaming the group keeps the note where it was.
+        self.client.post("/groups/rename", data={"old": "Media", "new": "Films"})
+        self.assertIn('"group":"Films","note":"Jellyfin', self.read("nt.caddy"))
+        self.assertEqual(self.create(host="nt2", note="x" * 201).status_code, 400)
+
     def test_bulk_actions_change_the_ticked_routes_in_one_reload(self):
         for name in ("b1", "b2"):
             self.create(host=name)

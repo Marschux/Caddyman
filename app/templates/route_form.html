@@ -80,6 +80,10 @@
 	<small>Only sorts the list. <a href="/groups">Manage groups</a></small>
 	{% endif %}
 
+	<label for="note">Note <span class="optional">optional</span></label>
+	<input id="note" name="note" value="{{ route.note or '' }}" maxlength="200" autocomplete="off" placeholder="What runs there, who to ask">
+	<small>Shown in the route list and found by its search.</small>
+
 	{# Everything below is optional. A block opens by itself when something in it is set. #}
 	<details {{ "open" if route.aliases or route.port }}>
 		<summary>More hostnames and port</summary>

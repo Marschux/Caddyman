@@ -391,6 +391,8 @@ form.bulk { margin: 0 0 12px; align-items: center; }
 form.bulk select { flex: none; width: auto; }
 form.bulk:not(:has(option[value="group"]:checked)) select[name="group"] { display: none; }
 input.pick { margin: 0 10px 0 0; vertical-align: middle; }
+/* A note under the hostname: one line, cut short; the whole of it is the tooltip. */
+td small.note { max-width: 260px; margin-top: 2px; overflow: hidden; text-overflow: ellipsis; }
 /* Every row is as high as one with a second line under its value, so the list stays even. */
 table.even tbody tr:not(.group) > td { height: 80px; }
 td details.more summary { color: var(--ink-subtle); font-size: 13px; font-weight: 400; }
