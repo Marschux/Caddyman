@@ -391,13 +391,15 @@ td details.more, td details.more[open] { margin: 4px 0 0; padding: 0; background
 table.even tbody tr:not(.group) > td { height: 80px; }
 /* The route list keeps its columns: what does not fit wraps inside its cell instead of widening it. */
 table.routes { table-layout: fixed; }
-/* Type, options, TLS label and buttons have a size of their own; the target gets what host and certificate leave. */
-table.routes col:nth-child(1) { width: 11%; }
+/* Type, options, TLS and buttons have a size of their own; the target gets what the host leaves. */
+table.routes col:nth-child(1) { width: 15%; }
 table.routes col:nth-child(2) { width: 155px; }
 table.routes col:nth-child(4) { width: 270px; }
-table.routes col:nth-child(6) { width: 12%; }
-table.routes col:nth-child(5) { width: 130px; }
-table.routes col:nth-child(7) { width: 250px; }
+table.routes col:nth-child(5) { width: 210px; }
+table.routes col:nth-child(6) { width: 250px; }
+/* Certificate and TLS mode one above the other. */
+table.routes td.tls > * { display: block; width: fit-content; margin: 0; }
+table.routes td.tls > * + * { margin-top: 6px; }
 table.routes td.nowrap { white-space: normal; overflow-wrap: anywhere; }
 /* At most four options in a line, so a route with many of them takes two even lines. */
 table.routes .tags { display: grid; grid-template-columns: repeat(4, max-content); text-align: center; }

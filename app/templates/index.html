@@ -19,9 +19,9 @@
 </div>
 <table class="even routes">
 	{# Fixed widths, so every group lines up the same and the table never runs past the page. #}
-	<colgroup><col><col><col><col><col><col><col></colgroup>
+	<colgroup><col><col><col><col><col><col></colgroup>
 	<thead>
-		<tr><th>Host</th><th>Type</th><th>Target</th><th>Options</th><th>TLS</th><th>Certificate</th>
+		<tr><th>Host</th><th>Type</th><th>Target</th><th>Options</th><th>TLS</th>
 			{# "Only problems", and one list without the names of the groups in between (only where there
 			   are groups at all). Shown by routes.js; both belong to the filter form above although they sit here. #}
 			<th class="actions"><label class="check problems" hidden><input type="checkbox" name="problems" form="route-filter"> Only problems</label>
@@ -33,7 +33,7 @@
 		{% for item in routes %}
 		{% set route = item.route %}
 		{% if grouped and loop.changed(item.group) %}
-		<tr class="group"><th colspan="7">{{ item.group or "No group" }}</th></tr>
+		<tr class="group"><th colspan="6">{{ item.group or "No group" }}</th></tr>
 		{% endif %}
 		{# A problem: the target does not answer, the certificate is not what it should be, or a file cannot be adopted. #}
 		<tr data-group="{{ item.group }}"{% if route and route.off %} class="off"{% endif %}{% if item.target_down or item.refused or (item.certificate and item.certificate.level in ("warn", "fail")) %} data-problem{% endif %}>
@@ -64,13 +64,13 @@
 				{% if route.errors %}<span class="tag opt errors" title="Error pages: Caddy's own errors show a page from Caddyman">Errors</span>{% endif %}
 				{% if route.log %}{% if "logs" in request.state.me.permissions %}<a class="tag opt log" title="Access log: open it" href="/logs?file=access-{{ item.name|urlencode }}.log">Log</a>{% else %}<span class="tag opt log" title="Access log">Log</span>{% endif %}{% endif %}
 			</div></td>
-			<td class="nowrap"><span class="tag">{{ {"acme_ca": "Own ACME CA", "default": "Caddy default", "dns": "DNS challenge", "internal": "Caddy internal", "none": "None"}[route.tls] }}</span></td>
 			{% else %}
 			<td><code>{{ item.name }}.caddy</code></td>
-			<td colspan="4" class="empty">{% if item.refused %}Cannot be adopted: {{ item.refused }}.{% else %}Not created here, or edited by hand{% endif %}</td>
+			<td colspan="3" class="empty">{% if item.refused %}Cannot be adopted: {{ item.refused }}.{% else %}Not created here, or edited by hand{% endif %}</td>
 			{% endif %}
-			{# Also for a file written by hand, as far as its first line names one plain address. #}
-			<td class="nowrap">
+			{# The certificate on top, the TLS mode of the route under it. The certificate also for a file
+			   written by hand, as far as its first line names one plain address. #}
+			<td class="nowrap tls">
 				{% set cert = item.certificate %}
 				{% if route and route.off is string %}<span class="cert warn" title="Switched off: every request gets the maintenance page from Caddyman, with 503.">Maintenance</span>
 				{% elif route and route.off %}<span class="cert" title="Caddy does not serve this route. Its file and settings are kept.">Off</span>
@@ -83,7 +83,8 @@
 				<span class="cert {{ cert.level }}" title="{{ cert.detail }}">{{ cert.text }}</span>
 				{% endif %}
 				{% if cert.level in ("warn", "fail") and "logs" in request.state.me.permissions %}<a href="/logs?q={{ (route or item.hand).host|urlencode }}&amp;quiet=1">Show its log</a>{% endif %}
-				{% else %}<span class="empty">-</span>{% endif %}
+				{% elif not route %}<span class="empty">-</span>{% endif %}
+				{% if route %}<span class="tag">{{ {"acme_ca": "Own ACME CA", "default": "Caddy default", "dns": "DNS challenge", "internal": "Caddy internal", "none": "None"}[route.tls] }}</span>{% endif %}
 			</td>
 			<td class="actions">
 				{% if may_change %}
@@ -108,7 +109,7 @@
 			</td>
 		</tr>
 		{% else %}
-		<tr><td colspan="7" class="empty">No routes yet.</td></tr>
+		<tr><td colspan="6" class="empty">No routes yet.</td></tr>
 		{% endfor %}
 	</tbody>
 </table>
