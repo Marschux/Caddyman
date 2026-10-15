@@ -27,8 +27,8 @@
 
 	<label for="host">Hostname</label>
 	<input id="host" name="host" value="{{ route.host or '' }}" required autofocus
-		placeholder="{{ 'pdf' if host.domain_suffix else 'pdf.home.example' }}">
-	<small>{% if host.domain_suffix %}A short name gets <code>.{{ host.domain_suffix }}</code>. {% endif %}
+		placeholder="pdf.home.example">
+	<small>
 		<code>*.example.com</code> needs the DNS challenge or the internal CA.</small>
 
 	<div class="for-reverse_proxy">

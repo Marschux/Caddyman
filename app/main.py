@@ -1384,8 +1384,6 @@ def host_problem(host: dict) -> str | None:
         return "The TLS, SSO and DNS snippets have to be different snippets."
     if host["root_ca_url"] and not is_http_url(host["root_ca_url"]):
         return "The root CA source has to be an http or https URL."
-    if host["domain_suffix"] and not HOSTNAME_RE.match(host["domain_suffix"]):
-        return "The domain suffix has to be a hostname such as home.example."
     return None
 
 
@@ -1630,7 +1628,6 @@ async def host_from_form(request: Request) -> dict:
     host = {key: str(form.get(key, "")).strip() for key in (*HOST_DEFAULTS, "storage", "admin_user")}
     host["admin_url"] = host["admin_url"].rstrip("/")
     host["sites_dir"] = host["sites_dir"].rstrip("/") or "/"
-    host["domain_suffix"] = host["domain_suffix"].lower().strip(".")
     host["form_password"] = str(form.get("admin_password", ""))
     host["form_base"] = str(form.get("base_caddyfile", "")).replace("\r\n", "\n").strip()
     # Only the certificates are kept; text around them is dropped. Something that holds none stays, to be refused.
@@ -1957,8 +1954,7 @@ def route_from_form(form, host: dict, previous: dict | None = None, request: Req
     many = lambda key: " ".join(map(str, form.getlist(key))) if hasattr(form, "getlist") else get(key)  # noqa: E731
 
     def full(name: str) -> str:
-        name = name.lower().strip(".")
-        return f"{name}.{host['domain_suffix']}" if host["domain_suffix"] and "." not in name and name else name
+        return name.lower().strip(".")
 
     def usable(name: str) -> bool:
         # '*.' in front stands for every name one level below: a wildcard.
@@ -2157,7 +2153,8 @@ def route_file_name(route: dict, host: dict) -> str:
     """File name without extension: the hostname without the host's suffix."""
     if route["type"] == "error_page":
         return CATCH_ALL
-    name = route["host"].removesuffix(f".{host['domain_suffix']}") if host["domain_suffix"] else route["host"]
+    # An install from before 15.10.2026 may still have a domain suffix: its files keep their short names.
+    name = route["host"].removesuffix(f".{host['domain_suffix']}") if host.get("domain_suffix") else route["host"]
     # A star cannot stand in a file name.
     name = "wildcard" + name[1:] if name.startswith("*") else name
     return name + (f"_{route['port']}" if route["port"] else "")
@@ -2757,7 +2754,7 @@ def route_new(request: Request, own: bool = False):
     tls = "acme_ca" if has_snippet(current, "tls_snippet") else "default"
     route = {"type": "reverse_proxy", "tls": tls, "code": "308"}
     if own:
-        route.update(host="caddyman" if current["domain_suffix"] else "", upstream=caddyman_upstream(current, request))
+        route.update(upstream=caddyman_upstream(current, request))
     return route_form_page(request, current, route)
 
 
@@ -3167,6 +3164,8 @@ async def host_save(request: Request, host_id: str | None = None):
     hosts = load_hosts()
     host = await host_from_form(request)
     existing = next((item for item in hosts if item["id"] == host_id), None)
+    # There is no field for it any more. One set before stays, for the names of the route files.
+    host["domain_suffix"] = existing.get("domain_suffix", "") if existing else ""
     # A second host cannot be added, and an id that is not the one host is not edited.
     if existing is None and (host_id is not None or hosts):
         return RedirectResponse("/hosts", status_code=303)

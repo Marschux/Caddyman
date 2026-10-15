@@ -293,7 +293,6 @@ class TestHosts(AppTest):
             {"tls_snippet": "step ca"},
             {"tls_snippet": "x) {\nevil"},
             {"root_ca_url": "file:///etc/passwd"},
-            {"domain_suffix": "bad suffix"},
         ]
         for fields in bad:
             with self.subTest(fields):
@@ -308,10 +307,11 @@ class TestHosts(AppTest):
         self.assertEqual(self.client.get("/hosts").headers["location"], f"/hosts/{host_id}/edit")
         self.assertEqual(self.client.get("/hosts/new").headers["location"], f"/hosts/{host_id}/edit")
         self.assertEqual(len(main.load_hosts()), 1)
+        # A domain suffix is no setting any more: one in the form changes nothing.
         self.client.post(f"/hosts/{host_id}/edit", data=self.host(domain_suffix="new.test", admin_url="http://caddy:2019/"))
         self.assertEqual(
             [(h["id"], h["domain_suffix"], h["admin_url"]) for h in main.load_hosts()],
-            [(host_id, "new.test", "http://caddy:2019")],
+            [(host_id, "", "http://caddy:2019")],
         )
         # The name from the days of several Caddys is gone: not asked for, not stored.
         self.assertNotIn("name", main.load_hosts()[0])
@@ -447,7 +447,7 @@ class RouteTest(AppTest):
         self.served = self.patch(main, "served_certificate", mock.Mock(side_effect=OSError("offline")))
 
     def form(self, **overrides):
-        return {"type": "reverse_proxy", "host": "pdf", "upstream": "10.0.0.5:9005", "tls": "acme_ca", **overrides}
+        return {"type": "reverse_proxy", "host": "pdf.lab.test", "upstream": "10.0.0.5:9005", "tls": "acme_ca", **overrides}
 
     def create(self, **overrides):
         return self.client.post("/routes/new", data=self.form(**overrides))
@@ -485,7 +485,7 @@ class TestRoutes(RouteTest):
         self.assertEqual(self.client.get("/error/502").status_code, 502)
         self.assertNotEqual(self.client.get("/root-ca.crt").status_code, 403)
         # With a route to Caddyman the browser is sent there.
-        self.client.post("/routes/new", data=self.form(host="caddyman", upstream=f"caddyman:{main.OWN_PORT}"), headers=through)
+        self.client.post("/routes/new", data=self.form(host="caddyman.lab.test", upstream=f"caddyman:{main.OWN_PORT}"), headers=through)
         self.assertEqual(self.client.get("/status").headers["location"], "https://caddyman.lab.test/status")
         # The way back in: the variable switches it off at the next start.
         with mock.patch.object(main, "RESET_HTTPS_ONLY", True):
@@ -507,10 +507,10 @@ class TestRoutes(RouteTest):
     def test_error_pages_and_own_route_agree_where_caddyman_is(self):
         self.assertIn(f"<code>caddyman:{main.OWN_PORT}</code>", self.client.get("/error-pages").text)
         # The route to Caddyman knows better than the guess.
-        self.create(host="caddyman", upstream=f"10.0.0.7:{main.OWN_PORT}")
+        self.create(host="caddyman.lab.test", upstream=f"10.0.0.7:{main.OWN_PORT}")
         self.assertIn(f"<code>10.0.0.7:{main.OWN_PORT}</code>", self.client.get("/error-pages").text)
         self.assertIn(f'name="reach" value="10.0.0.7:{main.OWN_PORT}"', self.client.get("/hosts/h1/edit").text)
-        self.create(host="pdf", errors="on")
+        self.create(host="pdf.lab.test", errors="on")
         self.assertIn(f'"errors":"10.0.0.7:{main.OWN_PORT}"', self.read("pdf.caddy"))
         # What was typed under Error pages comes first, for the own route too.
         self.reach("192.168.1.9:5052")
@@ -520,10 +520,9 @@ class TestRoutes(RouteTest):
         hint = 'href="/routes/new?own=1"'
         self.assertIn(hint, self.client.get("/status").text)
         form = self.client.get("/routes/new?own=1").text
-        self.assertIn('name="host" value="caddyman"', form)
         self.assertIn(f'name="upstream" value="caddyman:{main.OWN_PORT}"', form)
         self.assertNotIn('name="upstream" value="caddyman', self.client.get("/routes/new").text)
-        self.create(host="caddyman", upstream=f"caddyman:{main.OWN_PORT}")
+        self.create(host="caddyman.lab.test", upstream=f"caddyman:{main.OWN_PORT}")
         status = self.client.get("/status").text
         self.assertNotIn(hint, status)
         # The box stays while this page still comes in unencrypted: now it points at the route.
@@ -593,11 +592,11 @@ class TestRoutes(RouteTest):
         self.assertEqual(main.stored_groups(), ["Media"])
         self.assertIn('<option value="Media"', self.client.get("/routes/new").text)
         # The group stands in the route file, right after the keys every route has.
-        self.create(host="wiki", group="Media")
+        self.create(host="wiki.lab.test", group="Media")
         self.assertTrue(self.read("wiki.caddy").startswith(
             '# caddyman {"type":"reverse_proxy","host":"wiki.lab.test","port":"","tls":"acme_ca","group":"Media","upstream"'))
         self.assertIn('<option value="Media" selected', self.client.get("/routes/wiki/edit").text)
-        self.assertEqual(self.create(host="bad", group="{}").status_code, 400)
+        self.assertEqual(self.create(host="bad.lab.test", group="{}").status_code, 400)
         page = self.client.get("/").text
         self.assertLess(page.index('colspan="7">Media<'), page.index("wiki.lab.test"))
         self.assertLess(page.index('colspan="7">No group<'), page.index("pdf.lab.test"))
@@ -622,14 +621,14 @@ class TestRoutes(RouteTest):
         self.assertNotIn('name="flat"', self.client.get("/").text)
 
     def test_other_types_and_tls_modes(self):
-        self.create(type="redirect", host="old", target="https://new.lab.test/", code="301", tls="internal")
+        self.create(type="redirect", host="old.lab.test", target="https://new.lab.test/", code="301", tls="internal")
         self.assertIn("old.lab.test {\n\ttls internal\n\tredir https://new.lab.test{uri} 301\n}\n", self.read("old.caddy"))
         self.create(type="static", host="docs.other.test", root="/srv/www", tls="none", port="8080")
         self.assertIn(
             "http://docs.other.test:8080 {\n\troot * /srv/www\n\tfile_server\n}\n",
             self.read("docs.other.test_8080.caddy"),
         )
-        self.create(host="plain", tls="default")
+        self.create(host="plain.lab.test", tls="default")
         self.assertIn("plain.lab.test {\n\treverse_proxy 10.0.0.5:9005\n}\n", self.read("plain.caddy"))
 
     def test_input_that_must_never_reach_the_file(self):
@@ -740,7 +739,7 @@ class TestRoutes(RouteTest):
         self.assertNotIn("game.js", self.client.get("/routes/new").text)
         self.assertEqual(self.client.get("/static/game.js").status_code, 200)
         # The name itself stays an ordinary hostname for the server: the game lives in the browser.
-        self.assertEqual(self.create(host="candyman").headers["location"], "/")
+        self.assertEqual(self.create(host="candyman.lab.test").headers["location"], "/")
 
     def test_unreachable_target_only_warns(self):
         main.target_reachable.return_value = False
@@ -774,7 +773,7 @@ class TestRoutes(RouteTest):
 
     def test_list_marks_unreachable_target(self):
         self.create()
-        self.create(type="static", host="docs", root="/srv/www", tls="none")
+        self.create(type="static", host="docs.lab.test", root="/srv/www", tls="none")
         self.assertNotIn("Not reachable", self.client.get("/").text)
         main.target_reachable.return_value = False
         main.PROBE_CACHE.clear()
@@ -798,7 +797,7 @@ class TestRoutes(RouteTest):
         self.assertGreater(kept["target"], 50)
         self.assertLess(kept["certificate"], 20)  # the handshake failed in this test
         # Every change to the routes forgets all of it.
-        self.create(host="wiki", upstream="10.0.0.7:3000")
+        self.create(host="wiki.lab.test", upstream="10.0.0.7:3000")
         main.target_reachable.reset_mock()
         self.client.get("/")
         self.assertEqual(asked(), (2, first[1] + 2))
@@ -1361,7 +1360,7 @@ class TestManaged(AppTest):
         return response, (main.load_hosts() or [None])[0]
 
     def add_route(self):
-        data = {"type": "reverse_proxy", "host": "pdf", "upstream": "10.0.0.5:9005", "tls": "acme_ca"}
+        data = {"type": "reverse_proxy", "host": "pdf.lab.test", "upstream": "10.0.0.5:9005", "tls": "acme_ca"}
         return self.client.post("/routes/new", data=data)
 
     def test_ca_of_an_https_admin_api_is_remembered(self):
@@ -1466,7 +1465,7 @@ class TestManaged(AppTest):
     def test_push_carries_base_and_routes_inline(self):
         _, host = self.add_host()
         self.assertEqual(self.add_route().headers["location"], "/")
-        route_file = main.Path(host["sites_dir"]) / "pdf.caddy"
+        route_file = main.Path(host["sites_dir"]) / "pdf.lab.test.caddy"
         body = self.post.call_args.kwargs["content"].decode()
         self.assertEqual(body, self.BASE + "\n\n" + route_file.read_text())
         self.assertEqual(self.post.call_args.kwargs["headers"], {"Content-Type": "text/caddyfile"})
@@ -1489,7 +1488,7 @@ class TestManaged(AppTest):
         _, host = self.add_host()
         self.add_route()
         kept = main.managed_dir(host["id"])
-        self.assertTrue((kept / "sites" / "pdf.caddy").is_file())
+        self.assertTrue((kept / "sites" / "pdf.lab.test.caddy").is_file())
         # The question before it says what goes, and how much.
         self.assertIn("DELETES its copies with it: the base Caddyfile and 1 route files", self.client.get(f"/hosts/{host['id']}/edit").text)
         self.assertEqual(self.client.post(f"/hosts/{host['id']}/delete").headers["location"], "/hosts/new")
@@ -1531,7 +1530,7 @@ class TestManaged(AppTest):
         restored = main.load_hosts()[0]
         self.assertEqual((restored["id"], restored["storage"], restored.get("admin_user", "")), (host["id"], "managed", ""))
         self.assertEqual(main.Path(restored["caddyfile"]).read_text(), self.BASE + "\n")
-        self.assertTrue((main.Path(restored["sites_dir"]) / "pdf.caddy").exists())
+        self.assertTrue((main.Path(restored["sites_dir"]) / "pdf.lab.test.caddy").exists())
 
 
 def make_certificate(issuer, hours=24):
@@ -1762,7 +1761,7 @@ class TestLogs(RouteTest):
         self.write("caddy.log", [*self.LINES, line], mtime=4000)
         self.assertNotIn("GET /print", self.client.get("/logs?file=caddy.log&quiet=1").text)
         # A file written before the option existed stays as it is and stays in the form.
-        self.create(host="wiki", upstream="10.0.0.7:3000")
+        self.create(host="wiki.lab.test", upstream="10.0.0.7:3000")
         self.assertNotIn("log", self.read("wiki.caddy").split("\n", 1)[0])
         self.assertIsNotNone(main.read_route(main.Path(self.sites) / "wiki.caddy", self.host))
 
@@ -1873,7 +1872,7 @@ class TestBackup(RouteTest):
     def setUp(self):
         super().setUp()
         self.create()
-        self.create(host="wiki", upstream="10.0.0.7:3000")
+        self.create(host="wiki.lab.test", upstream="10.0.0.7:3000")
         self.archive = self.client.get("/backup/download").content
         self.pdf, self.wiki = self.read("pdf.caddy"), self.read("wiki.caddy")
 
@@ -2083,19 +2082,19 @@ class TestEdit(RouteTest):
         self.assertEqual(main.read_audit()[0]["action"], "update")
 
     def test_changing_the_hostname_renames_the_file(self):
-        self.edit(host="scan")
+        self.edit(host="scan.lab.test")
         self.assertEqual(os.listdir(self.sites), ["scan.caddy"])
         self.assertIn("scan.lab.test {", self.read("scan.caddy"))
         self.assertEqual(main.read_audit()[0]["route"], "pdf -> scan")
 
     def test_rename_never_overwrites_another_route(self):
-        self.create(host="scan")
-        self.assertEqual(self.edit(host="scan").status_code, 400)
+        self.create(host="scan.lab.test")
+        self.assertEqual(self.edit(host="scan.lab.test").status_code, 400)
         self.assertEqual(self.read("pdf.caddy"), self.original)
 
     def test_rejected_rename_restores_both_files(self):
         self.reject()
-        self.assertEqual(self.edit(host="scan").status_code, 400)
+        self.assertEqual(self.edit(host="scan.lab.test").status_code, 400)
         self.assertEqual(os.listdir(self.sites), ["pdf.caddy"])
         self.assertEqual(self.read("pdf.caddy"), self.original)
 
@@ -2216,10 +2215,10 @@ class TestEdit(RouteTest):
         self.assertEqual(self.read("pdf.caddy"), self.original)
 
     def test_more_hostnames_share_one_route(self):
-        self.edit(aliases=["Docs", "wiki.lab.test,pdf", "", "docs"])
+        self.edit(aliases=["Docs.lab.test", "wiki.lab.test,pdf.lab.test", "", "docs.lab.test"])
         text = self.read("pdf.caddy")
         route = main.read_route(main.Path(self.sites) / "pdf.caddy", self.host)
-        # Short names get the suffix, the main name and doubles drop out, the file keeps its name.
+        # The main name and doubles drop out, the file keeps its name.
         self.assertEqual(route["aliases"], ["docs.lab.test", "wiki.lab.test"])
         self.assertIn("\npdf.lab.test, docs.lab.test, wiki.lab.test {\n", text)
         page = self.client.get("/routes/pdf/edit").text
@@ -2229,7 +2228,7 @@ class TestEdit(RouteTest):
         taken, reason = main.adopt_route(text, self.host)
         self.assertEqual(taken and taken["aliases"], route["aliases"], reason)
         # Port and plain HTTP go for every name.
-        self.edit(aliases="docs", tls="none", port="8080")
+        self.edit(aliases="docs.lab.test", tls="none", port="8080")
         self.assertIn("\nhttp://pdf.lab.test:8080, http://docs.lab.test:8080 {\n", self.read("pdf_8080.caddy"))
         for bad in ("docs {", "a_b", " ".join(f"n{number}" for number in range(21))):
             self.assertEqual(self.edit(name="pdf_8080", aliases=bad).status_code, 400, bad)
@@ -2419,7 +2418,7 @@ class TestEdit(RouteTest):
         # Not over HTTP: neither the own ACME CA nor Caddy's default can prove a wildcard that way.
         self.assertEqual(self.create(host="*.apps.lab.test").status_code, 400)
         self.assertEqual(self.create(host="*.apps.lab.test", tls="default").status_code, 400)
-        self.assertEqual(self.create(host="docs", aliases="*.docs.lab.test").status_code, 400)
+        self.assertEqual(self.create(host="docs.lab.test", aliases="*.docs.lab.test").status_code, 400)
         for bad in ("a.*.lab.test", "*apps.lab.test", "*.*.lab.test"):
             self.assertEqual(self.create(host=bad, tls="internal").status_code, 400, bad)
         self.assertEqual(self.create(host="*.apps.lab.test", tls="internal").headers["location"], "/")
@@ -2489,7 +2488,7 @@ class TestEdit(RouteTest):
     def test_own_headers_to_the_browser_and_to_the_target(self):
         form = {"header_name": ["X-Frame-Options", "-Server"], "header_value": ["DENY", ""],
                 "header_up_name": ["X-Real-IP"], "header_up_value": ["{remote_host}"], "host_header": "1"}
-        self.assertEqual(self.create(host="hd", **form, path="/api/*", path_upstream="10.0.0.6:8080").status_code, 303)
+        self.assertEqual(self.create(host="hd.lab.test", **form, path="/api/*", path_upstream="10.0.0.6:8080").status_code, 303)
         text = self.read("hd.caddy")
         self.assertIn('\theader X-Frame-Options "DENY"\n\theader -Server\n', text)
         # For every target, after the Host header.
@@ -2503,12 +2502,20 @@ class TestEdit(RouteTest):
         # Refused: a value without a name, a removal with a value, quotes, and what reads Caddy's secrets.
         for name, value in (("", "x"), ("-Server", "x"), ("X-A", 'a"b'), ("X-A", "{env.CF_TOKEN}"), ("X-A", "{$CF_TOKEN}"),
                             ("X-A", "{file./etc/passwd}"), ("X A", "x"), ("X-A", "")):
-            self.assertEqual(self.create(host="c", header_name=name, header_value=value).status_code, 400, (name, value))
+            self.assertEqual(self.create(host="c.lab.test", header_name=name, header_value=value).status_code, 400, (name, value))
         self.assertFalse(os.path.exists(os.path.join(self.sites, "c.caddy")))
 
 
+    def test_a_suffix_from_before_keeps_the_short_file_names(self):
+        # No field for it, and a short name stays short; an old suffix still names the files.
+        self.assertNotIn("domain_suffix", self.client.get("/hosts/h1/edit").text)
+        self.client.post("/hosts/h1/edit", data={key: self.host[key] for key in main.HOST_DEFAULTS if key != "domain_suffix"})
+        self.assertEqual(main.pick_host()["domain_suffix"], "lab.test")
+        self.create(host="wiki.lab.test")
+        self.assertTrue(os.path.exists(os.path.join(self.sites, "wiki.caddy")))
+
     def test_switched_off_routes_can_show_the_maintenance_page(self):
-        self.assertEqual(self.create(host="mt", auth_user="ada", auth_password="secret-pass", hsts="1").status_code, 303)
+        self.assertEqual(self.create(host="mt.lab.test", auth_user="ada", auth_password="secret-pass", hsts="1").status_code, 303)
         before = self.read("mt.caddy")
         # As before: off is commented out.
         self.client.post("/routes/mt/toggle")
@@ -2686,10 +2693,10 @@ class TestComfort(RouteTest):
         self.assertIn("https://10.0.0.8:8443", text)
         self.assertNotIn("http://", text)
         # A path is not dropped without a word: Caddy would send the requests somewhere else.
-        self.assertEqual(self.create(host="other", upstream="http://10.0.0.5:9005/admin").status_code, 400)
+        self.assertEqual(self.create(host="other.lab.test", upstream="http://10.0.0.5:9005/admin").status_code, 400)
 
     def test_further_names_are_folded_in_the_route_list(self):
-        self.create(aliases=["docs", "files"])
+        self.create(aliases=["docs.lab.test", "files.lab.test"])
         page = self.client.get("/").text
         self.assertIn('<details class="more"><summary>2 more names</summary>', page)
         self.assertIn("<small>docs.lab.test</small>", page)
