@@ -107,9 +107,9 @@
 	<input id="root_ca_url" name="root_ca_url" value="{{ host.root_ca_url }}" placeholder="https://ca.home.example:9001/roots.pem">
 	<small>Where the root certificate for your clients can be downloaded.</small>
 
-	<label for="domain_suffix">Domain suffix <span class="optional">optional</span></label>
-	<input id="domain_suffix" name="domain_suffix" value="{{ host.domain_suffix }}" placeholder="home.example">
-	<small>With a suffix the short name is enough when adding a route.</small>
+	<label for="domain_suffix">Domain suffixes <span class="optional">optional</span></label>
+	<input id="domain_suffix" name="domain_suffix" value="{{ host.domain_suffix }}" placeholder="home.example firma.de">
+	<small>With a suffix the short name is enough when adding a route. Several separated by spaces, the first is the default.</small>
 
 	<button type="submit">Save and check</button>
 </form>

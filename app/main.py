@@ -1384,8 +1384,8 @@ def host_problem(host: dict) -> str | None:
         return "The TLS, SSO and DNS snippets have to be different snippets."
     if host["root_ca_url"] and not is_http_url(host["root_ca_url"]):
         return "The root CA source has to be an http or https URL."
-    if host["domain_suffix"] and not HOSTNAME_RE.match(host["domain_suffix"]):
-        return "The domain suffix has to be a hostname such as home.example."
+    if not all(HOSTNAME_RE.match(suffix) and "." in suffix for suffix in suffixes(host)) or len(suffixes(host)) > MAX_SUFFIXES:
+        return f"Domain suffixes are up to {MAX_SUFFIXES} domains such as home.example, separated by spaces."
     return None
 
 
@@ -1630,7 +1630,8 @@ async def host_from_form(request: Request) -> dict:
     host = {key: str(form.get(key, "")).strip() for key in (*HOST_DEFAULTS, "storage", "admin_user")}
     host["admin_url"] = host["admin_url"].rstrip("/")
     host["sites_dir"] = host["sites_dir"].rstrip("/") or "/"
-    host["domain_suffix"] = host["domain_suffix"].lower().strip(".")
+    # Several are one text, separated by spaces: hosts.json keeps its shape. The first is the default.
+    host["domain_suffix"] = " ".join(dict.fromkeys(item.strip(".") for item in host["domain_suffix"].lower().replace(",", " ").split()))
     host["form_password"] = str(form.get("admin_password", ""))
     host["form_base"] = str(form.get("base_caddyfile", "")).replace("\r\n", "\n").strip()
     # Only the certificates are kept; text around them is dropped. Something that holds none stays, to be refused.
@@ -1918,6 +1919,14 @@ def header_line(directive: str, name: str, value: str) -> str:
     return f'{directive} {name} "{value}"' if value else f"{directive} {name}"
 
 
+MAX_SUFFIXES = 5
+
+
+def suffixes(host: dict) -> list[str]:
+    """The domain suffixes of a host, the default first."""
+    return host.get("domain_suffix", "").split()
+
+
 # A path that goes to a target of its own. Never '/' alone: that is what the main target is for.
 PATH_RE = re.compile(r"^/[A-Za-z0-9._~-][A-Za-z0-9._~/-]*\*?\Z")
 
@@ -1958,7 +1967,9 @@ def route_from_form(form, host: dict, previous: dict | None = None, request: Req
 
     def full(name: str) -> str:
         name = name.lower().strip(".")
-        return f"{name}.{host['domain_suffix']}" if host["domain_suffix"] and "." not in name and name else name
+        # A short name gets the suffix picked next to it, else the first one.
+        chosen = get("suffix") if get("suffix") in suffixes(host) else next(iter(suffixes(host)), "")
+        return f"{name}.{chosen}" if chosen and "." not in name and name else name
 
     def usable(name: str) -> bool:
         # '*.' in front stands for every name one level below: a wildcard.
@@ -2157,7 +2168,9 @@ def route_file_name(route: dict, host: dict) -> str:
     """File name without extension: the hostname without the host's suffix."""
     if route["type"] == "error_page":
         return CATCH_ALL
-    name = route["host"].removesuffix(f".{host['domain_suffix']}") if host["domain_suffix"] else route["host"]
+    # Only the first suffix is left out: pdf under a second one must not take the file of the first.
+    first = next(iter(suffixes(host)), "")
+    name = route["host"].removesuffix(f".{first}") if first else route["host"]
     # A star cannot stand in a file name.
     name = "wildcard" + name[1:] if name.startswith("*") else name
     return name + (f"_{route['port']}" if route["port"] else "")

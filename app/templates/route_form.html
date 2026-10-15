@@ -26,9 +26,17 @@
 	</fieldset>
 
 	<label for="host">Hostname</label>
-	<input id="host" name="host" value="{{ route.host or '' }}" required autofocus
-		placeholder="{{ 'pdf' if host.domain_suffix else 'pdf.home.example' }}">
-	<small>{% if host.domain_suffix %}A short name gets <code>.{{ host.domain_suffix }}</code>. {% endif %}
+	{% set suffixes = host.domain_suffix.split() %}
+	<div class="hostline">
+		<input id="host" name="host" value="{{ route.host or '' }}" required autofocus
+			placeholder="{{ 'pdf' if suffixes else 'pdf.home.example' }}">
+		{% if suffixes|length > 1 %}
+		<select name="suffix" aria-label="Domain for a short name">
+			{% for suffix in suffixes %}<option value="{{ suffix }}">.{{ suffix }}</option>{% endfor %}
+		</select>
+		{% endif %}
+	</div>
+	<small>{% if suffixes|length > 1 %}A short name gets the domain picked next to it. {% elif suffixes %}A short name gets <code>.{{ suffixes[0] }}</code>. {% endif %}
 		<code>*.example.com</code> needs the DNS challenge or the internal CA.</small>
 
 	<div class="for-reverse_proxy">
