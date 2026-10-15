@@ -6,7 +6,7 @@
 <aside class="side">
 	<a href="/error-pages" {% if not code %}aria-current="page"{% endif %}>Setup</a>
 	{% for key, item in pages.items() %}
-	<a href="/error-pages/{{ key }}" {% if code == key %}aria-current="page"{% endif %}>{{ key ~ " " if key|int }}{{ item[0] }}</a>
+	<a href="/error-pages/{{ key }}" title="{{ meanings[key] }}" {% if code == key %}aria-current="page"{% endif %}>{{ key ~ " " if key|int }}{{ item[0] }}</a>
 	{% endfor %}
 </aside>
 {% if code %}
@@ -14,6 +14,7 @@
 	<h2>{{ code ~ " " if code|int }}{{ pages[code][0] }}</h2>
 	<a class="button secondary" href="/error/{{ code }}" target="_blank" rel="noopener">Open the page</a>
 </div>
+<p class="empty">{{ meanings[code] }}</p>
 <form method="post" action="/error-pages/{{ code }}">
 	<div class="designs">
 		{% for key, name in designs.items() %}

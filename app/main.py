@@ -1824,6 +1824,19 @@ ERROR_PAGES = {
     "blocked": ("Blocked", "This address is blocked on this network."),
     "maintenance": ("Maintenance", "This service is being worked on and will be back soon."),
 }
+# When each page comes up, for whoever picks its design. The visitor reads the text above instead.
+ERROR_MEANINGS = {
+    "400": "The request was malformed, often a broken link or client.",
+    "403": "Access was refused, for example by Allowed networks.",
+    "404": "Nothing answers at this path.",
+    "405": "The method is not accepted, like POST where only GET works.",
+    "500": "Caddy itself failed while answering.",
+    "502": "The target does not answer or refuses the connection.",
+    "503": "The target is overloaded or down for a moment.",
+    "504": "The target took too long to answer.",
+    "blocked": "Names no route knows, sent here by a DNS blocker.",
+    "maintenance": "Routes that are switched off, when set under Setup.",
+}
 # The pages that are no status code of their own, and the code they are sent with.
 PAGE_STATUS = {"blocked": 403, "maintenance": 503}
 ERROR_TEXT_LIMITS = {"title": 60, "text": 200}
@@ -3065,7 +3078,7 @@ def catch_all_state(host: dict) -> str:
 def error_pages_view(request: Request, code: str = ""):
     current = the_host()
     stored = load_errors()
-    context = {"code": code, "pages": ERROR_PAGES, "designs": ERROR_DESIGNS, "chosen": stored["designs"], "disabled": stored["disabled"], "texts": stored["texts"], "limits": ERROR_TEXT_LIMITS, "upstream": caddyman_upstream(current, request), "settings_url": host_settings_url()}
+    context = {"code": code, "pages": ERROR_PAGES, "meanings": ERROR_MEANINGS, "designs": ERROR_DESIGNS, "chosen": stored["designs"], "disabled": stored["disabled"], "texts": stored["texts"], "limits": ERROR_TEXT_LIMITS, "upstream": caddyman_upstream(current, request), "settings_url": host_settings_url()}
     if not code:
         routes = [item["route"] for item in list_routes(current) if item["route"]]
         context.update(catch_all=catch_all_state(current), users=sum(1 for route in routes if route.get("errors")))
