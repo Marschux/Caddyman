@@ -8,7 +8,6 @@
 	{% if routes %}
 	<form class="row filters" id="route-filter" hidden onsubmit="return false">
 		<input type="search" name="q" placeholder="Search host, target, group ..." aria-label="Search the routes">
-		<label class="check"><input type="checkbox" name="problems"> Only problems</label>
 	</form>
 	{% endif %}
 	{% if may_change %}
@@ -21,9 +20,10 @@
 <table class="even">
 	<thead>
 		<tr><th>Host</th><th>Type</th><th>Target</th><th>Options</th><th>TLS</th><th>Certificate</th>
-			{# One list without the names of the groups in between. Only where there are groups at all,
-			   and shown by routes.js. It belongs to the filter form above although it sits here. #}
-			<th class="actions">{% if routes|selectattr("group")|list %}<label class="check" hidden><input type="checkbox" name="flat" form="route-filter"> No groups</label>{% endif %}</th></tr>
+			{# "Only problems", and one list without the names of the groups in between (only where there
+			   are groups at all). Shown by routes.js; both belong to the filter form above although they sit here. #}
+			<th class="actions"><label class="check problems" hidden><input type="checkbox" name="problems" form="route-filter"> Only problems</label>
+				{% if routes|selectattr("group")|list %}<label class="check" hidden><input type="checkbox" name="flat" form="route-filter"> No groups</label>{% endif %}</th></tr>
 	</thead>
 	<tbody>
 		{# The list comes sorted by group. Without any group it looks as it always did. #}

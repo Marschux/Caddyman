@@ -119,6 +119,7 @@
 		}
 		box.closest("label").hidden = false;
 	}
+	filter.elements.problems.closest("label").hidden = false;
 	filter.hidden = false;
 	apply();
 })();
