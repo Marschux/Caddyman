@@ -1201,7 +1201,7 @@ class TestCa(RouteTest):
         page = self.client.get("/ca").text
         self.assertIn(self.SHA256, page)
         self.assertNotIn("Caddy's internal CA:", page)
-        self.assertEqual(self.get.call_args.args[0], "https://ca.lab.test:9001/roots.pem")
+        self.assertEqual(self.get.call_args_list[0].args[0], "https://ca.lab.test:9001/roots.pem")
         download = self.client.get("/ca/root-ca.crt")
         self.assertEqual(download.text, self.PEM + "\n")  # only the certificate, nothing around it
         self.assertIn("attachment", download.headers["content-disposition"])
@@ -2694,6 +2694,28 @@ class TestHardening(RouteTest):
         with self.assertRaises(ValueError):
             main.fetch_root_ca(host, first=True)  # saving the settings: trust on first use
         self.assertIsNotNone(get.call_args.kwargs["auth"])
+
+
+    def test_caddys_own_root_comes_along_with_the_source(self):
+        own, theirs = ("-----BEGIN CERTIFICATE-----\n%s\n-----END CERTIFICATE-----" % body for body in ("b3du", "dGhlaXJz"))
+        answers = {"https://ca.lab.test/roots.pem": mock.Mock(status_code=200, text=theirs),
+                   f"{self.host['admin_url']}/pki/ca/local": mock.Mock(status_code=200, json=lambda: {"root_certificate": own})}
+        get = self.patch(main.httpx, "get", mock.Mock(side_effect=lambda url, **_: answers[url]))
+        host = {**self.host, "root_ca_url": "https://ca.lab.test/roots.pem"}
+        pem, source, internal = main.fetch_root_ca(host)
+        self.assertEqual(PEM_RE_ALL(pem), [theirs, own])
+        self.assertFalse(internal)
+        self.assertIn("/pki/ca/local", source)
+        # Saving the settings checks the typed source alone.
+        self.assertEqual(PEM_RE_ALL(main.fetch_root_ca(host, first=True)[0]), [theirs])
+        # Caddy down: the source alone, no error.
+        answers.pop(f"{self.host['admin_url']}/pki/ca/local")
+        get.side_effect = lambda url, **_: answers.get(url) or (_ for _ in ()).throw(main.httpx.ConnectError("down"))
+        self.assertEqual(PEM_RE_ALL(main.fetch_root_ca(host)[0]), [theirs])
+
+
+def PEM_RE_ALL(pem):
+    return main.PEM_RE.findall(pem)
 
 
 class TestComfort(RouteTest):

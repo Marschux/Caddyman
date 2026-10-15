@@ -36,7 +36,7 @@
 {% endif %}
 {% if many %}
 {# A device takes only the first certificate out of a file, so each one is its own round. #}
-<p class="empty">This CA hands out <strong>{{ certs|length }} certificates</strong>, and a device needs all of them.
+<p class="empty">There are <strong>{{ certs|length }} certificates</strong>, and a device needs all of them.
 	Each has its own download and check code:
 	{% for item in certs %}
 	{% if item.number == cert.number %}<strong>Certificate {{ item.number }}</strong>{% else %}<a href="?os={{ shown }}&amp;cert={{ item.number }}">Certificate {{ item.number }}</a>{% endif %}{{ " · " if not loop.last }}

@@ -3294,6 +3294,15 @@ def fetch_root_ca(host: dict, first: bool = False) -> tuple[str, str, bool]:
     certificates = PEM_RE.findall(text) if isinstance(text, str) else []
     if response.status_code != 200 or not certificates:
         raise ValueError(f"{source} did not answer with a certificate (HTTP {response.status_code}).")
+    # Caddy's own CA always comes along (Max, 15.10.2026): a route on "Caddy internal CA" needs it
+    # too. Not on the first fetch, which checks only the source being saved; missing, it is left out.
+    if not internal and not first:
+        try:
+            own, own_source, _ = fetch_root_ca({**host, "root_ca_url": ""})
+            certificates += [one for one in PEM_RE.findall(own) if one not in certificates]
+            source = f"{source} and {own_source}"
+        except ValueError:
+            pass
     return "\n".join(certificates) + "\n", source, internal
 
 
