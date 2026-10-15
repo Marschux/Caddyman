@@ -392,8 +392,8 @@ table.even tbody tr:not(.group) > td { height: 80px; }
 /* The route list keeps its columns: what does not fit wraps inside its cell instead of widening it. */
 table.routes { table-layout: fixed; }
 /* Type, options, TLS label and buttons have a size of their own; the target gets what host and certificate leave. */
-table.routes col:nth-child(1) { width: 13%; }
-table.routes col:nth-child(2) { width: 125px; }
+table.routes col:nth-child(1) { width: 11%; }
+table.routes col:nth-child(2) { width: 155px; }
 table.routes col:nth-child(4) { width: 270px; }
 table.routes col:nth-child(6) { width: 12%; }
 table.routes col:nth-child(5) { width: 130px; }
