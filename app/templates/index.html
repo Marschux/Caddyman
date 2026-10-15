@@ -86,8 +86,10 @@
 				{% elif route and route.off %}<span class="cert" title="Caddy does not serve this route. Its file and settings are kept.">Off</span>
 				{% elif cert %}
 				{# One short word or two; who issued it and what is wrong live in the tooltip, so every row stays even. #}
-				<span class="cert {{ cert.level }}" title="{{ 'Issued by ' ~ cert.issuer ~ '. ' if cert.issuer }}{{ cert.detail }}">{{ cert.short }}</span>
-				{% if cert.level in ("warn", "fail") and "logs" in request.state.me.permissions %}<a href="/logs?q={{ (route or item.hand).host|urlencode }}&amp;quiet=1">Show its log</a>{% endif %}
+				{# A bad one is the link to its log. #}
+				{% set why = ('Issued by ' ~ cert.issuer ~ '. ' if cert.issuer) ~ cert.detail %}
+				{% if cert.level in ("warn", "fail") and "logs" in request.state.me.permissions %}<a class="cert {{ cert.level }}" href="/logs?q={{ (route or item.hand).host|urlencode }}&amp;quiet=1" title="{{ why }} Click for its log.">{{ cert.short }}</a>
+				{% else %}<span class="cert {{ cert.level }}" title="{{ why }}">{{ cert.short }}</span>{% endif %}
 				{% elif not route %}<span class="empty">-</span>{% endif %}
 				{% if route %}{% set mode = {"acme_ca": ("Own ACME CA", "Certificates from the own ACME CA, set in the TLS snippet"),
 					"default": ("Caddy default", "Certificates from Let's Encrypt or ZeroSSL"),

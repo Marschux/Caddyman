@@ -1575,7 +1575,9 @@ class TestCertificates(RouteTest):
         self.served.side_effect = None
         self.served.return_value = make_certificate("Caddy Local Authority - ECC Intermediate")
         page = self.client.get("/").text
-        self.assertIn('class="cert warn"', page)
+        # A bad one is itself the link to its log, no line of its own.
+        self.assertIn('<a class="cert warn" href="/logs?q=pdf.lab.test&amp;quiet=1"', page)
+        self.assertNotIn("Show its log", page)
         # The explanation is the tooltip only, so the row stays one line.
         self.assertEqual(page.count("internal CA instead of your ACME CA"), 1)
         self.assertIn('title="Issued by Caddy Local Authority - ECC Intermediate. Issued by Caddy', page)
