@@ -2290,7 +2290,7 @@ class TestEdit(RouteTest):
     def test_adopt_names_a_snippet_not_set_at_the_host(self):
         text = "pdf.lab.test {\n\timport stepca\n\treverse_proxy 10.0.0.5:9005\n}\n"
         _, reason = main.adopt_route(text, {**self.host, "tls_snippet": ""})
-        self.assertIn("imports stepca, which is not set", reason)
+        self.assertIn("imports stepca, a snippet not set", reason)
         # A name the base Caddyfile does not define stays a foreign line.
         _, reason = main.adopt_route(text.replace("stepca", "nowhere"), self.host)
         self.assertIn("would not write: import nowhere", reason)
@@ -2746,7 +2746,7 @@ class TestComfort(RouteTest):
     def test_further_names_are_folded_in_the_route_list(self):
         self.create(aliases=["docs.lab.test", "files.lab.test"])
         page = self.client.get("/").text
-        self.assertIn('<details class="more"><summary>2 more names</summary>', page)
+        self.assertIn('<span class="tag" title="docs.lab.test, files.lab.test">+2</span></summary>', page)
         self.assertIn('<small><a class="out" href="https://docs.lab.test"', page)
 
 

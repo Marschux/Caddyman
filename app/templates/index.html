@@ -39,11 +39,12 @@
 		<tr data-group="{{ item.group }}"{% if route and route.off %} class="off"{% endif %}{% if item.target_down or item.refused or (item.certificate and item.certificate.level in ("warn", "fail")) %} data-problem{% endif %}>
 			{% if route %}
 			<td class="nowrap">
-				{% if item.site %}<a class="out" href="{{ item.site }}" target="_blank" rel="noopener noreferrer"><strong>{{ route.host }}{{ ":" ~ route.port if route.port }}</strong></a>
-				{% else %}<strong>{{ route.host }}{{ ":" ~ route.port if route.port }}</strong>{% endif %}
-				{# Folded away: a route with many names would otherwise be as tall as several. #}
-				{% if route.aliases %}<details class="more"><summary>{{ route.aliases|length }} more name{{ "s" if route.aliases|length != 1 }}</summary>
-					{% for alias, site in item.alias_sites %}<small>{% if site %}<a class="out" href="{{ site }}" target="_blank" rel="noopener noreferrer">{{ alias }}{{ ":" ~ route.port if route.port }}</a>{% else %}{{ alias }}{{ ":" ~ route.port if route.port }}{% endif %}</small>{% endfor %}</details>{% endif %}
+				{% set name %}{% if item.site %}<a class="out" href="{{ item.site }}" target="_blank" rel="noopener noreferrer"><strong>{{ route.host }}{{ ":" ~ route.port if route.port }}</strong></a>
+				{% else %}<strong>{{ route.host }}{{ ":" ~ route.port if route.port }}</strong>{% endif %}{% endset %}
+				{# Folded away behind a count next to the name, so the name stays on the middle line of the row. #}
+				{% if route.aliases %}<details class="more names"><summary>{{ name }}<span class="tag" title="{{ route.aliases|join(', ') }}">+{{ route.aliases|length }}</span></summary>
+					{% for alias, site in item.alias_sites %}<small>{% if site %}<a class="out" href="{{ site }}" target="_blank" rel="noopener noreferrer">{{ alias }}{{ ":" ~ route.port if route.port }}</a>{% else %}{{ alias }}{{ ":" ~ route.port if route.port }}{% endif %}</small>{% endfor %}</details>
+				{% else %}{{ name }}{% endif %}
 			</td>
 			<td class="nowrap">{{ {"reverse_proxy": "Reverse proxy", "redirect": "Redirect", "static": "Static files"}[route.type] }}</td>
 			{# A redirect can point at a long address and may wrap; host:port and a path stay on one line. #}
@@ -53,7 +54,7 @@
 				{% if route.paths %}<details class="more"><summary>{{ route.paths|length }} path{{ "s" if route.paths|length != 1 }}</summary>
 					{% for path, target in route.paths %}<small><code>{{ path }}</code> to <code>{{ target }}</code></small>{% endfor %}</details>{% endif %}</td>
 			{# What is switched on for the route, always in the same place and order. The long name is the tooltip. #}
-			<td class="nowrap">
+			<td><div class="tags">
 				{% if route.sso %}<span class="tag opt sso" title="Single sign-on: the login service is asked first">SSO</span>{% endif %}
 				{% if route.auth_user %}<span class="tag opt auth" title="Basic auth: asks for a login">Auth</span>{% endif %}
 				{% if route.host_header %}<span class="tag opt host" title="Host header: the target gets its own name as Host">Host</span>{% endif %}
@@ -62,7 +63,7 @@
 				{% if route.allow %}<span class="tag opt ip" title="Only reachable from: {{ route.allow }}">IP</span>{% endif %}
 				{% if route.errors %}<span class="tag opt errors" title="Error pages: Caddy's own errors show a page from Caddyman">Errors</span>{% endif %}
 				{% if route.log %}{% if "logs" in request.state.me.permissions %}<a class="tag opt log" title="Access log: open it" href="/logs?file=access-{{ item.name|urlencode }}.log">Log</a>{% else %}<span class="tag opt log" title="Access log">Log</span>{% endif %}{% endif %}
-			</td>
+			</div></td>
 			<td class="nowrap"><span class="tag">{{ {"acme_ca": "Own ACME CA", "default": "Caddy default", "dns": "DNS challenge", "internal": "Caddy internal", "none": "None"}[route.tls] }}</span></td>
 			{% else %}
 			<td><code>{{ item.name }}.caddy</code></td>

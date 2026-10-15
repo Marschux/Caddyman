@@ -157,7 +157,7 @@ main:has(> .side) > .card > :first-child { margin-top: 0; }
 	main:has(> .side) table { display: block; overflow-x: auto; }
 }
 
-main { flex: 1; width: 100%; max-width: 1280px; margin: 0 auto; padding: 48px 32px; }
+main { flex: 1; width: 100%; max-width: 1440px; margin: 0 auto; padding: 48px 32px; }
 footer { padding: 32px; color: var(--ink-subtle); font-size: 13px; letter-spacing: 0.2px; text-align: center; }
 footer a { color: var(--ink-muted); }
 
@@ -392,13 +392,13 @@ table.even tbody tr:not(.group) > td { height: 80px; }
 /* The route list keeps its columns: what does not fit wraps inside its cell instead of widening it. */
 table.routes { table-layout: fixed; }
 /* Type, TLS label and buttons have a size of their own; the other columns grow with the page. */
-table.routes col:nth-child(2) { width: 130px; }
-table.routes col:nth-child(5) { width: 140px; }
+table.routes col:nth-child(2) { width: 125px; }
+table.routes col:nth-child(5) { width: 130px; }
 table.routes col:nth-child(7) { width: 250px; }
-table.routes col:nth-child(1) { width: 13%; }
-table.routes col:nth-child(3) { width: 16%; }
-table.routes col:nth-child(4) { width: 15%; }
-table.routes col:nth-child(6) { width: 13%; }
+table.routes col:nth-child(1) { width: 11%; }
+table.routes col:nth-child(3) { width: 14%; }
+table.routes col:nth-child(4) { width: 22%; }
+table.routes col:nth-child(6) { width: 11%; }
 table.routes td.nowrap { white-space: normal; overflow-wrap: anywhere; }
 /* The line that unfolds is a pill like the tags, without the browser's triangle. */
 td details.more summary { display: inline-block; list-style: none; padding: 2px 10px; color: var(--ink-muted); background: var(--surface-2); border-radius: 9999px; font-size: 12px; font-weight: 400; line-height: 1.38; letter-spacing: 0.2px; }
@@ -408,6 +408,10 @@ td details.more summary:hover, td details.more[open] summary { color: var(--ink)
 td details.more small { margin-top: 4px; font-weight: 400; }
 td details.more small a.out { color: var(--ink-muted); }
 td details.more small a.out:hover { color: var(--ink); }
+/* Further hostnames: the main name is the line that unfolds, the count stands next to it. */
+td details.more.names { margin: 0; }
+td details.more.names summary, td details.more.names summary:hover, td details.more.names[open] summary { display: block; padding: 0; color: inherit; background: none; font-size: inherit; line-height: inherit; letter-spacing: inherit; cursor: pointer; }
+td details.more.names summary .tag:hover, td details.more.names[open] summary .tag { color: var(--ink); background: var(--surface-3); }
 /* The block has the colour of a grey button: the outline keeps the button visible on it. */
 details button.secondary { border-color: var(--hairline-strong); }
 /* A list to pick from inside such a block: each entry opens what there is to copy. */

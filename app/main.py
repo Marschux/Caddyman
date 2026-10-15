@@ -2453,7 +2453,7 @@ def adopt_route(content: str, host: dict) -> tuple[dict | None, str]:
         elif tokens[:2] == ["root", "*"] and len(tokens) == 3:
             form.update(type="static", root=tokens[2])
         elif len(tokens) == 2 and tokens[0] == "import" and base_snippet(host, tokens[1]):
-            return None, f"it imports {tokens[1]}, which is not set as a TLS, SSO or DNS snippet under Settings → Caddy"
+            return None, f"it imports {tokens[1]}, a snippet not set under Settings → Caddy"
         elif tokens != ["file_server"]:
             return None, f"it contains a line Caddyman would not write: {' '.join(tokens)}"
     if "type" not in form:
