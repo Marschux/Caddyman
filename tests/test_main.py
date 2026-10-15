@@ -293,7 +293,8 @@ class TestHosts(AppTest):
             {"tls_snippet": "step ca"},
             {"tls_snippet": "x) {\nevil"},
             {"root_ca_url": "file:///etc/passwd"},
-            {"domain_suffix": "bad suffix"},
+            {"domain_suffix": "bad_suffix"},
+            {"domain_suffix": "a.test b.test c.test d.test e.test f.test"},
         ]
         for fields in bad:
             with self.subTest(fields):
@@ -2508,6 +2509,8 @@ class TestEdit(RouteTest):
 
 
     def test_several_domain_suffixes(self):
+        # A name without a dot counts as well, as before there were several.
+        self.assertIsNone(main.host_problem({**self.host, "domain_suffix": "test"}))
         main.save_hosts([{**self.host, "domain_suffix": "lab.test other.test"}])
         form = self.client.get("/routes/new").text
         self.assertIn('<option value="other.test">.other.test</option>', form)
