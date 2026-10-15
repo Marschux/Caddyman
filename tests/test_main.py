@@ -2302,6 +2302,13 @@ class TestEdit(RouteTest):
         self.assertIn('<option value="stepca"', self.client.get("/routes/new").text)
         self.assertEqual(self.create(host="sn.lab.test", tls="snippet", snippet="stepca").status_code, 303)
         self.assertIn('"tls":"snippet","snippet":"stepca"', self.read("sn.caddy"))
+        # Named in the settings it is fine; once the settings do not name it, one of the problems in the list.
+        self.assertEqual(self.client.get("/").text.count("data-problem"), 0)
+        main.save_hosts([{**main.pick_host(), "tls_snippet": ""}])
+        listing = self.client.get("/").text
+        # This one, and pdf, which was made with Own ACME CA.
+        self.assertEqual(listing.count("data-problem"), 2)
+        self.assertIn("It is not set under Settings, Caddy", listing)
         self.assertEqual(self.create(host="sn2.lab.test", tls="snippet", snippet="nowhere").status_code, 400)
 
     def test_a_route_that_lost_its_tls_snippet_is_a_problem(self):
