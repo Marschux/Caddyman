@@ -2202,13 +2202,18 @@ def well_formed(route) -> bool:
 LOST_TLS_SNIPPET = "Made with Own ACME CA, but no TLS snippet is set under Settings → Caddy any more"
 
 
-def lost_tls_snippet(host: dict, content: str) -> bool:
-    """Whether a file was written with Own ACME CA before the TLS snippet was taken out of the settings."""
+def route_meta(content: str):
+    """What the first line of a file says about it, or None when it says nothing readable."""
     first = content.split("\n", 1)[0]
     try:
-        meta = json.loads(first[len(META_PREFIX):]) if first.startswith(META_PREFIX) else {}
+        return json.loads(first[len(META_PREFIX):]) if first.startswith(META_PREFIX) else None
     except ValueError:
-        return False
+        return None
+
+
+def lost_tls_snippet(host: dict, content: str) -> bool:
+    """Whether a file was written with Own ACME CA before the TLS snippet was taken out of the settings."""
+    meta = route_meta(content)
     return not host["tls_snippet"] and isinstance(meta, dict) and meta.get("tls") == "acme_ca"
 
 
@@ -2216,10 +2221,7 @@ def read_route(path: Path, host: dict) -> dict | None:
     """Metadata of a file this tool wrote and nobody changed since, else None."""
     try:
         content = path.read_text(encoding="utf-8")
-        first = content.split("\n", 1)[0]
-        if not first.startswith(META_PREFIX):
-            return None
-        route = json.loads(first[len(META_PREFIX):])
+        route = route_meta(content)
         if not well_formed(route):
             return None
         # No form writes this type: it is the one file Error pages writes, and nothing else.
@@ -2444,7 +2446,7 @@ def adopt_route(content: str, host: dict) -> tuple[dict | None, str]:
     address = names[0]
     form = {"host": address.group(2), "port": address.group(3) or "", "tls": "none" if address.group(1) else "default"}
     form["aliases"] = " ".join(found.group(2) for found in names[1:])
-    inner, index, login = lines[1:-1], 0, None
+    inner, index, login, snippets = lines[1:-1], 0, None, base_snippets(host)
     while index < len(inner):
         tokens, block = inner[index], inner[index + 1 : index + 3]
         index += 1
@@ -2454,7 +2456,7 @@ def adopt_route(content: str, host: dict) -> tuple[dict | None, str]:
             form["tls"], form["dns"] = "dns", tokens[1]
         elif tokens == ["import", host["sso_snippet"]]:
             form["sso"] = "1"
-        elif len(tokens) == 2 and tokens[0] == "import" and tokens[1] in base_snippets(host):
+        elif len(tokens) == 2 and tokens[0] == "import" and tokens[1] in snippets:
             # A snippet none of the host settings names: the TLS mode that imports any snippet.
             form["tls"], form["snippet"] = "snippet", tokens[1]
         elif tokens == HSTS_LINE.split():
