@@ -405,10 +405,6 @@ table.routes td.tls > * + * { margin-top: 6px; }
 table.routes td.nowrap { white-space: normal; overflow-wrap: anywhere; }
 /* At most four options in a line, so a route with many of them takes two even lines. */
 table.routes .tags { display: grid; grid-template-columns: repeat(4, max-content); text-align: center; }
-/* With allowed networks the options are the line that unfolds them. */
-td details.more.nets { margin: 0; }
-td details.more.nets summary, td details.more.nets summary:hover, td details.more.nets[open] summary { display: block; padding: 0; color: inherit; background: none; font-size: inherit; font-weight: inherit; line-height: inherit; letter-spacing: inherit; cursor: pointer; }
-td details.more.nets small { margin-top: 6px; color: var(--ink-muted); white-space: normal; }
 /* The line that unfolds is a pill like the tags, without the browser's triangle. */
 td details.more summary { display: inline-block; list-style: none; padding: 2px 10px; color: var(--ink-muted); background: var(--surface-2); border-radius: 9999px; font-size: 12px; font-weight: 400; line-height: 1.38; letter-spacing: 0.2px; }
 td details.more summary::-webkit-details-marker { display: none; }
@@ -424,7 +420,7 @@ td details.more.problem small { white-space: normal; }
 /* Further hostnames: the main name is the line that unfolds, the count stands next to it. */
 td details.more.names { margin: 0; }
 td details.more.names summary, td details.more.names summary:hover, td details.more.names[open] summary { display: block; padding: 0; color: inherit; background: none; font-size: inherit; line-height: inherit; letter-spacing: inherit; cursor: pointer; }
-td details.more.names summary .tag:hover, td details.more.names[open] summary .tag { color: var(--ink); background: var(--surface-3); }
+td details.more.names summary .tag:not(.opt):hover, td details.more.names[open] summary .tag:not(.opt) { color: var(--ink); background: var(--surface-3); }
 /* The block has the colour of a grey button: the outline keeps the button visible on it. */
 details button.secondary { border-color: var(--hairline-strong); }
 /* A list to pick from inside such a block: each entry opens what there is to copy. */
