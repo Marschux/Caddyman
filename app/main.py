@@ -1658,7 +1658,7 @@ def pushed_digest(host: dict) -> str:
 
 META_PREFIX = "# caddyman "
 ROUTE_TYPES = ("reverse_proxy", "redirect", "static")
-TLS_MODES = ("acme_ca", "default", "dns", "internal", "none")
+TLS_MODES = ("acme_ca", "default", "dns", "snippet", "internal", "none")
 REDIRECT_CODES = ("301", "302", "308")
 # The port may be left out: Caddy then takes 443 for https:// and 80 for everything else.
 UPSTREAM_RE = re.compile(r"^(https?://)?([A-Za-z0-9]([A-Za-z0-9.-]*[A-Za-z0-9])?)(?::([0-9]{1,5}))?\Z")
@@ -1705,6 +1705,14 @@ def typed_target(value: str) -> str:
 
 def valid_port(value: str) -> bool:
     return value.isdigit() and 1 <= int(value) <= 65535
+
+
+SNIPPET_DEF_RE = re.compile(r"^\(([A-Za-z0-9_-]+)\)\s*\{", re.MULTILINE)
+
+
+def base_snippets(host: dict) -> list[str]:
+    """Every snippet the base Caddyfile defines, whether a host setting names it or not."""
+    return SNIPPET_DEF_RE.findall(base_text(host))
 
 
 def snippet_exists(caddyfile_text: str, snippet: str) -> bool:
@@ -1927,6 +1935,13 @@ def allowed_networks(text: str) -> str | None:
     return " ".join(dict.fromkeys(found)) if len(found) <= MAX_NETWORKS else None
 
 
+def after_group(route: dict, key: str, value: str) -> dict:
+    """The route with key right after the group, or the TLS mode without one: regroup() keeps it there."""
+    items = [item for item in route.items() if item[0] != key]
+    at = next(index for index, (name, _) in enumerate(items) if name == ("group" if "group" in route else "tls")) + 1
+    return dict(items[:at] + [(key, value)] + items[at:])
+
+
 def route_from_form(form, host: dict, previous: dict | None = None, request: Request | None = None) -> tuple[dict, str | None]:
     """Normalise the form into route metadata and name the first problem, if any.
 
@@ -1989,10 +2004,12 @@ def route_from_form(form, host: dict, previous: dict | None = None, request: Req
         if chosen not in names or not has_snippet(host, "dns_snippet", chosen):
             return route, "This host has no such DNS snippet in its base Caddyfile, so the DNS challenge is not available."
         if len(names) > 1:
-            # Right after the group, or the TLS mode without one: regroup() keeps it there.
-            items = [item for item in route.items() if item[0] != "dns"]
-            at = next(index for index, (key, _) in enumerate(items) if key == ("group" if "group" in route else "tls")) + 1
-            route = dict(items[:at] + [("dns", chosen)] + items[at:])
+            route = after_group(route, "dns", chosen)
+    if route["tls"] == "snippet":
+        # Any snippet of the base Caddyfile, for a TLS setup none of the host settings names.
+        if (chosen := get("snippet")) not in base_snippets(host):
+            return route, "Pick a snippet from the base Caddyfile."
+        route = after_group(route, "snippet", chosen)
     # No CA hands out a wildcard after a check over HTTP: that proves one name, not all of them.
     if route["tls"] in ("acme_ca", "default") and any(item.startswith("*.") for item in (name, *aliases)):
         return route, "A wildcard name needs the DNS challenge or Caddy's internal CA. A certificate for it cannot be obtained over HTTP."
@@ -2074,6 +2091,8 @@ def render_route(route: dict, host: dict) -> str:
         lines.append(f"import {host['tls_snippet']}")
     elif route["tls"] == "dns":
         lines.append(f"import {route.get('dns') or next(iter(dns_snippets(host)), '')}")
+    elif route["tls"] == "snippet":
+        lines.append(f"import {route['snippet']}")
     elif route["tls"] == "internal":
         lines.append("tls internal")
     if route.get("hsts"):
@@ -2150,7 +2169,7 @@ def route_path(host: dict, name: str) -> Path | None:
 
 # Where render_route expects text. A number there would render just as well, and then trip
 # up everything that reads the route afterwards.
-ROUTE_TEXTS = ("type", "host", "port", "tls", "group", "dns", "allow", "errors", "upstream", "auth_user", "auth_hash", "target", "code", "root", "page")
+ROUTE_TEXTS = ("type", "host", "port", "tls", "group", "dns", "snippet", "allow", "errors", "upstream", "auth_user", "auth_hash", "target", "code", "root", "page")
 
 
 def well_formed(route) -> bool:
@@ -2406,6 +2425,9 @@ def adopt_route(content: str, host: dict) -> tuple[dict | None, str]:
             form["tls"], form["dns"] = "dns", tokens[1]
         elif tokens == ["import", host["sso_snippet"]]:
             form["sso"] = "1"
+        elif len(tokens) == 2 and tokens[0] == "import" and tokens[1] in base_snippets(host):
+            # A snippet none of the host settings names: the TLS mode that imports any snippet.
+            form["tls"], form["snippet"] = "snippet", tokens[1]
         elif tokens == HSTS_LINE.split():
             form["hsts"] = "1"
         elif tokens == ["tls", "internal"]:
@@ -2448,8 +2470,6 @@ def adopt_route(content: str, host: dict) -> tuple[dict | None, str]:
             form.update(type="redirect", target=tokens[1].removesuffix("{uri}"), code=tokens[2])
         elif tokens[:2] == ["root", "*"] and len(tokens) == 3:
             form.update(type="static", root=tokens[2])
-        elif len(tokens) == 2 and tokens[0] == "import" and snippet_exists(base_text(host), tokens[1]):
-            return None, f"it imports {tokens[1]}, a snippet not set under Settings → Caddy"
         elif tokens != ["file_server"]:
             return None, f"it contains a line Caddyman would not write: {' '.join(tokens)}"
     if "type" not in form:
@@ -2590,7 +2610,6 @@ def hand_written(content: str) -> dict | None:
 
 # One word for the badge in the route list, by what the reason from adopt_route says. The reason is its tooltip.
 REFUSAL_LABELS = (
-    ("imports", "Snippet"),
     ("would not write", "Unknown line"),
     ("single site block", "Block"),
     ("address", "Address"),
@@ -2672,7 +2691,7 @@ def the_host() -> dict:
 def route_form_page(request: Request, host: dict, route: dict, error: str | None = None, **context):
     context.setdefault("status_code", 400 if error else 200)
     context["groups"] = load_groups(host)
-    return page(request, "route_form.html", host=host, route=route, error=error, acme_ca=has_snippet(host, "tls_snippet"), sso=has_snippet(host, "sso_snippet"), dns=has_snippet(host, "dns_snippet"), dns_names=dns_snippets(host), **context)
+    return page(request, "route_form.html", host=host, route=route, error=error, acme_ca=has_snippet(host, "tls_snippet"), sso=has_snippet(host, "sso_snippet"), dns=has_snippet(host, "dns_snippet"), dns_names=dns_snippets(host), snippets=base_snippets(host), **context)
 
 
 def existing_route(name: str) -> tuple[dict | None, Path | None]:

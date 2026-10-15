@@ -2291,10 +2291,21 @@ class TestEdit(RouteTest):
         self.edit(hsts="1", tls="none")
         self.assertNotIn("Strict-Transport-Security", self.read("pdf.caddy"))
 
-    def test_adopt_names_a_snippet_not_set_at_the_host(self):
+    def test_any_snippet_of_the_base_caddyfile_is_a_tls_mode(self):
         text = "pdf.lab.test {\n\timport stepca\n\treverse_proxy 10.0.0.5:9005\n}\n"
-        _, reason = main.adopt_route(text, {**self.host, "tls_snippet": ""})
-        self.assertIn("imports stepca, a snippet not set", reason)
+        # Not set at the host, but defined in the base Caddyfile: taken over with the snippet mode.
+        host = {**self.host, "tls_snippet": ""}
+        taken, reason = main.adopt_route(text, host)
+        self.assertEqual((taken and taken["tls"], taken and taken.get("snippet")), ("snippet", "stepca"), reason)
+        self.assertEqual(main.render_route(taken, host).split("\n", 1)[1], text)
+        # The form offers it, and only snippets the base Caddyfile has.
+        self.assertIn('<option value="stepca"', self.client.get("/routes/new").text)
+        self.assertEqual(self.create(host="sn.lab.test", tls="snippet", snippet="stepca").status_code, 303)
+        self.assertIn('"tls":"snippet","snippet":"stepca"', self.read("sn.caddy"))
+        self.assertEqual(self.create(host="sn2.lab.test", tls="snippet", snippet="nowhere").status_code, 400)
+
+    def test_adopt_refuses_an_import_of_nothing(self):
+        text = "pdf.lab.test {\n\timport stepca\n\treverse_proxy 10.0.0.5:9005\n}\n"
         # A name the base Caddyfile does not define stays a foreign line.
         _, reason = main.adopt_route(text.replace("stepca", "nowhere"), self.host)
         self.assertIn("would not write: import nowhere", reason)

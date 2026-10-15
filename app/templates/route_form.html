@@ -64,6 +64,9 @@
 		<option value="dns" {{ "selected" if route.tls == "dns" }} {{ "disabled" if not dns }}>
 			Let's Encrypt over DNS{{ " (" ~ dns_names|join(", ") ~ ")" if dns else " - no snippet configured for this host" }}
 		</option>
+		<option value="snippet" {{ "selected" if route.tls == "snippet" }} {{ "disabled" if not snippets }}>
+			Snippet from the base Caddyfile{{ "" if snippets else " - it has none" }}
+		</option>
 		<option value="internal" {{ "selected" if route.tls == "internal" }}>Caddy internal CA</option>
 		<option value="none" {{ "selected" if route.tls == "none" }}>None - plain HTTP</option>
 	</select>
@@ -76,6 +79,17 @@
 			{% for name in dns_names %}<option value="{{ name }}" {{ "selected" if (route.dns or dns_names[0]) == name }}>{{ name }}</option>{% endfor %}
 		</select>
 		<small>The snippet for the provider that holds this domain.</small>
+	</div>
+	{% endif %}
+
+	{% if snippets %}
+	{# Shown with the snippet mode only (app.css). #}
+	<div class="for-snippet">
+		<label for="snippet">Snippet</label>
+		<select id="snippet" name="snippet">
+			{% for name in snippets %}<option value="{{ name }}" {{ "selected" if route.snippet == name }}>{{ name }}</option>{% endfor %}
+		</select>
+		<small>Imported as it stands, for a CA the settings do not name.</small>
 	</div>
 	{% endif %}
 
