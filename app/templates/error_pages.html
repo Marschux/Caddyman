@@ -42,6 +42,17 @@
 </section>
 
 <section>
+	<h2>Switched off routes</h2>
+	<form method="post" action="/error-pages/disabled">
+		<label class="check"><input type="radio" name="mode" value="" {{ "checked" if not disabled }}> Answer nothing</label>
+		<small>Caddy forgets the name until the route is on again.</small>
+		<label class="check"><input type="radio" name="mode" value="maintenance" {{ "checked" if disabled }}> Show the <a href="/error-pages/maintenance">Maintenance page</a></label>
+		<small>With 503. Caddy keeps the name and renews its certificate.</small>
+		<div class="row"><button type="submit">Save and reload Caddy</button></div>
+	</form>
+</section>
+
+<section>
 	<h2>For a DNS blocker{% if catch_all == "on" %} <span class="tag">Switched on</span>{% endif %}</h2>
 	<p class="empty">Answers every name no route knows with the <a href="/error-pages/blocked">Blocked page</a>.
 		In Technitium, choose the blocking type "Custom Address" and enter the IP address of Caddy's machine.</p>

@@ -2515,12 +2515,9 @@ class TestEdit(RouteTest):
         self.assertEqual(self.load.call_count, loads + 1)  # one reload for all of them
         self.assertTrue(all(self.read(f"{name}.caddy").splitlines()[0].endswith(',"off":true}') for name in ("b1", "b2")))
         self.assertIn("Left out: hand.", self.client.get(answer.headers["location"]).text)
-        self.client.post("/routes/bulk", data={"action": "maintenance", "pick": ["b1"]})
-        self.assertTrue(self.read("b1.caddy").splitlines()[0].endswith(f'"maintenance":"caddyman:{main.OWN_PORT}","off":true}}'))
         self.client.post("/routes/bulk", data={"action": "group", "group": "Media", "pick": ["b1", "b2"]})
         self.assertIn('"tls":"acme_ca","group":"Media"', self.read("b2.caddy"))
         self.client.post("/routes/bulk", data={"action": "enable", "pick": ["b1", "b2"]})
-        self.client.post("/routes/bulk", data={"action": "back", "pick": ["b1"]})
         self.client.post("/routes/bulk", data={"action": "group", "group": "", "pick": ["b1", "b2"]})
         self.assertEqual(self.read("b1.caddy").replace("b1", "b2"), self.read("b2.caddy"))
         self.assertNotIn('"off"', self.read("b1.caddy") + self.read("b2.caddy"))
@@ -2532,25 +2529,28 @@ class TestEdit(RouteTest):
         self.assertEqual(self.client.post("/routes/bulk", data={"action": "group", "group": "Nope", "pick": ["b1"]}).status_code, 303)
         self.assertNotIn("Nope", self.read("b1.caddy"))
 
-    def test_maintenance_shows_the_page_and_keeps_the_route(self):
-        self.assertEqual(self.create(host="mt", auth_user="ada", auth_password="secret-pass", sso="", hsts="1").status_code, 303)
+    def test_switched_off_routes_can_show_the_maintenance_page(self):
+        self.assertEqual(self.create(host="mt", auth_user="ada", auth_password="secret-pass", hsts="1").status_code, 303)
         before = self.read("mt.caddy")
-        self.client.post("/routes/mt/maintenance")
+        # As before: off is commented out.
+        self.client.post("/routes/mt/toggle")
+        self.assertTrue(self.read("mt.caddy").splitlines()[1].startswith("# "))
+        # Set under Error pages, it rewrites the routes that are off right now.
+        self.client.post("/error-pages/disabled", data={"mode": "maintenance"})
         text = self.read("mt.caddy")
-        self.assertIn(f'"maintenance":"caddyman:{main.OWN_PORT}"', text.splitlines()[0])
+        self.assertTrue(text.splitlines()[0].endswith(f'"off":"caddyman:{main.OWN_PORT}"}}'))
         self.assertIn(f"\trewrite * /error/maintenance\n\treverse_proxy caddyman:{main.OWN_PORT}\n", text)
         self.assertNotIn("basic_auth", text.split("\n", 1)[1])  # the page is for everybody
         self.assertIn("Strict-Transport-Security", text)  # what is not about answering stays
-        page = self.client.get("/").text
-        self.assertIn(">Maintenance</span>", page)
-        self.assertIn(">End maintenance</button>", page)
-        # The form keeps it, the route switched off keeps it before "off".
-        self.assertIn('name="maintenance" value="1"', self.client.get("/routes/mt/edit").text)
+        self.assertIn(">Maintenance</span>", self.client.get("/").text)
+        self.assertIn('name="off" value="maintenance"', self.client.get("/routes/mt/edit").text)
+        # On again, the file is what it was; off again, it shows the page right away.
         self.client.post("/routes/mt/toggle")
-        self.assertTrue(self.read("mt.caddy").splitlines()[0].endswith(f'"maintenance":"caddyman:{main.OWN_PORT}","off":true}}'))
-        self.client.post("/routes/mt/toggle")
-        self.client.post("/routes/mt/maintenance")
         self.assertEqual(self.read("mt.caddy"), before)
+        self.client.post("/routes/mt/toggle")
+        self.assertIn("rewrite * /error/maintenance", self.read("mt.caddy"))
+        self.client.post("/error-pages/disabled", data={"mode": ""})
+        self.assertTrue(self.read("mt.caddy").splitlines()[0].endswith('"off":true}'))
         # The page itself: 503, its own wording, a design of its own.
         self.client.post("/logout")
         answer = self.client.get("/error/maintenance")

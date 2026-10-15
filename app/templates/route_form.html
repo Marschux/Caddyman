@@ -11,13 +11,9 @@
 	{% include "conflict.html" %}
 	{% if name %}
 	<input type="hidden" name="mode" value="form">
-	{% if route.maintenance %}
-	<input type="hidden" name="maintenance" value="1">
-	<p>This route shows the maintenance page. End it in the route list.</p>
-	{% endif %}
 	{% if route.off %}
-	<input type="hidden" name="off" value="1">
-	<p>This route is switched off. Caddy serves it once it is enabled in the route list.</p>
+	<input type="hidden" name="off" value="{{ 'maintenance' if route.off is string else '1' }}">
+	<p>This route is switched off{{ " and shows the maintenance page" if route.off is string }}. Enable it in the route list.</p>
 	{% endif %}
 	<input type="hidden" name="mtime" value="{{ mtime }}">
 	{% endif %}
