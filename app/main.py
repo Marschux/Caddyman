@@ -3479,6 +3479,11 @@ def read_backup(data: bytes) -> dict:
     settings = {key: "1" if settings.get(key) else "" for key in SETTING_DEFAULTS if key in settings} if isinstance(settings, dict) else {}
     if find_zone(zone):
         settings["time_zone"] = zone
+    # The one setting that is a number, not a switch. Held to what the form takes.
+    days = str(extra["settings.json"].get("alert_cert_days", "")) if isinstance(extra.get("settings.json"), dict) else ""
+    settings.pop("alert_cert_days", None)
+    if days.isdigit() and 1 <= int(days) <= 90:
+        settings["alert_cert_days"] = days
     mail = extra.get("mail.json")
     mail = {key: str(mail.get(key, default)) for key, default in MAIL_DEFAULTS.items()} if isinstance(mail, dict) else {}
     groups = extra.get("groups.json")

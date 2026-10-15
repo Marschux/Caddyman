@@ -1969,7 +1969,7 @@ class TestBackup(RouteTest):
         self.reach("192.168.1.9:5052")
         self.client.post("/settings/general", data={"zone": "Europe/Berlin"})
         # "Only over HTTPS" is never part of a backup: restored without its route, it would lock everybody out.
-        main.save_settings(https_only="1")
+        main.save_settings(https_only="1", alert_cert_days="30")
         archive = main.build_backup(main.pick_host())
         main.save_settings(https_only="")
         with zipfile.ZipFile(io.BytesIO(archive)) as packed:
@@ -2005,6 +2005,7 @@ class TestBackup(RouteTest):
         self.assertEqual((main.flag("public_ca"), main.flag("login_ca_hint")), (True, False))
         self.assertEqual(main.load_errors()["designs"], {"502": "ghost"})
         self.assertEqual((main.time_zone().key, main.https_only()), ("Europe/Berlin", False))
+        self.assertEqual(main.load_settings()["alert_cert_days"], "30")
         self.assertEqual(main.load_errors()["upstream"], "192.168.1.9:5052")
 
     def test_only_who_may_change_settings_restores_them(self):
