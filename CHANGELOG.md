@@ -1,5 +1,51 @@
 # Changelog
 
+## 2026-10-16 01:25
+- chore: version 0.27.8
+- feat: the image is built for arm64 as well, for a Raspberry Pi
+- refactor: the first line of a route file is read in one place, adopt reads the base Caddyfile once
+- feat: three more designs for the error pages: Synthwave, Ocean and Paper
+- feat: switching a route with HSTS to plain HTTP warns that browsers remember HTTPS for a year
+- fix: the copy buttons come back after picking another root certificate
+- feat: the TLS list leaves out modes whose snippet is not set up
+- feat: the error pages badge reads Pages in indigo, so it no longer looks like something is broken
+- feat: the blocks of the route form start folded on every visit
+- fix: the snippet mode offers only snippets that set up TLS, not the SSO or DNS ones
+- feat: the TLS badge of the snippet mode reads Snippet: and its name
+- feat: the red TLS badge leads to the Caddy settings; access narrower, host wider
+- feat: a bad certificate in the route list is itself the link to its log
+- feat: the certificate in the route list is one short word, issuer and reason are its tooltip
+- feat: the TLS badge is red when a route imports a snippet the settings do not name
+- feat: a route whose TLS comes from a snippet the settings do not name counts as a problem in the list
+- feat: routes made with Own ACME CA show a problem in the list and on the status page once the TLS snippet is no longer set
+- feat: any snippet of the base Caddyfile can be the TLS mode of a route, so files that import one open in the form
+- refactor: the base Caddyfile is read in one place, a hand-written file once per list, unused styles removed
+- fix: picking another root certificate swaps the page in place instead of reloading it
+- feat: several allowed networks fold away behind their count, none of them shown first
+- feat: a route without allowed networks shows Any in the access column
+- feat: further allowed networks fold away behind a count, like further hostnames
+- feat: allowed networks get a column of their own in the route list, between target and options
+- Revert "feat: the column titles of the route list stand in the middle of their column"
+- feat: the column titles of the route list stand in the middle of their column
+- feat: allowed networks fold away next to the target, like further names next to the host
+- feat: the IP badge is called Networks, and the TLS mode in the route list has a tooltip like every other badge
+- feat: with allowed networks a click on the options of a route unfolds them
+- feat: clicking the badge of a hand-written file unfolds why it cannot be adopted
+- feat: a hand-written file shows a one-word badge in the type column, the reason it cannot be adopted as its tooltip
+- feat: TLS and certificate share one column in the route list
+- feat: the type column sits evenly between host and target
+- feat: a narrower options column leaves the target more room
+- feat: options in the route list stand at most four in a line
+- feat: wider pages, options in an even grid, further hostnames as a count next to the name, shorter reason a file cannot be adopted
+- feat: the columns of the route list have fixed widths and no longer run past the page
+- feat: the route list says why a hand-written file cannot be adopted and counts it as a problem
+- feat: saving the Caddy settings stays on the page instead of going to the status page
+- feat: Blocked and Maintenance come right after Setup in the list of error pages
+- fix: an import keeps the days before a certificate alert instead of turning them into 1
+- feat: routes no longer set headers of their own; files that have them open as raw text
+- feat: adopting a route names an imported snippet that is not set under Settings → Caddy
+
+
 ## 2026-10-15 04:46
 - chore: version 0.27.0
 - feat: with several root certificates the page has a download each and a list to pick the one shown
