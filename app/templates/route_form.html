@@ -188,9 +188,6 @@
 	</details>
 
 	<button type="submit">{{ "Overwrite and reload Caddy" if conflict else "Save and reload Caddy" }}</button>
-	{% if name %}
-	<p class="below">Changing the hostname renames the file.</p>
-	{% endif %}
 </form>
 {% endblock %}
 {% block scripts %}<script src="/static/form.js" defer></script>{% endblock %}
