@@ -2513,7 +2513,7 @@ class TestEdit(RouteTest):
         self.assertIn('"group":"Media","note":"Jellyfin on the NAS, ask Ada","upstream"', first)
         self.assertNotIn("Jellyfin", body)  # Caddy never sees it
         page = self.client.get("/").text
-        self.assertIn('<span class="note" title="Jellyfin on the NAS, ask Ada"', page)
+        self.assertIn('title="Jellyfin on the NAS, ask Ada"><strong>nt.lab.test', page)
         self.assertIn('data-note="Jellyfin on the NAS, ask Ada"', page)  # for the search
         self.assertIn('value="Jellyfin on the NAS, ask Ada"', self.client.get("/routes/nt/edit").text)
         # Renaming the group keeps the note where it was.

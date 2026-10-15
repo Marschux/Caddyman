@@ -37,10 +37,9 @@
 		<tr data-group="{{ item.group }}"{% if route and route.note %} data-note="{{ route.note }}"{% endif %}{% if route and route.off %} class="off"{% endif %}{% if item.target_down or (item.certificate and item.certificate.level in ("warn", "fail")) %} data-problem{% endif %}>
 			{% if route %}
 			<td class="nowrap">
-				{% if item.site %}<a class="out" href="{{ item.site }}" target="_blank" rel="noopener noreferrer"><strong>{{ route.host }}{{ ":" ~ route.port if route.port }}</strong></a>
-				{% else %}<strong>{{ route.host }}{{ ":" ~ route.port if route.port }}</strong>{% endif %}
-				{# Only a mark: the note is its tooltip, and the search reads it from the row. #}
-				{% if route.note %}<span class="note" title="{{ route.note }}" aria-label="Note: {{ route.note }}" tabindex="0">i</span>{% endif %}
+				{# The note is the tooltip of the name; the search reads it from the row. #}
+				{% if item.site %}<a class="out" href="{{ item.site }}" target="_blank" rel="noopener noreferrer"{% if route.note %} title="{{ route.note }}"{% endif %}><strong>{{ route.host }}{{ ":" ~ route.port if route.port }}</strong></a>
+				{% else %}<strong{% if route.note %} title="{{ route.note }}"{% endif %}>{{ route.host }}{{ ":" ~ route.port if route.port }}</strong>{% endif %}
 				{# Folded away: a route with many names would otherwise be as tall as several. #}
 				{% if route.aliases %}<details class="more"><summary>{{ route.aliases|length }} more name{{ "s" if route.aliases|length != 1 }}</summary>
 					{% for alias in route.aliases %}<small>{{ alias }}{{ ":" ~ route.port if route.port }}</small>{% endfor %}</details>{% endif %}
