@@ -53,8 +53,11 @@
 				{% if item.target_down %}<span class="cert warn" title="No TCP connection from Caddyman to {{ item.target_down|join(', ') }}. Caddy may see it differently.">Not reachable</span>{% endif %}
 				{% if route.paths %}<details class="more"><summary>{{ route.paths|length }} path{{ "s" if route.paths|length != 1 }}</summary>
 					{% for path, target in route.paths %}<small><code>{{ path }}</code> to <code>{{ target }}</code></small>{% endfor %}</details>{% endif %}</td>
-			{# Who may reach the route at all: one network per line, or everybody. #}
-			<td class="access">{% if route.allow %}{% for net in route.allow.split() %}<span>{{ net }}</span>{% endfor %}
+			{# Who may reach the route at all: the first network, the others folded away like further hostnames. #}
+			{% set nets = (route.allow or "").split() %}
+			<td class="access">{% if nets|length > 1 %}<details class="more names"><summary>{{ nets[0] }}<span class="tag" title="{{ nets[1:]|join(', ') }}">+{{ nets|length - 1 }}</span></summary>
+					{% for net in nets[1:] %}<small>{{ net }}</small>{% endfor %}</details>
+				{% elif nets %}{{ nets[0] }}
 				{% else %}<span class="empty" title="No allowed networks set: reachable from everywhere">All</span>{% endif %}</td>
 			{# What is switched on for the route, always in the same place and order. The long name is the tooltip. #}
 			<td><div class="tags">

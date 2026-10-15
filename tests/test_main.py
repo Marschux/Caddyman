@@ -2192,8 +2192,8 @@ class TestEdit(RouteTest):
             "\t\treverse_proxy 10.0.0.5:9005\n\t}\n}\n",
             text,
         )
-        # The list shows them in a column of their own, one per line.
-        self.assertIn('<td class="access"><span>192.168.2.0/24</span><span>private</span><span>10.0.0.9</span>', self.client.get("/").text)
+        # The list shows the first in a column of their own, the others fold away behind a count.
+        self.assertIn('<summary>192.168.2.0/24<span class="tag" title="private, 10.0.0.9">+2</span></summary>', self.client.get("/").text)
         form = self.client.get("/routes/pdf/edit").text
         for network in ("192.168.2.0/24", "private", "10.0.0.9"):
             self.assertIn(f'<input name="allow" value="{network}"', form)
