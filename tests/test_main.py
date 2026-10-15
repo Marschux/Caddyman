@@ -2192,6 +2192,8 @@ class TestEdit(RouteTest):
             "\t\treverse_proxy 10.0.0.5:9005\n\t}\n}\n",
             text,
         )
+        # The list unfolds them under the options.
+        self.assertIn("<small>Only from 192.168.2.0/24, private, 10.0.0.9</small>", self.client.get("/").text)
         form = self.client.get("/routes/pdf/edit").text
         for network in ("192.168.2.0/24", "private", "10.0.0.9"):
             self.assertIn(f'<input name="allow" value="{network}"', form)
