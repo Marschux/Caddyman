@@ -2328,7 +2328,7 @@ class TestEdit(RouteTest):
         for design in main.ERROR_DESIGNS:
             self.assertEqual(self.client.get(f"/error/504?design={design}").status_code, 504, design)
         self.assertIn("/error/502?design=ghost", self.client.get("/error-pages/502").text)
-        self.assertIn(main.ERROR_MEANINGS["502"], self.client.get("/error-pages/502").text)
+        self.assertIn(main.ERROR_MEANINGS["502"], self.client.get("/error-pages").text)
         self.assertEqual(set(main.ERROR_MEANINGS), set(main.ERROR_PAGES))
         self.client.post("/error-pages/502", data={"design": "ghost"})
         self.assertEqual(main.load_errors()["designs"], {"502": "ghost"})
