@@ -4,7 +4,7 @@
 <form method="post" class="card wide route"
 	action="{{ '/routes/' ~ name|urlencode ~ '/edit' if name else '/routes/new' }}">
 	<div class="heading">
-		<h1>{{ "Edit " ~ name ~ ".caddy" if name else "Add a route" }}</h1>
+		<h1>{{ "Edit " ~ (route.host or name) if name else "Add a route" }}</h1>
 		{% if name %}<a class="button secondary" href="/routes/{{ name|urlencode }}/edit?raw=1">Edit as text</a>{% endif %}
 	</div>
 	{% if error %}<p class="error" role="alert">{{ error }}</p>{% endif %}
