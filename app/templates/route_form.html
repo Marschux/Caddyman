@@ -72,6 +72,10 @@
 		<option value="none" {{ "selected" if route.tls == "none" }}>None - plain HTTP</option>
 	</select>
 	<small>Over DNS, a name needs no access from the internet. The internal CA is lost with Caddy's data directory.</small>
+	{% if route.hsts %}
+	{# Shown with plain HTTP only (app.css): the HSTS the route sent until now outlives it in every browser. #}
+	<p class="flash warn for-none">Browsers that saw HSTS keep using HTTPS for this name for a year. Delete it there, in Edge and Chrome under net-internals/#hsts.</p>
+	{% endif %}
 	{% if dns_names|length > 1 %}
 	{# Shown with the DNS challenge only (app.css). #}
 	<div class="for-dns">

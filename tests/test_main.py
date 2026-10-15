@@ -2287,7 +2287,10 @@ class TestEdit(RouteTest):
         text = self.read("pdf.caddy")
         # Outside of the route block, so the refusal by address carries it as well.
         self.assertIn('\timport stepca\n\theader Strict-Transport-Security "max-age=31536000"\n\t@outside not', text)
-        self.assertIn('name="hsts" value="1" checked', self.client.get("/routes/pdf/edit").text)
+        form = self.client.get("/routes/pdf/edit").text
+        self.assertIn('name="hsts" value="1" checked', form)
+        # Switching it to plain HTTP warns that browsers remember the HSTS.
+        self.assertIn('class="flash warn for-none">Browsers that saw HSTS', form)
         taken, reason = main.adopt_route(text, self.host)
         self.assertEqual(taken and taken.get("hsts"), True, reason)
         # Without TLS there is nothing to insist on.

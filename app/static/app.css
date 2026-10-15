@@ -389,6 +389,8 @@ td details.more, td details.more[open] { margin: 4px 0 0; padding: 0; background
 /* The snippet a route imports only matters in that TLS mode. */
 .route .for-snippet { display: none; }
 .route:has(#tls option[value="snippet"]:checked) .for-snippet { display: block; }
+.route .for-none { display: none; }
+.route:has(#tls option[value="none"]:checked) .for-none { display: block; }
 /* Every row is as high as one with a second line under its value, so the list stays even. */
 table.even tbody tr:not(.group) > td { height: 80px; }
 /* The route list keeps its columns: what does not fit wraps inside its cell instead of widening it. */
