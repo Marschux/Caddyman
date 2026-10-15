@@ -413,6 +413,10 @@ td details.more summary:hover, td details.more[open] summary { color: var(--ink)
 td details.more small { margin-top: 4px; font-weight: 400; }
 td details.more small a.out { color: var(--ink-muted); }
 td details.more small a.out:hover { color: var(--ink); }
+/* A file that cannot be adopted: a red pill, the reason unfolds under it. */
+td details.more.problem { margin: 0; }
+td details.more.problem summary, td details.more.problem summary:hover, td details.more.problem[open] summary { color: var(--error); background: color-mix(in srgb, var(--error) 15%, transparent); cursor: pointer; }
+td details.more.problem small { white-space: normal; }
 /* Further hostnames: the main name is the line that unfolds, the count stands next to it. */
 td details.more.names { margin: 0; }
 td details.more.names summary, td details.more.names summary:hover, td details.more.names[open] summary { display: block; padding: 0; color: inherit; background: none; font-size: inherit; line-height: inherit; letter-spacing: inherit; cursor: pointer; }

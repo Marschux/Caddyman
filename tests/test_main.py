@@ -2298,7 +2298,7 @@ class TestEdit(RouteTest):
         self.put("odd.caddy", text.replace("stepca", "nowhere"))
         self.put("plain.caddy", "plain.lab.test {\n\treverse_proxy 10.0.0.5:9005\n}\n")
         listing = self.client.get("/").text
-        self.assertIn('title="Cannot be adopted: it contains a line Caddyman would not write: import nowhere.">Unknown line</span>', listing)
+        self.assertIn('title="Cannot be adopted: it contains a line Caddyman would not write: import nowhere.">Unknown line</summary>', listing)
         self.assertIn(">By hand</span>", listing)
         self.assertNotIn("/routes/odd/adopt", listing)
         self.assertIn("/routes/plain/adopt", listing)

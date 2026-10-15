@@ -52,7 +52,7 @@
 		// A hand-written file fills the first two columns and the TLS column; it sorts as empty in the others.
 		const key = (row) => {
 			if (row.cells.length === 6 || column <= 1) return cells(row)[column];
-			return column === 4 ? cells(row)[3] : "";
+			return column === 4 ? cells(row)[2] : "";
 		};
 		const sorted = (rows) => rows.sort((a, b) => key(a).localeCompare(key(b), undefined, { numeric: true }) * (descending ? -1 : 1));
 		if (flat()) {
