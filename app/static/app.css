@@ -389,9 +389,12 @@ td details.more, td details.more[open] { margin: 4px 0 0; padding: 0; background
 .route:has(#tls option[value="dns"]:checked) .for-dns { display: block; }
 /* Every row is as high as one with a second line under its value, so the list stays even. */
 table.even tbody tr:not(.group) > td { height: 80px; }
-td details.more summary { color: var(--ink-subtle); font-size: 13px; font-weight: 400; }
-/* The unfolded names sit under the text of the summary, quieter than the hostname above. */
-td details.more small { margin-top: 2px; padding-left: 14px; font-weight: 400; }
+/* The line that unfolds is a pill like the tags, without the browser's triangle. */
+td details.more summary { display: inline-block; list-style: none; padding: 2px 10px; color: var(--ink-muted); background: var(--surface-2); border-radius: 9999px; font-size: 12px; font-weight: 400; line-height: 1.38; letter-spacing: 0.2px; }
+td details.more summary::-webkit-details-marker { display: none; }
+td details.more summary:hover, td details.more[open] summary { color: var(--ink); background: var(--surface-3); }
+/* The unfolded names, quieter than the hostname above. */
+td details.more small { margin-top: 4px; font-weight: 400; }
 td details.more small a.out { color: var(--ink-muted); }
 td details.more small a.out:hover { color: var(--ink); }
 /* The block has the colour of a grey button: the outline keeps the button visible on it. */
