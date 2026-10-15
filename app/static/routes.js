@@ -119,7 +119,10 @@
 		}
 		box.closest("label").hidden = false;
 	}
-	filter.elements.problems.closest("label").hidden = false;
+	// Sits there too, so its input does not reach the form either.
+	const problems = filter.elements.problems;
+	problems.addEventListener("input", apply);
+	problems.closest("label").hidden = false;
 	filter.hidden = false;
 	apply();
 })();
