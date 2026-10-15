@@ -31,7 +31,7 @@
 	<div class="buttons">
 	<form method="get" class="inline">
 		<input type="hidden" name="os" value="{{ shown }}">
-		<select name="cert" aria-label="Certificate shown below" onchange="this.form.submit()">
+		<select name="cert" aria-label="Certificate shown below">
 			{% for item in certs %}<option value="{{ item.number }}" {{ "selected" if item.number == cert.number }}>Certificate {{ item.number }}{{ ": " ~ item.subject if item.subject }}</option>{% endfor %}
 		</select>
 		<noscript><button type="submit" class="secondary">Show</button></noscript>
@@ -186,3 +186,4 @@ sudo update-ca-certificates</pre>
 {% endif %}
 {% endif %}
 {% endblock %}
+{% block scripts %}{% if many %}<script src="/static/ca.js" defer></script>{% endif %}{% endblock %}

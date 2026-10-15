@@ -1242,6 +1242,8 @@ class TestCa(RouteTest):
         first, second = self.client.get("/trust").text, self.client.get("/trust?cert=2&os=linux").text
         self.assertIn('<option value="2" >Certificate 2</option>', first)
         self.assertIn('href="/root-ca.crt?cert=2">Download root-ca-2.crt<', first)
+        # Picking another one swaps the page in place, with the plain form as the way without a script.
+        self.assertIn('<script src="/static/ca.js" defer></script>', first)
         self.assertIn('FromBase64String("dGVzdA==")', first)
         self.assertIn('href="/root-ca.crt?cert=1">Download root-ca-1.crt<', first)
         self.assertIn('href="?os=macos&amp;cert=1"', first)
