@@ -2507,23 +2507,6 @@ class TestEdit(RouteTest):
         self.assertFalse(os.path.exists(os.path.join(self.sites, "c.caddy")))
 
 
-    def test_several_domain_suffixes(self):
-        main.save_hosts([{**self.host, "domain_suffix": "lab.test other.test"}])
-        form = self.client.get("/routes/new").text
-        self.assertIn('<option value="other.test">.other.test</option>', form)
-        # A short name gets the picked one; only the first is left out of the file name.
-        self.create(host="pdf")
-        self.create(host="pdf", suffix="other.test")
-        self.assertIn("pdf.lab.test {", self.read("pdf.caddy"))
-        self.assertIn("pdf.other.test {", self.read("pdf.other.test.caddy"))
-        self.assertIn("pdf.lab.test {", self.read("pdf.caddy"))  # not overwritten
-        # A full name stays as it is, whatever is picked.
-        self.create(host="wiki.third.test", suffix="other.test")
-        self.assertIn("wiki.third.test {", self.read("wiki.third.test.caddy"))
-        # With one suffix the form shows no choice.
-        main.save_hosts([self.host])
-        self.assertNotIn('name="suffix"', self.client.get("/routes/new").text)
-
     def test_switched_off_routes_can_show_the_maintenance_page(self):
         self.assertEqual(self.create(host="mt", auth_user="ada", auth_password="secret-pass", hsts="1").status_code, 303)
         before = self.read("mt.caddy")

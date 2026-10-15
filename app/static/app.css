@@ -372,10 +372,6 @@ th[aria-sort="ascending"] button.sort::after { content: " \2191"; color: var(--p
 th[aria-sort="descending"] button.sort::after { content: " \2193"; color: var(--product); }
 form.row input[type="file"] { width: auto; flex: 1; min-width: 220px; }
 form.row input:not([type]) { width: auto; flex: 0 1 320px; }
-/* The hostname with the domain a short name gets, when there is more than one. */
-.hostline { display: flex; gap: 8px; }
-.hostline input { flex: 1; min-width: 0; }
-.hostline select { flex: none; width: auto; }
 
 .conflict { margin: 12px 0 20px; padding: 16px; border: 1px solid var(--warn); border-radius: 8px; background: var(--warn-bg); }
 .conflict p { margin: 0 0 6px; color: var(--ink); }
