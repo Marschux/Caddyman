@@ -335,6 +335,8 @@ section > ol li { margin: 6px 0; }
 .tag.ip { --c: var(--opt-ip); }
 .tag.errors { --c: var(--opt-errors); }
 .tag.log { --c: var(--opt-log); }
+/* Something wrong with a route, in place of a value. The whole message is the tooltip. */
+.tag.error { color: var(--error); background: color-mix(in srgb, var(--error) 15%, transparent); cursor: help; }
 
 /* A standing hint with one action, unlike a flash that is shown once. */
 .notice { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 16px; padding: 16px; background: var(--surface-1); border: 1px solid var(--hairline); border-radius: 12px; }

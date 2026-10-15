@@ -2596,6 +2596,26 @@ def hand_written(host: dict, name: str) -> dict | None:
     return {"tls": "none" if address.group(1) else "default", "host": address.group(2), "port": address.group(3) or ""}
 
 
+# One word for the badge in the route list, by what the reason from adopt_route says. The reason is its tooltip.
+REFUSAL_LABELS = (
+    ("imports", "Snippet"),
+    ("would not write", "Unknown line"),
+    ("single site block", "Block"),
+    ("address", "Address"),
+    ("no reverse_proxy", "No target"),
+    ("bcrypt", "Password"),
+    ("differs", "Changed"),
+    ("cannot be read", "Unreadable"),
+)
+
+
+def refusal_label(reason: str) -> str:
+    return next((label for part, label in REFUSAL_LABELS if part in reason), "Invalid")
+
+
+templates.env.filters["refusal_label"] = refusal_label
+
+
 def site_url(route: dict, name: str) -> str:
     """The address a browser opens for one hostname of a route."""
     # A wildcard is no address anybody can open.

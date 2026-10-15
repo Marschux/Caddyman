@@ -66,7 +66,10 @@
 			</div></td>
 			{% else %}
 			<td><code>{{ item.name }}.caddy</code></td>
-			<td colspan="3" class="empty">{% if item.refused %}Cannot be adopted: {{ item.refused }}.{% else %}Not created here, or edited by hand{% endif %}</td>
+			{# In the column of the type: one word, the whole reason in the tooltip. #}
+			<td class="nowrap">{% if item.refused %}<span class="tag error" title="Cannot be adopted: {{ item.refused }}.">{{ item.refused|refusal_label }}</span>
+				{% else %}<span class="tag" title="Not created here, or edited by hand. Adopt opens it in the form.">By hand</span>{% endif %}</td>
+			<td colspan="2"></td>
 			{% endif %}
 			{# The certificate on top, the TLS mode of the route under it. The certificate also for a file
 			   written by hand, as far as its first line names one plain address. #}
