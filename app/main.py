@@ -1716,12 +1716,18 @@ def valid_port(value: str) -> bool:
     return value.isdigit() and 1 <= int(value) <= 65535
 
 
-SNIPPET_DEF_RE = re.compile(r"^\(([A-Za-z0-9_-]+)\)\s*\{", re.MULTILINE)
+# A snippet and its block, up to the closing brace at the start of a line.
+SNIPPET_BLOCK_RE = re.compile(r"^\(([A-Za-z0-9_-]+)\)\s*\{\n(.*?)^\}", re.MULTILINE | re.DOTALL)
 
 
 def base_snippets(host: dict) -> list[str]:
-    """Every snippet the base Caddyfile defines, whether a host setting names it or not."""
-    return SNIPPET_DEF_RE.findall(base_text(host))
+    """The snippets of the base Caddyfile that set up TLS, whether the TLS setting names them or not.
+
+    SSO and DNS snippets have settings of their own and stay out.
+    """
+    others = {host["sso_snippet"], *dns_snippets(host)}
+    return [name for name, block in SNIPPET_BLOCK_RE.findall(base_text(host))
+            if name not in others and re.search(r"^\s*tls\b", block, re.MULTILINE)]
 
 
 def snippet_exists(caddyfile_text: str, snippet: str) -> bool:

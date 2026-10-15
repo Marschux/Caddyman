@@ -2301,8 +2301,12 @@ class TestEdit(RouteTest):
         taken, reason = main.adopt_route(text, host)
         self.assertEqual((taken and taken["tls"], taken and taken.get("snippet")), ("snippet", "stepca"), reason)
         self.assertEqual(main.render_route(taken, host).split("\n", 1)[1], text)
-        # The form offers it, and only snippets the base Caddyfile has.
-        self.assertIn('<option value="stepca"', self.client.get("/routes/new").text)
+        # The form offers it, and only snippets of the base Caddyfile that set up TLS.
+        with open(self.caddyfile, "a", encoding="utf-8") as handle:
+            handle.write("\n(sso) {\n\tforward_auth authelia:9091 {\n\t\turi /api/authz/forward-auth\n\t}\n}\n")
+        form = self.client.get("/routes/new").text
+        self.assertIn('<option value="stepca"', form)
+        self.assertNotIn('<option value="sso"', form)
         self.assertEqual(self.create(host="sn.lab.test", tls="snippet", snippet="stepca").status_code, 303)
         self.assertIn('"tls":"snippet","snippet":"stepca"', self.read("sn.caddy"))
         # Named in the settings it is fine; once the settings do not name it, one of the problems in the list.
