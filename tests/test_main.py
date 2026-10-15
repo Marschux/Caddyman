@@ -2308,7 +2308,7 @@ class TestEdit(RouteTest):
         listing = self.client.get("/").text
         # This one, and pdf, which was made with Own ACME CA.
         self.assertEqual(listing.count("data-problem"), 2)
-        self.assertIn("It is not set under Settings, Caddy", listing)
+        self.assertIn('<span class="tag error" title="Certificates as the snippet stepca from the base Caddyfile sets them. It is not set under Settings, Caddy">stepca</span>', listing)
         self.assertEqual(self.create(host="sn2.lab.test", tls="snippet", snippet="nowhere").status_code, 400)
 
     def test_a_route_that_lost_its_tls_snippet_is_a_problem(self):

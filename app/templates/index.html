@@ -100,7 +100,8 @@
 					"snippet": (route.snippet, "Certificates as the snippet " ~ route.snippet ~ " from the base Caddyfile sets them" ~ ("" if route.snippet == host.tls_snippet else ". It is not set under Settings, Caddy")),
 					"internal": ("Caddy internal", "Certificates from Caddy's own CA"),
 					"none": ("None", "Plain HTTP, no certificate")}[route.tls] %}
-				<span class="tag" title="{{ mode[1] }}">{{ mode[0] }}</span>{% endif %}
+				{# Red when the route imports a snippet the settings do not name: it works, but nobody chose it there. #}
+				<span class="tag{{ ' error' if route.tls == 'snippet' and route.snippet != host.tls_snippet }}" title="{{ mode[1] }}">{{ mode[0] }}</span>{% endif %}
 			</td>
 			<td class="actions">
 				{% if may_change %}

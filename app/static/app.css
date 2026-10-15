@@ -332,6 +332,8 @@ section > ol li { margin: 6px 0; }
 .tag.hsts { --c: var(--opt-hsts); }
 .tag.errors { --c: var(--opt-errors); }
 .tag.log { --c: var(--opt-log); }
+/* Something about a route that needs a look. The tooltip says what. */
+.tag.error { color: var(--error); background: color-mix(in srgb, var(--error) 15%, transparent); }
 
 /* A standing hint with one action, unlike a flash that is shown once. */
 .notice { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 16px; padding: 16px; background: var(--surface-1); border: 1px solid var(--hairline); border-radius: 12px; }
