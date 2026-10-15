@@ -390,6 +390,10 @@ td details.more, td details.more[open] { margin: 4px 0 0; padding: 0; background
 /* Every row is as high as one with a second line under its value, so the list stays even. */
 table.even tbody tr:not(.group) > td { height: 80px; }
 td details.more summary { color: var(--ink-subtle); font-size: 13px; font-weight: 400; }
+/* The unfolded names sit under the text of the summary, quieter than the hostname above. */
+td details.more small { margin-top: 2px; padding-left: 14px; font-weight: 400; }
+td details.more small a.out { color: var(--ink-muted); }
+td details.more small a.out:hover { color: var(--ink); }
 /* The block has the colour of a grey button: the outline keeps the button visible on it. */
 details button.secondary { border-color: var(--hairline-strong); }
 /* A list to pick from inside such a block: each entry opens what there is to copy. */
