@@ -2307,6 +2307,8 @@ class TestEdit(RouteTest):
         form = self.client.get("/routes/new").text
         self.assertIn('<option value="stepca"', form)
         self.assertNotIn('<option value="sso"', form)
+        # A mode whose snippet is not set up is left out: this host has no DNS snippet.
+        self.assertNotIn('<option value="dns"', form)
         self.assertEqual(self.create(host="sn.lab.test", tls="snippet", snippet="stepca").status_code, 303)
         self.assertIn('"tls":"snippet","snippet":"stepca"', self.read("sn.caddy"))
         # Named in the settings it is fine; once the settings do not name it, one of the problems in the list.
