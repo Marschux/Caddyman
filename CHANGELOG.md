@@ -1,5 +1,22 @@
 # Changelog
 
+## 2026-10-15 04:46
+- chore: version 0.27.0
+- feat: with several root certificates the page has a download each and a list to pick the one shown
+- feat: the root CA pages offer Caddy's internal root next to the one from the settings
+- feat: the base Caddyfile can be read under System
+- style: "more names" and "paths" in the route list are pills like the tags
+- style: unfolded hostnames and paths in the route list are indented and quieter
+- feat: further hostnames in the route list are links too
+- chore: the route form no longer says that a new hostname renames the file
+- style: "Only problems" behaves like "No groups", in a soft red
+- fix: "Only problems" filters again
+- feat: "Only problems" is a red toggle next to "No groups"
+- feat: list fields in the route form show one entry per line
+- fix: the route form names the hostname in its heading, not the file
+- fix: the box for not checking the target's certificate is only offered for an https:// target
+
+
 ## 2026-10-15 03:32
 - chore: version 0.25.0
 - feat: no CA certificate for the mail server; only publicly trusted ones or no encryption
