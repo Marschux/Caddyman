@@ -2678,6 +2678,13 @@ def index(request: Request):
     jobs = {}
     for item in routes:
         item["hand"] = None if item["route"] else hand_written(current, item["name"])
+        if not item["route"]:
+            # Why it cannot be adopted, shown in the list before anybody clicks. Empty when it can.
+            try:
+                text = (Path(current["sites_dir"]) / f"{item['name']}.caddy").read_text(encoding="utf-8")
+                item["refused"] = adopt_route(text, current)[1]
+            except (OSError, UnicodeDecodeError):
+                item["refused"] = "it cannot be read"
         served = item["route"] or item["hand"]
         if served and served.get("off"):
             # Caddy does not serve it: no certificate to look at, no target to reach.

@@ -2294,6 +2294,14 @@ class TestEdit(RouteTest):
         # A name the base Caddyfile does not define stays a foreign line.
         _, reason = main.adopt_route(text.replace("stepca", "nowhere"), self.host)
         self.assertIn("would not write: import nowhere", reason)
+        # The list says so before anybody clicks, offers no Adopt, and counts it as a problem.
+        self.put("odd.caddy", text.replace("stepca", "nowhere"))
+        self.put("plain.caddy", "plain.lab.test {\n\treverse_proxy 10.0.0.5:9005\n}\n")
+        listing = self.client.get("/").text
+        self.assertIn("Cannot be adopted: it contains a line Caddyman would not write: import nowhere.", listing)
+        self.assertNotIn("/routes/odd/adopt", listing)
+        self.assertIn("/routes/plain/adopt", listing)
+        self.assertEqual(listing.count("data-problem"), 1)
 
     def test_error_pages_on_a_route(self):
         self.edit(errors="1", allow="private")

@@ -33,8 +33,8 @@
 		{% if grouped and loop.changed(item.group) %}
 		<tr class="group"><th colspan="7">{{ item.group or "No group" }}</th></tr>
 		{% endif %}
-		{# A problem: the target does not answer, or the certificate is not what it should be. #}
-		<tr data-group="{{ item.group }}"{% if route and route.off %} class="off"{% endif %}{% if item.target_down or (item.certificate and item.certificate.level in ("warn", "fail")) %} data-problem{% endif %}>
+		{# A problem: the target does not answer, the certificate is not what it should be, or a file cannot be adopted. #}
+		<tr data-group="{{ item.group }}"{% if route and route.off %} class="off"{% endif %}{% if item.target_down or item.refused or (item.certificate and item.certificate.level in ("warn", "fail")) %} data-problem{% endif %}>
 			{% if route %}
 			<td class="nowrap">
 				{% if item.site %}<a class="out" href="{{ item.site }}" target="_blank" rel="noopener noreferrer"><strong>{{ route.host }}{{ ":" ~ route.port if route.port }}</strong></a>
@@ -64,7 +64,7 @@
 			<td class="nowrap"><span class="tag">{{ {"acme_ca": "Own ACME CA", "default": "Caddy default", "dns": "DNS challenge", "internal": "Caddy internal", "none": "None"}[route.tls] }}</span></td>
 			{% else %}
 			<td><code>{{ item.name }}.caddy</code></td>
-			<td colspan="4" class="empty">Not created here, or edited by hand</td>
+			<td colspan="4" class="empty">{% if item.refused %}Cannot be adopted: {{ item.refused }}.{% else %}Not created here, or edited by hand{% endif %}</td>
 			{% endif %}
 			{# Also for a file written by hand, as far as its first line names one plain address. #}
 			<td class="nowrap">
@@ -84,7 +84,7 @@
 			</td>
 			<td class="actions">
 				{% if may_change %}
-				{% if not route %}
+				{% if not route and not item.refused %}
 				<form method="post" action="/routes/{{ item.name|urlencode }}/adopt">
 					<button type="submit">Adopt</button>
 				</form>
