@@ -5,8 +5,12 @@
 <h1>Error pages</h1>
 <aside class="side">
 	<a href="/error-pages" {% if not code %}aria-current="page"{% endif %}>Setup</a>
-	{% for key, item in pages.items() %}
-	<a href="/error-pages/{{ key }}" {% if code == key %}aria-current="page"{% endif %}>{{ key ~ " " if key|int }}{{ item[0] }}</a>
+	{# Blocked and Maintenance first: they belong to the setup above, not to a status code. #}
+	{% for key, item in pages.items() if not key|int %}
+	<a href="/error-pages/{{ key }}" {% if code == key %}aria-current="page"{% endif %}>{{ item[0] }}</a>
+	{% endfor %}
+	{% for key, item in pages.items() if key|int %}
+	<a href="/error-pages/{{ key }}" {% if code == key %}aria-current="page"{% endif %}>{{ key }} {{ item[0] }}</a>
 	{% endfor %}
 </aside>
 {% if code %}
