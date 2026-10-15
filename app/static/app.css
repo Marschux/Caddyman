@@ -30,7 +30,7 @@
 	--opt-host: #bef264;
 	--opt-verify: #fcd34d;
 	--opt-hsts: #6ee7b7;
-	--opt-errors: #fda4af;
+	--opt-errors: #a5b4fc;
 	--opt-log: #f0abfc;
 	--sans: system-ui, -apple-system, "Segoe UI", Helvetica, Arial, sans-serif;
 	--mono: ui-monospace, "Cascadia Code", Consolas, monospace;
@@ -67,7 +67,7 @@
 	--opt-host: #4d7c0f;
 	--opt-verify: #92400e;
 	--opt-hsts: #047857;
-	--opt-errors: #be123c;
+	--opt-errors: #4338ca;
 	--opt-log: #a21caf;
 }
 

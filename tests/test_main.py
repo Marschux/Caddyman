@@ -2354,7 +2354,7 @@ class TestEdit(RouteTest):
             text,
         )
         self.assertIn('name="errors" value="1" checked', self.client.get("/routes/pdf/edit").text)
-        self.assertIn(">Errors<", self.client.get("/").text)
+        self.assertIn(">Pages<", self.client.get("/").text)
         taken, reason = main.adopt_route(text, self.host)
         self.assertEqual(taken and taken.get("errors"), f"caddyman:{main.OWN_PORT}", reason)
         # Fetching a page is not a route that leads to Caddyman.

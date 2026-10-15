@@ -67,7 +67,7 @@
 				{% if route.host_header %}<span class="tag opt host" title="Host header: the target gets its own name as Host">Host</span>{% endif %}
 				{% if route.skip_verify %}<span class="tag opt verify" title="The target's certificate is not checked">No verify</span>{% endif %}
 				{% if route.hsts %}<span class="tag opt hsts" title="HSTS: browsers use HTTPS only for this name">HSTS</span>{% endif %}
-				{% if route.errors %}<span class="tag opt errors" title="Error pages: Caddy's own errors show a page from Caddyman">Errors</span>{% endif %}
+				{% if route.errors %}<span class="tag opt errors" title="Error pages: when Caddy cannot answer, Caddyman's page is shown">Pages</span>{% endif %}
 				{% if route.log %}{% if "logs" in request.state.me.permissions %}<a class="tag opt log" title="Access log: open it" href="/logs?file=access-{{ item.name|urlencode }}.log">Log</a>{% else %}<span class="tag opt log" title="Access log">Log</span>{% endif %}{% endif %}
 			</div></td>
 			{% else %}
