@@ -393,8 +393,6 @@ td details.more, td details.more[open] { margin: 4px 0 0; padding: 0; background
 table.even tbody tr:not(.group) > td { height: 80px; }
 /* The route list keeps its columns: what does not fit wraps inside its cell instead of widening it. */
 table.routes { table-layout: fixed; }
-/* The column titles stand in the middle of their column; the buttons keep theirs on the right. */
-table.routes thead th:not(.actions) { text-align: center; }
 /* Type, options, TLS and buttons have a size of their own; the target gets what the host leaves. */
 table.routes col:nth-child(1) { width: 15%; }
 table.routes col:nth-child(2) { width: 155px; }
