@@ -794,7 +794,7 @@ def logout(request: Request):
 # Mail is only for a forgotten password. It needs the public address as well: taking it from
 # the request would let anyone have a reset link mailed that points at a server of theirs.
 MAIL_FILE = DATA_DIR / "mail.json"
-MAIL_DEFAULTS = {"public_url": "", "host": "", "port": "587", "user": "", "sender": "", "security": "starttls", "ca": ""}
+MAIL_DEFAULTS = {"public_url": "", "host": "", "port": "587", "user": "", "sender": "", "security": "starttls"}
 MAIL_SECURITY = {"starttls": "STARTTLS (port 587)", "ssl": "SSL/TLS (port 465)", "none": "None - unencrypted"}
 RESET_SECONDS = 3600
 RESETS = URLSafeTimedSerializer(SECRET_KEY, salt="reset")
@@ -826,7 +826,7 @@ def mail_problem(mail: dict) -> str | None:
         return "Unknown encryption."
     if not is_http_url(mail["public_url"]) or urlsplit(mail["public_url"]).path:
         return "The address of Caddyman has to look like https://caddyman.home.example."
-    return ca_problem(mail["ca"]) if mail["ca"] else None
+    return None
 
 
 def ca_problem(pem: str) -> str | None:
@@ -853,8 +853,6 @@ def send_mail(to: str, subject: str, body: str) -> str | None:
     # mail settings for a server whose certificate comes from a private one.
     context = ssl.create_default_context()
     try:
-        if mail["ca"]:
-            context.load_verify_locations(cadata=mail["ca"])
         password = unseal(mail["password_enc"]) if mail.get("password_enc") else ""
         if mail["security"] == "ssl":
             server = smtplib.SMTP_SSL(mail["host"], int(mail["port"]), timeout=10, context=context)
@@ -1116,7 +1114,7 @@ def users_list(request: Request):
 @app.get("/settings/mail")
 def mail_form(request: Request):
     mail = load_mail()
-    return page(request, "mail_form.html", mail=mail, securities=MAIL_SECURITY, ca_codes=check_codes(mail["ca"]))
+    return page(request, "mail_form.html", mail=mail, securities=MAIL_SECURITY)
 
 
 @app.post("/settings/mail")
@@ -1125,8 +1123,6 @@ async def mail_save(request: Request):
     stored = load_mail()
     mail = {key: str(form.get(key, "")).strip() for key in MAIL_DEFAULTS}
     mail["public_url"] = mail["public_url"].rstrip("/")
-    # Only the certificates are kept; text around them is dropped. Something that holds none stays, to be refused.
-    mail["ca"] = "\n".join(PEM_RE.findall(mail["ca"])) or mail["ca"]
     if error := mail_problem(mail):
         return page(request, "mail_form.html", status_code=400, error=error, mail=mail, securities=MAIL_SECURITY)
     if password := str(form.get("password", "")):

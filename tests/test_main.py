@@ -1159,18 +1159,6 @@ class TestUsers(RouteTest):
         # An empty password field keeps the stored one.
         self.client.post("/settings/mail", data={**settings, "password": ""})
         self.assertEqual(main.VAULT.decrypt(main.load_mail()["password_enc"].encode()), b"mail-secret")
-        # A mail server with a certificate from a private CA: its root is pasted in and used for the check.
-        from cryptography.hazmat.primitives.serialization import Encoding
-
-        pem = make_certificate("Lab Root CA").public_bytes(Encoding.PEM).decode().strip()
-        self.assertEqual(self.client.post("/settings/mail", data={**settings, "ca": "not a certificate"}).status_code, 400)
-        self.assertEqual(main.load_mail()["ca"], "")
-        self.client.post("/settings/mail", data={**settings, "password": "", "ca": f"copied from somewhere\n{pem}\n"})
-        self.assertEqual(main.load_mail()["ca"], pem)
-        self.assertIn("Check code of what is stored", self.client.get("/settings/mail").text)
-        with mock.patch.object(main.ssl, "create_default_context") as context, mock.patch.object(main.smtplib, "SMTP"):
-            self.assertIsNone(main.send_mail("ada@lab.test", "subject", "body"))
-        context.return_value.load_verify_locations.assert_called_once_with(cadata=pem)
         mail = self.patch(main, "send_mail", mock.Mock(return_value="connection refused"))
         self.assertIn("connection refused", self.client.get(self.client.post("/settings/mail/test").headers["location"]).text)
         mail.return_value = None

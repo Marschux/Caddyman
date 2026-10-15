@@ -38,11 +38,6 @@
 		placeholder="{{ 'Leave empty to keep the current password' if mail.password_enc }}">
 	<small>Stored encrypted with <code>CADDYMAN_SECRET_KEY</code>.</small>
 
-	<label for="ca">CA certificate <span class="optional">optional</span></label>
-	<textarea id="ca" name="ca" rows="5" spellcheck="false" placeholder="-----BEGIN CERTIFICATE-----">{{ mail.ca }}</textarea>
-	<small>Only for a mail server with a certificate from your own CA: its root certificate as PEM.
-		{% if ca_codes %}Check code of what is stored: <code>{{ ca_codes }}</code>{% endif %}</small>
-
 	<label for="sender">Sender</label>
 	<input id="sender" name="sender" type="email" value="{{ mail.sender }}" placeholder="caddyman@example.com">
 
