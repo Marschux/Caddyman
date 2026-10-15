@@ -2651,13 +2651,20 @@ def hand_written(host: dict, name: str) -> dict | None:
     return {"tls": "none" if address.group(1) else "default", "host": address.group(2), "port": address.group(3) or ""}
 
 
+def site_url(route: dict, name: str) -> str:
+    """The address a browser opens for one hostname of a route."""
+    # A wildcard is no address anybody can open.
+    if "*" in name:
+        return ""
+    port = f":{route['port']}" if route.get("port") else ""
+    return f"{'http' if route['tls'] == 'none' else 'https'}://{name}{port}"
+
+
 def route_links(route: dict | None) -> tuple[str, str]:
     """Where a click on the hostname and on the target leads. Empty where there is nothing to open."""
     if not route:
         return "", ""
-    port = f":{route['port']}" if route.get("port") else ""
-    # A wildcard is no address anybody can open.
-    site = "" if "*" in route["host"] else f"{'http' if route['tls'] == 'none' else 'https'}://{route['host']}{port}"
+    site = site_url(route, route["host"])
     target = route.get("upstream") or route.get("target") or ""
     if route["type"] == "reverse_proxy" and "://" not in target:
         target = f"http://{target}"
@@ -2758,6 +2765,7 @@ def index(request: Request):
         # One that never got its turn says nothing about the target.
         item["target_down"] = [target for target, key in item.get("reach_keys", {}).items() if found.get(key, True) in (False, RUNNING)]
         item["site"], item["link"] = route_links(item["route"])
+        item["alias_sites"] = [(alias, site_url(item["route"], alias)) for alias in (item["route"] or {}).get("aliases", [])]
         item["group"] = route_group(item["route"])
         item["own"] = own_route(item["route"], request)
     # Groups in order, what has none at the end.

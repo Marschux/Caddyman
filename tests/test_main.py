@@ -2212,7 +2212,7 @@ class TestEdit(RouteTest):
         page = self.client.get("/routes/pdf/edit").text
         self.assertIn('<input name="aliases" value="docs.lab.test"', page)
         self.assertIn('<input name="aliases" value="wiki.lab.test"', page)
-        self.assertIn("<small>wiki.lab.test</small>", self.client.get("/").text)
+        self.assertIn(">wiki.lab.test</a></small>", self.client.get("/").text)
         taken, reason = main.adopt_route(text, self.host)
         self.assertEqual(taken and taken["aliases"], route["aliases"], reason)
         # Port and plain HTTP go for every name.
@@ -2712,7 +2712,7 @@ class TestComfort(RouteTest):
         self.create(aliases=["docs.lab.test", "files.lab.test"])
         page = self.client.get("/").text
         self.assertIn('<details class="more"><summary>2 more names</summary>', page)
-        self.assertIn("<small>docs.lab.test</small>", page)
+        self.assertIn('<small><a class="out" href="https://docs.lab.test"', page)
 
 
 class TestAlerts(RouteTest):
