@@ -17,7 +17,9 @@
 	</div>
 	{% endif %}
 </div>
-<table class="even">
+<table class="even routes">
+	{# Fixed widths, so every group lines up the same and the table never runs past the page. #}
+	<colgroup><col><col><col><col><col><col><col></colgroup>
 	<thead>
 		<tr><th>Host</th><th>Type</th><th>Target</th><th>Options</th><th>TLS</th><th>Certificate</th>
 			{# "Only problems", and one list without the names of the groups in between (only where there

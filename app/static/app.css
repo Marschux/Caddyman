@@ -389,6 +389,17 @@ td details.more, td details.more[open] { margin: 4px 0 0; padding: 0; background
 .route:has(#tls option[value="dns"]:checked) .for-dns { display: block; }
 /* Every row is as high as one with a second line under its value, so the list stays even. */
 table.even tbody tr:not(.group) > td { height: 80px; }
+/* The route list keeps its columns: what does not fit wraps inside its cell instead of widening it. */
+table.routes { table-layout: fixed; }
+/* Type, TLS label and buttons have a size of their own; the other columns grow with the page. */
+table.routes col:nth-child(2) { width: 130px; }
+table.routes col:nth-child(5) { width: 140px; }
+table.routes col:nth-child(7) { width: 250px; }
+table.routes col:nth-child(1) { width: 13%; }
+table.routes col:nth-child(3) { width: 16%; }
+table.routes col:nth-child(4) { width: 15%; }
+table.routes col:nth-child(6) { width: 13%; }
+table.routes td.nowrap { white-space: normal; overflow-wrap: anywhere; }
 /* The line that unfolds is a pill like the tags, without the browser's triangle. */
 td details.more summary { display: inline-block; list-style: none; padding: 2px 10px; color: var(--ink-muted); background: var(--surface-2); border-radius: 9999px; font-size: 12px; font-weight: 400; line-height: 1.38; letter-spacing: 0.2px; }
 td details.more summary::-webkit-details-marker { display: none; }
