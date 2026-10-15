@@ -2716,7 +2716,7 @@ class TestAlerts(RouteTest):
         self.client.post("/settings/alerts", data={"alert_reload": "1", "alert_cert_days": "0"})
         self.assertEqual(main.load_settings()["alert_cert_days"], "14")  # refused
         self.client.post("/settings/alerts", data={"alert_reload": "1", "alert_cert_days": "30"})
-        self.assertEqual((main.flag("alert_target"), main.load_settings()["alert_cert_days"]), (False, "30"))
+        self.assertEqual((main.flag("alert_admin"), main.load_settings()["alert_cert_days"]), (False, "30"))
         self.client.post("/profile", data={"email": "ada@lab.test"})
         self.assertNotIn("alerts", main.find_user(main.load_users(), "admin"))
 
@@ -2741,13 +2741,12 @@ class TestAlerts(RouteTest):
         self.assertEqual(self.sent, [])  # once is not yet "a while"
         main.watch_once()
         main.watch_once()
-        self.assertEqual(sorted(subject for _, subject, _ in self.sent),
-                         ["Caddyman: 10.0.0.5:9005 does not answer", "Caddyman: Caddy's admin API does not answer"])
+        # The targets are not watched: that is a job for a monitor like Uptime Kuma.
+        self.assertEqual([subject for _, subject, _ in self.sent], ["Caddyman: Caddy's admin API does not answer"])
         down.side_effect, down.return_value = None, mock.Mock(status_code=200)
         main.target_reachable.return_value = True
         main.watch_once()
         self.assertIn("Caddyman: Caddy's admin API answers again", [subject for _, subject, _ in self.sent])
-        self.assertIn("Caddyman: 10.0.0.5:9005 answers again", [subject for _, subject, _ in self.sent])
 
     def test_a_certificate_about_to_end_is_mailed_once_a_day(self):
         self.create()

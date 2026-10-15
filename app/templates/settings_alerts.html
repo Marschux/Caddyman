@@ -11,9 +11,6 @@
 	<label class="check"><input type="checkbox" name="alert_admin" value="1" {{ "checked" if settings.alert_admin }}> Caddy's admin API stops answering</label>
 	<small>After about 10 minutes, and again when it is back.</small>
 
-	<label class="check"><input type="checkbox" name="alert_target" value="1" {{ "checked" if settings.alert_target }}> A target stops answering</label>
-	<small>Checked from Caddyman, like in the route list. After about 10 minutes, and again when it is back.</small>
-
 	<label class="check"><input type="checkbox" name="alert_cert" value="1" {{ "checked" if settings.alert_cert }}> A certificate is about to end</label>
 	<label for="alert_cert_days">Days before the end</label>
 	<input id="alert_cert_days" name="alert_cert_days" type="number" min="1" max="90" value="{{ settings.alert_cert_days }}" required>

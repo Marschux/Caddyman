@@ -452,7 +452,7 @@ PUBLIC_PATHS = {"/trust", "/root-ca.crt"}
 SETTINGS_FILE = DATA_DIR / "settings.json"
 SETTING_DEFAULTS = {"public_ca": "1", "login_ca_hint": "1", "require_2fa": ""}
 # What is mailed to the accounts that ask for alerts in their profile. "1" or "", the days a number.
-ALERT_DEFAULTS = {"alert_reload": "1", "alert_cert": "1", "alert_cert_days": "14", "alert_admin": "1", "alert_target": "1"}
+ALERT_DEFAULTS = {"alert_reload": "1", "alert_cert": "1", "alert_cert_days": "14", "alert_admin": "1"}
 SETTING_DEFAULTS.update(ALERT_DEFAULTS)
 
 
@@ -4024,13 +4024,7 @@ def watch_once() -> None:
             ("Caddy's admin API does not answer", f"{host['admin_url']} has not answered for {minutes} minutes. Changes to routes cannot be made."),
             ("Caddy's admin API answers again", f"{host['admin_url']} answers again."))
     routes = [item["route"] for item in list_routes(host) if item["route"] and not item["route"].get("off")]
-    if flag("alert_target"):
-        targets = {target for route in routes if route["type"] == "reverse_proxy"
-                   for target in (route["upstream"], *(pair[1] for pair in route.get("paths", [])))}
-        for target, ok in zip(targets, PROBES.map(target_reachable, targets)):
-            watched(f"target:{target}", ok, "alert_target",
-                    (f"{target} does not answer", f"Caddyman has had no TCP connection to {target} for {minutes} minutes. Caddy may see it differently."),
-                    (f"{target} answers again", f"{target} answers again."))
+    # Whether the services behind the routes answer is left to a monitor like Uptime Kuma (Max, 15.10.2026).
     now = time.monotonic()
     if flag("alert_cert") and WATCH_STATE.get("certs", -CERT_WATCH_SECONDS) <= now - CERT_WATCH_SECONDS:
         WATCH_STATE["certs"] = now
