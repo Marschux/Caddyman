@@ -404,6 +404,8 @@ table.routes col:nth-child(7) { width: 250px; }
 table.routes td.tls > * { display: block; width: fit-content; margin: 0; }
 table.routes td.tls > * + * { margin-top: 6px; }
 table.routes td.nowrap { white-space: normal; overflow-wrap: anywhere; }
+/* Alone in its cell, the count of networks sits on the middle line like every other value. */
+table.routes td.access details.more { margin: 0; }
 /* At most four options in a line, so a route with many of them takes two even lines. */
 table.routes .tags { display: grid; grid-template-columns: repeat(4, max-content); text-align: center; }
 /* The line that unfolds is a pill like the tags, without the browser's triangle. */
