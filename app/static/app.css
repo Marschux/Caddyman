@@ -30,7 +30,6 @@
 	--opt-host: #bef264;
 	--opt-verify: #fcd34d;
 	--opt-hsts: #6ee7b7;
-	--opt-ip: #fdba74;
 	--opt-errors: #fda4af;
 	--opt-log: #f0abfc;
 	--sans: system-ui, -apple-system, "Segoe UI", Helvetica, Arial, sans-serif;
@@ -68,7 +67,6 @@
 	--opt-host: #4d7c0f;
 	--opt-verify: #92400e;
 	--opt-hsts: #047857;
-	--opt-ip: #c2410c;
 	--opt-errors: #be123c;
 	--opt-log: #a21caf;
 }
@@ -332,11 +330,8 @@ section > ol li { margin: 6px 0; }
 .tag.host { --c: var(--opt-host); }
 .tag.verify { --c: var(--opt-verify); }
 .tag.hsts { --c: var(--opt-hsts); }
-.tag.ip { --c: var(--opt-ip); }
 .tag.errors { --c: var(--opt-errors); }
 .tag.log { --c: var(--opt-log); }
-/* Something wrong with a route, in place of a value. The whole message is the tooltip. */
-.tag.error { color: var(--error); background: color-mix(in srgb, var(--error) 15%, transparent); cursor: help; }
 
 /* A standing hint with one action, unlike a flash that is shown once. */
 .notice { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 16px; padding: 16px; background: var(--surface-1); border: 1px solid var(--hairline); border-radius: 12px; }
@@ -423,7 +418,7 @@ td details.more.problem small { white-space: normal; }
 /* Further hostnames: the main name is the line that unfolds, the count stands next to it. */
 td details.more.names { margin: 0; }
 td details.more.names summary, td details.more.names summary:hover, td details.more.names[open] summary { display: block; padding: 0; color: inherit; background: none; font-size: inherit; line-height: inherit; letter-spacing: inherit; cursor: pointer; }
-td details.more.names summary .tag:not(.opt):hover, td details.more.names[open] summary .tag:not(.opt) { color: var(--ink); background: var(--surface-3); }
+td details.more.names summary .tag:hover, td details.more.names[open] summary .tag { color: var(--ink); background: var(--surface-3); }
 /* The block has the colour of a grey button: the outline keeps the button visible on it. */
 details button.secondary { border-color: var(--hairline-strong); }
 /* A list to pick from inside such a block: each entry opens what there is to copy. */

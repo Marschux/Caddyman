@@ -1800,23 +1800,19 @@ def dns_snippet_problem(host: dict, caddyfile_text: str, name: str) -> str:
         return said(error)
 
 
+def base_text(host: dict) -> str:
+    """The base Caddyfile, or '' when it cannot be read."""
+    try:
+        return Path(host["caddyfile"]).read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError):
+        return ""
+
+
 def has_snippet(host: dict, key: str, name: str = "") -> bool:
     """Whether the snippet a host setting names is in the base Caddyfile. For the DNS snippets: name, or any."""
-    try:
-        text = Path(host["caddyfile"]).read_text(encoding="utf-8")
-        if key == "dns_snippet":
-            return any(snippet_exists(text, dns) for dns in ([name] if name else dns_snippets(host)))
-        return snippet_exists(text, host[key])
-    except (OSError, UnicodeDecodeError):
-        return False
-
-
-def base_snippet(host: dict, name: str) -> bool:
-    """Whether the base Caddyfile defines a snippet of this name, set at the host or not."""
-    try:
-        return snippet_exists(Path(host["caddyfile"]).read_text(encoding="utf-8"), name)
-    except (OSError, UnicodeDecodeError):
-        return False
+    names = ([name] if name else dns_snippets(host)) if key == "dns_snippet" else [host[key]]
+    text = base_text(host)
+    return any(snippet_exists(text, one) for one in names)
 
 
 MAX_NETWORKS = 20
@@ -2452,7 +2448,7 @@ def adopt_route(content: str, host: dict) -> tuple[dict | None, str]:
             form.update(type="redirect", target=tokens[1].removesuffix("{uri}"), code=tokens[2])
         elif tokens[:2] == ["root", "*"] and len(tokens) == 3:
             form.update(type="static", root=tokens[2])
-        elif len(tokens) == 2 and tokens[0] == "import" and base_snippet(host, tokens[1]):
+        elif len(tokens) == 2 and tokens[0] == "import" and snippet_exists(base_text(host), tokens[1]):
             return None, f"it imports {tokens[1]}, a snippet not set under Settings → Caddy"
         elif tokens != ["file_server"]:
             return None, f"it contains a line Caddyman would not write: {' '.join(tokens)}"
@@ -2579,17 +2575,13 @@ def probes(jobs: dict[tuple, tuple]) -> dict[tuple, object]:
     return results
 
 
-def hand_written(host: dict, name: str) -> dict | None:
+def hand_written(content: str) -> dict | None:
     """Just enough of a route to look at its certificate, for a file that does not open in the form.
 
     Taken from the first line, when that is one plain address. Which CA was meant is unknown,
     so the status can say who issued the certificate but not whether that is the wrong one.
     """
-    try:
-        lines = (Path(host["sites_dir"]) / f"{name}.caddy").read_text(encoding="utf-8").splitlines()
-    except (OSError, UnicodeDecodeError):
-        return None
-    first = next((line.split() for line in lines if line.strip() and not line.lstrip().startswith("#")), [])
+    first = next((line.split() for line in content.splitlines() if line.strip() and not line.lstrip().startswith("#")), [])
     address = re.match(r"^(http://)?([^:/]+)(?::([0-9]+))?$", first[0]) if len(first) == 2 and first[1] == "{" else None
     if not address or not HOSTNAME_RE.match(address.group(2)) or (address.group(3) and not valid_port(address.group(3))):
         return None
@@ -2697,14 +2689,16 @@ def index(request: Request):
     routes = [item for item in list_routes(current) if not (item["name"] == CATCH_ALL and item["route"] and item["route"]["type"] == "error_page")]
     jobs = {}
     for item in routes:
-        item["hand"] = None if item["route"] else hand_written(current, item["name"])
+        item["hand"] = None
         if not item["route"]:
-            # Why it cannot be adopted, shown in the list before anybody clicks. Empty when it can.
             try:
                 text = (Path(current["sites_dir"]) / f"{item['name']}.caddy").read_text(encoding="utf-8")
-                item["refused"] = adopt_route(text, current)[1]
             except (OSError, UnicodeDecodeError):
                 item["refused"] = "it cannot be read"
+            else:
+                item["hand"] = hand_written(text)
+                # Why it cannot be adopted, shown in the list before anybody clicks. Empty when it can.
+                item["refused"] = adopt_route(text, current)[1]
         served = item["route"] or item["hand"]
         if served and served.get("off"):
             # Caddy does not serve it: no certificate to look at, no target to reach.
@@ -3504,14 +3498,12 @@ def read_backup(data: bytes) -> dict:
             hosts.append(with_paths({"id": host_id, **host, **kept}))
     meta = extra.get("backup.json")
     # Everything below is held to what the forms of the interface would accept.
-    settings = extra.get("settings.json")
-    zone = settings.get("time_zone") if isinstance(settings, dict) else None
-    settings = {key: "1" if settings.get(key) else "" for key in SETTING_DEFAULTS if key in settings} if isinstance(settings, dict) else {}
-    if find_zone(zone):
-        settings["time_zone"] = zone
-    # The one setting that is a number, not a switch. Held to what the form takes.
-    days = str(extra["settings.json"].get("alert_cert_days", "")) if isinstance(extra.get("settings.json"), dict) else ""
-    settings.pop("alert_cert_days", None)
+    stored = extra.get("settings.json") if isinstance(extra.get("settings.json"), dict) else {}
+    # Switches; the days before a certificate alert are the one number among them.
+    settings = {key: "1" if stored.get(key) else "" for key in SETTING_DEFAULTS if key in stored and key != "alert_cert_days"}
+    if find_zone(stored.get("time_zone")):
+        settings["time_zone"] = stored["time_zone"]
+    days = str(stored.get("alert_cert_days", ""))
     if days.isdigit() and 1 <= int(days) <= 90:
         settings["alert_cert_days"] = days
     mail = extra.get("mail.json")
