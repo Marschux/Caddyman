@@ -893,7 +893,7 @@ class TestUsers(RouteTest):
         viewer, _ = self.log_in("viewer")
         for path in ("/", "/status", "/profile"):
             self.assertEqual(viewer.get(path).status_code, 200, path)
-        for path in ("/settings/users", "/settings/users/new", "/groups", "/backup", "/backup/download", "/logs", "/ca", "/ca/root-ca.crt", "/hosts/h1/edit", "/routes/new",
+        for path in ("/settings/users", "/settings/users/new", "/groups", "/backup", "/backup/download", "/logs", "/caddyfile", "/ca", "/ca/root-ca.crt", "/hosts/h1/edit", "/routes/new",
                      "/settings", "/settings/caddy", "/settings/mail", "/settings/security"):
             self.assertEqual(viewer.get(path).status_code, 403, path)
         self.assertEqual(viewer.post("/routes/new", data=self.form()).status_code, 403)
@@ -2707,6 +2707,15 @@ class TestComfort(RouteTest):
         self.assertNotIn("http://", text)
         # A path is not dropped without a word: Caddy would send the requests somewhere else.
         self.assertEqual(self.create(host="other.lab.test", upstream="http://10.0.0.5:9005/admin").status_code, 400)
+
+    def test_base_caddyfile_is_shown_to_read(self):
+        with open(self.caddyfile, "w", encoding="utf-8") as handle:
+            handle.write("import /etc/caddy/sites/*.caddy\n<script>")
+        page = self.client.get("/caddyfile").text
+        self.assertIn("<pre>import /etc/caddy/sites/*.caddy\n&lt;script&gt;</pre>", page)
+        self.assertIn('href="/caddyfile"', page)
+        os.remove(self.caddyfile)
+        self.assertIn("It could not be read", self.client.get("/caddyfile").text)
 
     def test_further_names_are_folded_in_the_route_list(self):
         self.create(aliases=["docs.lab.test", "files.lab.test"])

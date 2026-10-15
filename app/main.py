@@ -504,6 +504,7 @@ AREAS = (
     ("/error-pages", "errors"),
     ("/backup", "backup"),
     ("/logs", "logs"),
+    ("/caddyfile", "caddy"),
     ("/ca", "ca"),
 )
 
@@ -3935,6 +3936,17 @@ def status(request: Request):
         })
     context = {"no_https": bool(hosts) and way == "plain", "has_own_route": has_route, "own_address": address}
     return page(request, "status.html", hosts=hosts, **context)
+
+
+@app.get("/caddyfile")
+def caddyfile_page(request: Request):
+    """The base Caddyfile, to read. Right "caddy": its snippets can hold logins and API tokens."""
+    current = the_host()
+    try:
+        text, error = Path(current["caddyfile"]).read_text(encoding="utf-8", errors="replace"), ""
+    except OSError as problem:
+        text, error = "", f"It could not be read: {problem.strerror or problem}."
+    return page(request, "caddyfile.html", host=current, text=text, error=error)
 
 
 @app.get("/changes")

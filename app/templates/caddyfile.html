@@ -1,0 +1,9 @@
+{% extends "base.html" %}
+{% block title %}Caddyfile - Caddyman{% endblock %}
+{% block content %}
+{% include "system_nav.html" %}
+<div class="heading"><h2>Base Caddyfile</h2></div>
+<p>{% if host.storage == "managed" %}The copy Caddyman pushes with the routes. Change it under <a href="/settings/caddy">Settings → Caddy</a>.
+{% else %}Read only. Caddyman never writes <code>{{ host.caddyfile }}</code>.{% endif %}</p>
+{% if error %}<p class="flash error" role="alert">{{ error }}</p>{% else %}<pre>{{ text }}</pre>{% endif %}
+{% endblock %}
