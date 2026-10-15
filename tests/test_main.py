@@ -1240,7 +1240,8 @@ class TestCa(RouteTest):
         self.assertIn(f"{digest[:4]} {digest[4:8]} {digest[8:12]}", page)
         # A device takes only the first certificate out of a file: the second has its own page, file and command.
         first, second = self.client.get("/trust").text, self.client.get("/trust?cert=2&os=linux").text
-        self.assertIn("<strong>2 certificates</strong>", first)
+        self.assertIn('<option value="2" >Certificate 2</option>', first)
+        self.assertIn('href="/root-ca.crt?cert=2">Download root-ca-2.crt<', first)
         self.assertIn('FromBase64String("dGVzdA==")', first)
         self.assertIn('href="/root-ca.crt?cert=1">Download root-ca-1.crt<', first)
         self.assertIn('href="?os=macos&amp;cert=1"', first)

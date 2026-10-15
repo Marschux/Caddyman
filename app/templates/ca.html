@@ -25,22 +25,29 @@
 	{% endfor %}
 </aside>
 <div class="toolbar">
-	<div class="buttons"><a class="button" href="/root-ca.crt{{ '?' ~ pick if pick }}">Download {{ file_name }}</a></div>
+	{% if many %}
+	{# A device takes only the first certificate out of a file, so each one has its own download.
+	   The list picks the one the check code and the steps below are about. #}
+	<div class="buttons">
+	<form method="get" class="inline">
+		<input type="hidden" name="os" value="{{ shown }}">
+		<select name="cert" aria-label="Certificate shown below" onchange="this.form.submit()">
+			{% for item in certs %}<option value="{{ item.number }}" {{ "selected" if item.number == cert.number }}>Certificate {{ item.number }}{{ ": " ~ item.subject if item.subject }}</option>{% endfor %}
+		</select>
+		<noscript><button type="submit" class="secondary">Show</button></noscript>
+	</form>
+	{% for item in certs %}<a class="button" href="/root-ca.crt?cert={{ item.number }}">Download root-ca-{{ item.number }}.crt</a>{% endfor %}
+	</div>
+	{% else %}
+	<div class="buttons"><a class="button" href="/root-ca.crt">Download {{ file_name }}</a></div>
+	{% endif %}
 </div>
 {% if public %}
-<p class="empty">Every device that should open these sites without a warning needs this certificate once. Ask whoever runs this
+<p class="empty">Every device that should open these sites without a warning needs {{ "these certificates" if many else "this certificate" }} once. Ask whoever runs this
 	Caddyman for the <strong>check code</strong>, in person or on the phone: it proves the certificate is the real one.</p>
 {% else %}
-<p class="empty">Every device that should trust these routes needs this certificate once.
+<p class="empty">Every device that should trust these routes needs {{ "these certificates" if many else "this certificate" }} once.
 	{% if internal %}This is Caddy's internal CA: no root CA source is set.{% endif %}</p>
-{% endif %}
-{% if many %}
-{# A device takes only the first certificate out of a file, so each one is its own round. #}
-<p class="empty">There are <strong>{{ certs|length }} certificates</strong>, and a device needs all of them.
-	Each has its own download and check code:
-	{% for item in certs %}
-	{% if item.number == cert.number %}<strong>Certificate {{ item.number }}</strong>{% else %}<a href="?os={{ shown }}&amp;cert={{ item.number }}">Certificate {{ item.number }}</a>{% endif %}{{ " · " if not loop.last }}
-	{% endfor %}</p>
 {% endif %}
 {% if not public %}
 
