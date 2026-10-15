@@ -1,0 +1,26 @@
+{% extends "errors/base.html" %}
+{# An eighties sunset: a striped sun, half behind a grid that runs to the horizon. #}
+{% block style %}
+		body { justify-content: flex-start; padding-top: 7vh; color: #f5d0fe; background: linear-gradient(#12002b 0%, #2d0a4e 55%, #12002b 100%); overflow: hidden; }
+		.sun { position: fixed; left: 50%; bottom: calc(34vh - min(20vw, 130px)); width: min(40vw, 260px); aspect-ratio: 1; transform: translateX(-50%); border-radius: 50%;
+			background: linear-gradient(#ffe259, #ff4f9a 70%);
+			-webkit-mask: linear-gradient(#000 0 28%, transparent 28% 31%, #000 31% 37%, transparent 37% 41%, #000 41% 45%, transparent 45% 50%, #000 50%); mask: linear-gradient(#000 0 28%, transparent 28% 31%, #000 31% 37%, transparent 37% 41%, #000 41% 45%, transparent 45% 50%, #000 50%); }
+		.grid { position: fixed; left: -50%; bottom: 0; width: 200%; height: 34vh; transform: perspective(240px) rotateX(60deg); transform-origin: top; background-color: #12002b;
+			background-image: linear-gradient(90deg, rgba(255, 79, 154, 0.7) 2px, transparent 2px), linear-gradient(rgba(255, 79, 154, 0.7) 2px, transparent 2px); background-size: 60px 60px;
+			animation: run 1.5s linear infinite; }
+		@keyframes run { to { background-position: 0 60px, 0 60px; } }
+		@media (prefers-reduced-motion: reduce) { .grid { animation: none; } }
+		.code { position: relative; color: #fff; font-size: clamp(72px, 16vw, 132px); font-weight: 800; font-style: italic; line-height: 1;
+			text-shadow: 0 0 18px #ff4f9a, 4px 4px 0 #00e5ff; }
+		h1 { position: relative; margin-top: 10px; color: #00e5ff; font-size: 24px; letter-spacing: 4px; text-transform: uppercase; }
+		p { position: relative; margin-top: 8px; }
+		small { position: relative; margin-top: 16px; color: #c084fc; font-size: 13px; }
+{% endblock %}
+{% block body %}
+	<div class="sun"></div>
+	<div class="grid"></div>
+	<div class="code">{{ code }}</div>
+	<h1>{{ title }}</h1>
+	<p>{{ text }}</p>
+	{% if host %}<small>{{ host }}</small>{% endif %}
+{% endblock %}

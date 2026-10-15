@@ -1,0 +1,23 @@
+{% extends "errors/base.html" %}
+{# A light one: a ruled note pinned to a cork board, written by hand. #}
+{% block style %}
+		body { color: #2b2b2b; background: #c8a46e radial-gradient(rgba(0, 0, 0, 0.08) 1px, transparent 1px) 0 0 / 6px 6px; }
+		.note { position: relative; width: 100%; max-width: 440px; padding: 48px 36px 36px 56px; text-align: left; transform: rotate(-1.5deg);
+			background: #fffdf4 repeating-linear-gradient(transparent 0 31px, #bcd3ea 31px 32px) 0 40px / 100% 100% no-repeat;
+			box-shadow: 0 14px 30px rgba(0, 0, 0, 0.25); }
+		.note::before { content: ""; position: absolute; top: 0; bottom: 0; left: 40px; width: 2px; background: #f2a3a3; }
+		.pin { position: absolute; top: 12px; left: 50%; width: 18px; height: 18px; border-radius: 50%; background: #d64545; box-shadow: 0 3px 4px rgba(0, 0, 0, 0.35); }
+		.code { font: 700 64px/1 "Segoe Print", "Bradley Hand", "Comic Sans MS", cursive; color: #1f4e8c; }
+		h1 { margin-top: 6px; font: 600 24px/32px "Segoe Print", "Bradley Hand", "Comic Sans MS", cursive; color: #1f4e8c; }
+		p { margin-top: 0; font: 17px/32px "Segoe Print", "Bradley Hand", "Comic Sans MS", cursive; }
+		small { display: block; margin-top: 0; font: 13px/32px ui-monospace, Consolas, monospace; color: #777; }
+{% endblock %}
+{% block body %}
+	<div class="note">
+		<span class="pin"></span>
+		<div class="code">{{ code }}</div>
+		<h1>{{ title }}</h1>
+		<p>{{ text }}</p>
+		{% if host %}<small>{{ host }}</small>{% endif %}
+	</div>
+{% endblock %}

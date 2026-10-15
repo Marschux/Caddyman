@@ -1876,7 +1876,8 @@ PAGE_STATUS = {"blocked": 403, "maintenance": 503}
 ERROR_TEXT_LIMITS = {"title": 60, "text": 200}
 ERROR_DESIGNS = {
     "caddyman": "Caddyman", "ghost": "Ghost", "terminal": "Terminal", "connection": "Connection", "minimal": "Minimal",
-    "unicorn": "Unicorn", "space": "Space", "gaming": "Gaming", "forest": "Forest",
+    "unicorn": "Unicorn", "space": "Space", "gaming": "Gaming", "forest": "Forest", "synthwave": "Synthwave",
+    "ocean": "Ocean", "paper": "Paper",
 }
 # Never 401: the answer to it has to carry the question for the login, which gets lost on the way.
 ERRORS_HANDLED = " ".join(code for code in ERROR_PAGES if code.isdigit())
