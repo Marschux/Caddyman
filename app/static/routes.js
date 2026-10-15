@@ -9,8 +9,8 @@
 	const initial = [...body.rows];
 	const routes = initial.filter((row) => !row.classList.contains("group"));
 	const groups = initial.filter((row) => row.classList.contains("group"));
-	// What the search looks at: every cell but the buttons, plus the name of the group.
-	const text = new Map(routes.map((row) => [row, cells(row).join(" ").toLowerCase() + " " + (row.dataset.group || "").toLowerCase()]));
+	// What the search looks at: every cell but the buttons, plus the name of the group and the note.
+	const text = new Map(routes.map((row) => [row, cells(row).join(" ").toLowerCase() + " " + (row.dataset.group || "").toLowerCase() + " " + (row.dataset.note || "").toLowerCase()]));
 	const none = body.insertRow();
 	none.innerHTML = '<td colspan="7" class="empty">No route matches.</td>';
 	// The column picked by a click on its title, and the direction. Nothing picked: the order of the server.
