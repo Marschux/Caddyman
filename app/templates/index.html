@@ -94,7 +94,7 @@
 				{% if route %}{% set mode = {"acme_ca": ("Own ACME CA", "Certificates from the own ACME CA, set in the TLS snippet"),
 					"default": ("Caddy default", "Certificates from Let's Encrypt or ZeroSSL"),
 					"dns": ("DNS challenge", "Certificates over the DNS challenge, with the snippet " ~ (route.dns or "set under Settings")),
-					"snippet": (route.snippet, "Certificates as the snippet " ~ route.snippet ~ " from the base Caddyfile sets them" ~ ("" if route.snippet == host.tls_snippet else ". It is not set under Settings, Caddy")),
+					"snippet": ("Snippet: " ~ route.snippet, "Certificates as the snippet " ~ route.snippet ~ " from the base Caddyfile sets them" ~ ("" if route.snippet == host.tls_snippet else ". It is not set under Settings, Caddy")),
 					"internal": ("Caddy internal", "Certificates from Caddy's own CA"),
 					"none": ("None", "Plain HTTP, no certificate")}[route.tls] %}
 				{# Red when the route imports a snippet the settings do not name: it works, but nobody chose it there.
