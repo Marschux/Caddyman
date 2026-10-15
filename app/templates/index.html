@@ -36,7 +36,7 @@
 		<tr class="group"><th colspan="7">{{ item.group or "No group" }}</th></tr>
 		{% endif %}
 		{# A problem: the target does not answer, the certificate is not what it should be, or a file cannot be adopted. #}
-		<tr data-group="{{ item.group }}"{% if route and route.off %} class="off"{% endif %}{% if item.target_down or item.refused or (item.certificate and item.certificate.level in ("warn", "fail")) %} data-problem{% endif %}>
+		<tr data-group="{{ item.group }}"{% if route and route.off %} class="off"{% endif %}{% if item.target_down or item.refused or item.lost or (item.certificate and item.certificate.level in ("warn", "fail")) %} data-problem{% endif %}>
 			{% if route %}
 			<td class="nowrap">
 				{% set name %}{% if item.site %}<a class="out" href="{{ item.site }}" target="_blank" rel="noopener noreferrer"><strong>{{ route.host }}{{ ":" ~ route.port if route.port }}</strong></a>
@@ -73,7 +73,8 @@
 			<td><code>{{ item.name }}.caddy</code></td>
 			{# In the column of the type: one word, the whole reason unfolds under it like further hostnames. #}
 			{# Across target, options and access as well, which a file by hand leaves empty, so the reason has room. #}
-			<td colspan="4">{% if item.refused %}<details class="more problem"><summary title="Cannot be adopted: {{ item.refused }}.">{{ item.refused|refusal_label }}</summary><small>Cannot be adopted: {{ item.refused }}.</small></details>
+			{% set reason = item.lost or ("Cannot be adopted: " ~ item.refused) %}
+			<td colspan="4">{% if item.lost or item.refused %}<details class="more problem"><summary title="{{ reason }}.">{{ "Snippet" if item.lost else item.refused|refusal_label }}</summary><small>{{ reason }}.</small></details>
 				{% else %}<span class="tag" title="Not created here, or edited by hand. Adopt opens it in the form.">By hand</span>{% endif %}</td>
 			{% endif %}
 			{# The certificate on top, the TLS mode of the route under it. The certificate also for a file

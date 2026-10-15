@@ -1464,6 +1464,15 @@ def preflight(host: dict) -> list[dict]:
                     "container: if only Caddy can resolve that name, all is well.",
                     "",
                 )
+        if not snippet:
+            lost = [path.stem for path in sorted(Path(sites).glob("*.caddy")) if lost_tls_snippet(host, path.read_text(encoding="utf-8", errors="replace"))]
+            if lost:
+                add(
+                    "Routes find their TLS snippet",
+                    False,
+                    ", ".join(lost),
+                    "These routes were made with Own ACME CA. Set the TLS snippet under Settings, Caddy again, or adopt them with the snippet mode.",
+                )
         for dns in dns_snippets(host):
             add(
                 f"DNS snippet '{dns}' exists",
@@ -2183,6 +2192,19 @@ def well_formed(route) -> bool:
     return pairs and isinstance(aliases, list) and all(isinstance(name, str) for name in aliases)
 
 
+LOST_TLS_SNIPPET = "Made with Own ACME CA, but no TLS snippet is set under Settings → Caddy any more"
+
+
+def lost_tls_snippet(host: dict, content: str) -> bool:
+    """Whether a file was written with Own ACME CA before the TLS snippet was taken out of the settings."""
+    first = content.split("\n", 1)[0]
+    try:
+        meta = json.loads(first[len(META_PREFIX):]) if first.startswith(META_PREFIX) else {}
+    except ValueError:
+        return False
+    return not host["tls_snippet"] and isinstance(meta, dict) and meta.get("tls") == "acme_ca"
+
+
 def read_route(path: Path, host: dict) -> dict | None:
     """Metadata of a file this tool wrote and nobody changed since, else None."""
     try:
@@ -2718,6 +2740,8 @@ def index(request: Request):
                 item["hand"] = hand_written(text)
                 # Why it cannot be adopted, shown in the list before anybody clicks. Empty when it can.
                 item["refused"] = adopt_route(text, current)[1]
+                # Ours once, until the setting it was made with went away.
+                item["lost"] = LOST_TLS_SNIPPET if lost_tls_snippet(current, text) else ""
         served = item["route"] or item["hand"]
         if served and served.get("off"):
             # Caddy does not serve it: no certificate to look at, no target to reach.

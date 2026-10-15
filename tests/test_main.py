@@ -2304,6 +2304,16 @@ class TestEdit(RouteTest):
         self.assertIn('"tls":"snippet","snippet":"stepca"', self.read("sn.caddy"))
         self.assertEqual(self.create(host="sn2.lab.test", tls="snippet", snippet="nowhere").status_code, 400)
 
+    def test_a_route_that_lost_its_tls_snippet_is_a_problem(self):
+        self.create(host="ac.lab.test", tls="acme_ca")
+        main.save_hosts([{**main.pick_host(), "tls_snippet": ""}])
+        main.PROBE_CACHE.clear()
+        listing = self.client.get("/").text
+        self.assertIn(">Snippet</summary><small>Made with Own ACME CA, but no TLS snippet is set", listing)
+        # Adopting it with the snippet mode is one way out.
+        self.assertIn("/routes/ac/adopt", listing)
+        self.assertIn("Routes find their TLS snippet", self.client.get("/status").text)
+
     def test_adopt_refuses_an_import_of_nothing(self):
         text = "pdf.lab.test {\n\timport stepca\n\treverse_proxy 10.0.0.5:9005\n}\n"
         # A name the base Caddyfile does not define stays a foreign line.
