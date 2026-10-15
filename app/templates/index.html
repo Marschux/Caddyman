@@ -58,7 +58,7 @@
 			<td class="access">{% if nets|length > 1 %}<details class="more names"><summary>{{ nets[0] }}<span class="tag" title="{{ nets[1:]|join(', ') }}">+{{ nets|length - 1 }}</span></summary>
 					{% for net in nets[1:] %}<small>{{ net }}</small>{% endfor %}</details>
 				{% elif nets %}{{ nets[0] }}
-				{% else %}<span class="empty" title="No allowed networks set: reachable from everywhere">All</span>{% endif %}</td>
+				{% else %}<span class="empty" title="No allowed networks set: reachable from everywhere">Any</span>{% endif %}</td>
 			{# What is switched on for the route, always in the same place and order. The long name is the tooltip. #}
 			<td><div class="tags">
 				{% if route.sso %}<span class="tag opt sso" title="Single sign-on: the login service is asked first">SSO</span>{% endif %}
