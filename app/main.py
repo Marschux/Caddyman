@@ -2756,7 +2756,7 @@ def index(request: Request):
         item["own"] = own_route(item["route"], request)
     # Groups in order, what has none at the end.
     routes.sort(key=lambda item: (not item["group"], item["group"].lower()))
-    return page(request, "index.html", host=current, routes=routes, own_port=OWN_PORT, groups=load_groups(current), bulk=BULK_ACTIONS)
+    return page(request, "index.html", host=current, routes=routes, own_port=OWN_PORT)
 
 
 @app.get("/routes/new")
@@ -2930,53 +2930,6 @@ def route_toggle(request: Request, name: str):
         shows = "It shows the maintenance page" if route["off"] is not True else "Caddy no longer answers for it"
         return redirect("/", "ok", f"{route['host']} is switched off. {shows}; its settings are kept.")
     return redirect("/", "ok", f"{route['host']} is live again.")
-
-
-BULK_ACTIONS = {
-    "disable": "Switch off", "enable": "Switch on", "group": "Move to group",
-}
-
-
-@app.post("/routes/bulk")
-async def routes_bulk(request: Request):
-    """One change for every route that is ticked in the list: one reload, undone as a whole."""
-    form = await request.form()
-    action, group = str(form.get("action", "")), str(form.get("group", "")).strip()
-    names = list(dict.fromkeys(map(str, form.getlist("pick"))))
-    current = the_host()
-    if action not in BULK_ACTIONS or not names:
-        return redirect("/", "error", "Tick some routes and pick what to do with them.")
-    if action == "group" and group and group not in load_groups(current):
-        return redirect("/", "error", "This group does not exist.")
-    stamps, changes, skipped = route_stamps(current), {}, []
-    for name in names:
-        path = route_path(current, name)
-        route = read_route(path, current) if path and path.is_file() else None
-        # Written by hand, the route for unknown names, or the way to Caddyman for what would cut it.
-        if (route is None or route["type"] == "error_page"
-                or (action == "disable" and own_route(route, request))):
-            skipped.append(name)
-            continue
-        off = route.pop("off", None)
-        if action == "group":
-            route.pop("group", None)
-            # Same place as in route_from_form, or the file would no longer count as ours.
-            head = {key: route.pop(key) for key in ("type", "host", "port", "tls")}
-            route = {**head, **({"group": group} if group else {}), **route}
-        off = (off or off_value(current, request)) if action == "disable" else None if action == "enable" else off
-        route = {**route, **({"off": off} if off else {})}
-        changes[path] = render_route(route, current)
-    if not changes:
-        return redirect("/", "warn", "None of the ticked routes can be changed this way: " + ", ".join(skipped) + ".")
-    try:
-        error = apply_route(current, changes, f"bulk: {BULK_ACTIONS[action].lower()}", f"{len(changes)} routes",
-                            expect={path: stamps.get(path) for path in changes})
-    except Conflict:
-        return redirect("/", "warn", CHANGED_MEANWHILE)
-    if error:
-        return redirect("/", "error", f"Caddy rejected the reload, nothing was changed: {error}")
-    note = f" Left out: {', '.join(skipped)}." if skipped else ""
-    return redirect("/", "ok", f"{BULK_ACTIONS[action]}: {len(changes)} routes.{note}")
 
 
 @app.post("/routes/{name}/adopt")

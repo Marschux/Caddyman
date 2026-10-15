@@ -2519,31 +2519,6 @@ class TestEdit(RouteTest):
         self.assertIn('"group":"Films","note":"Jellyfin', self.read("nt.caddy"))
         self.assertEqual(self.create(host="nt2", note="x" * 201).status_code, 400)
 
-    def test_bulk_actions_change_the_ticked_routes_in_one_reload(self):
-        for name in ("b1", "b2"):
-            self.create(host=name)
-        self.put("hand.caddy", "hand.lab.test {\n\trespond 200\n}\n")
-        self.client.post("/groups", data={"name": "Media"})
-        self.assertIn('name="pick" value="b1" form="bulk"', self.client.get("/").text)
-        loads = self.load.call_count
-        answer = self.client.post("/routes/bulk", data={"action": "disable", "pick": ["b1", "b2", "hand"]})
-        self.assertEqual(self.load.call_count, loads + 1)  # one reload for all of them
-        self.assertTrue(all(self.read(f"{name}.caddy").splitlines()[0].endswith(',"off":true}') for name in ("b1", "b2")))
-        self.assertIn("Left out: hand.", self.client.get(answer.headers["location"]).text)
-        self.client.post("/routes/bulk", data={"action": "group", "group": "Media", "pick": ["b1", "b2"]})
-        self.assertIn('"tls":"acme_ca","group":"Media"', self.read("b2.caddy"))
-        self.client.post("/routes/bulk", data={"action": "enable", "pick": ["b1", "b2"]})
-        self.client.post("/routes/bulk", data={"action": "group", "group": "", "pick": ["b1", "b2"]})
-        self.assertEqual(self.read("b1.caddy").replace("b1", "b2"), self.read("b2.caddy"))
-        self.assertNotIn('"off"', self.read("b1.caddy") + self.read("b2.caddy"))
-        # A rejected reload leaves every file as it was.
-        before = self.read("b1.caddy")
-        self.reject()
-        self.client.post("/routes/bulk", data={"action": "disable", "pick": ["b1", "b2"]})
-        self.assertEqual(self.read("b1.caddy"), before)
-        self.assertEqual(self.client.post("/routes/bulk", data={"action": "group", "group": "Nope", "pick": ["b1"]}).status_code, 303)
-        self.assertNotIn("Nope", self.read("b1.caddy"))
-
     def test_switched_off_routes_can_show_the_maintenance_page(self):
         self.assertEqual(self.create(host="mt", auth_user="ada", auth_password="secret-pass", hsts="1").status_code, 303)
         before = self.read("mt.caddy")
