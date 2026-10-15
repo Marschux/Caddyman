@@ -1384,7 +1384,7 @@ def host_problem(host: dict) -> str | None:
         return "The TLS, SSO and DNS snippets have to be different snippets."
     if host["root_ca_url"] and not is_http_url(host["root_ca_url"]):
         return "The root CA source has to be an http or https URL."
-    if not all(HOSTNAME_RE.match(suffix) for suffix in suffixes(host)) or len(suffixes(host)) > MAX_SUFFIXES:
+    if not all(HOSTNAME_RE.match(suffix) and "." in suffix for suffix in suffixes(host)) or len(suffixes(host)) > MAX_SUFFIXES:
         return f"Domain suffixes are up to {MAX_SUFFIXES} domains such as home.example, separated by spaces."
     return None
 
