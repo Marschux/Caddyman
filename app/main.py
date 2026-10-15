@@ -1918,9 +1918,6 @@ def header_line(directive: str, name: str, value: str) -> str:
     return f'{directive} {name} "{value}"' if value else f"{directive} {name}"
 
 
-MAX_NOTE = 100
-
-
 # A path that goes to a target of its own. Never '/' alone: that is what the main target is for.
 PATH_RE = re.compile(r"^/[A-Za-z0-9._~-][A-Za-z0-9._~/-]*\*?\Z")
 
@@ -1973,11 +1970,6 @@ def route_from_form(form, host: dict, previous: dict | None = None, request: Req
         route["group"] = group
         if not GROUP_RE.fullmatch(group):
             return route, GROUP_HINT
-    # Only for people: it stays in the first line, Caddy never reads it.
-    if note := " ".join(get("note").split()):
-        route["note"] = note
-        if len(note) > MAX_NOTE or not note.isprintable():
-            return route, f"A note is one line of up to {MAX_NOTE} characters."
     if get("log"):
         route["log"] = True
     if typed := many("allow").strip():
@@ -2182,7 +2174,7 @@ def route_path(host: dict, name: str) -> Path | None:
 
 # Where render_route expects text. A number there would render just as well, and then trip
 # up everything that reads the route afterwards.
-ROUTE_TEXTS = ("type", "host", "port", "tls", "group", "note", "allow", "errors", "upstream", "auth_user", "auth_hash", "target", "code", "root", "page")
+ROUTE_TEXTS = ("type", "host", "port", "tls", "group", "allow", "errors", "upstream", "auth_user", "auth_hash", "target", "code", "root", "page")
 
 
 def well_formed(route) -> bool:
@@ -2702,7 +2694,7 @@ def the_host() -> dict:
 def route_form_page(request: Request, host: dict, route: dict, error: str | None = None, **context):
     context.setdefault("status_code", 400 if error else 200)
     context["groups"] = load_groups(host)
-    return page(request, "route_form.html", host=host, route=route, error=error, acme_ca=has_snippet(host, "tls_snippet"), sso=has_snippet(host, "sso_snippet"), dns=has_snippet(host, "dns_snippet"), max_note=MAX_NOTE, **context)
+    return page(request, "route_form.html", host=host, route=route, error=error, acme_ca=has_snippet(host, "tls_snippet"), sso=has_snippet(host, "sso_snippet"), dns=has_snippet(host, "dns_snippet"), **context)
 
 
 def existing_route(name: str) -> tuple[dict | None, Path | None]:

@@ -80,13 +80,6 @@
 	<small>Only sorts the list. <a href="/groups">Manage groups</a></small>
 	{% endif %}
 
-	<details {{ "open" if route.note }}>
-		<summary>Note</summary>
-		<textarea id="note" name="note" class="note" rows="3" maxlength="{{ max_note }}" data-count="note-count" aria-label="Note"
-			placeholder="What runs there, who to ask">{{ route.note or '' }}</textarea>
-		<small><span id="note-count">{{ (route.note or '')|length }}</span> / {{ max_note }} characters. Shown when pointing at the hostname in the route list.</small>
-	</details>
-
 	{# Everything below is optional. A block opens by itself when something in it is set. #}
 	<details {{ "open" if route.aliases or route.port }}>
 		<summary>More hostnames and port</summary>

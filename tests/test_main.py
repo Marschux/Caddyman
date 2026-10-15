@@ -2506,22 +2506,6 @@ class TestEdit(RouteTest):
             self.assertEqual(self.create(host="c", header_name=name, header_value=value).status_code, 400, (name, value))
         self.assertFalse(os.path.exists(os.path.join(self.sites, "c.caddy")))
 
-    def test_a_note_stays_in_the_first_line_and_shows_in_the_list(self):
-        self.client.post("/groups", data={"name": "Media"})
-        self.assertEqual(self.create(host="nt", group="Media", note="  Jellyfin on the NAS,\n ask Ada  ").status_code, 303)
-        first, body = self.read("nt.caddy").split("\n", 1)
-        self.assertIn('"group":"Media","note":"Jellyfin on the NAS, ask Ada","upstream"', first)
-        self.assertNotIn("Jellyfin", body)  # Caddy never sees it
-        page = self.client.get("/").text
-        self.assertIn('title="Jellyfin on the NAS, ask Ada"><strong>nt.lab.test', page)
-        self.assertIn('data-note="Jellyfin on the NAS, ask Ada"', page)  # for the search
-        form = self.client.get("/routes/nt/edit").text
-        self.assertIn(">Jellyfin on the NAS, ask Ada</textarea>", form)
-        self.assertIn(f'<span id="note-count">{len("Jellyfin on the NAS, ask Ada")}</span> / 100', form)
-        # Renaming the group keeps the note where it was.
-        self.client.post("/groups/rename", data={"old": "Media", "new": "Films"})
-        self.assertIn('"group":"Films","note":"Jellyfin', self.read("nt.caddy"))
-        self.assertEqual(self.create(host="nt2", note="x" * 101).status_code, 400)
 
     def test_switched_off_routes_can_show_the_maintenance_page(self):
         self.assertEqual(self.create(host="mt", auth_user="ada", auth_password="secret-pass", hsts="1").status_code, 303)
