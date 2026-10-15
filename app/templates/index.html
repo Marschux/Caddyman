@@ -85,13 +85,8 @@
 				{% if route and route.off is string %}<span class="cert warn" title="Switched off: every request gets the maintenance page from Caddyman, with 503.">Maintenance</span>
 				{% elif route and route.off %}<span class="cert" title="Caddy does not serve this route. Its file and settings are kept.">Off</span>
 				{% elif cert %}
-				{# The explanation lives in the tooltip, so a route with a problem stays one line like the others. #}
-				{# A good certificate on a route with a TLS label only says how long it lasts; the issuer moves into the tooltip. #}
-				{% if route and cert.level == "ok" %}
-				<span class="cert ok" title="Issued by {{ cert.issuer }}. {{ cert.detail }}">{{ cert.short }}</span>
-				{% else %}
-				<span class="cert {{ cert.level }}" title="{{ cert.detail }}">{{ cert.text }}</span>
-				{% endif %}
+				{# One short word or two; who issued it and what is wrong live in the tooltip, so every row stays even. #}
+				<span class="cert {{ cert.level }}" title="{{ 'Issued by ' ~ cert.issuer ~ '. ' if cert.issuer }}{{ cert.detail }}">{{ cert.short }}</span>
 				{% if cert.level in ("warn", "fail") and "logs" in request.state.me.permissions %}<a href="/logs?q={{ (route or item.hand).host|urlencode }}&amp;quiet=1">Show its log</a>{% endif %}
 				{% elif not route %}<span class="empty">-</span>{% endif %}
 				{% if route %}{% set mode = {"acme_ca": ("Own ACME CA", "Certificates from the own ACME CA, set in the TLS snippet"),

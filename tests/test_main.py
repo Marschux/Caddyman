@@ -1544,11 +1544,11 @@ class TestCertificates(RouteTest):
     def test_issuer_and_expiry(self):
         status = self.status(make_certificate("Lab CA Intermediate", hours=30))
         self.assertEqual(status["level"], "ok")
-        self.assertIn("Lab CA Intermediate", status["text"])
-        self.assertRegex(status["text"], r"(29|30) h left")
+        self.assertEqual(status["issuer"], "Lab CA Intermediate")
+        self.assertRegex(status["short"], r"(29|30) h left")
         # The handshake goes to Caddy itself, with the route's hostname as SNI.
         self.assertEqual(self.served.call_args.args, ("caddy", 443, "pdf.lab.test"))
-        self.assertIn("days left", self.status(make_certificate("Lab CA", hours=24 * 80))["text"])
+        self.assertIn("days left", self.status(make_certificate("Lab CA", hours=24 * 80))["short"])
         self.status(make_certificate("Lab CA"), port="8443")
         self.assertEqual(self.served.call_args.args[1], 8443)
 
@@ -1560,8 +1560,9 @@ class TestCertificates(RouteTest):
         self.assertEqual(self.status(internal, tls="internal")["level"], "ok")
 
     def test_expired_missing_and_unreachable(self):
-        self.assertEqual(self.status(make_certificate("Lab CA", hours=-1))["text"], "Expired - Lab CA")
-        self.assertEqual(self.status(main.ssl.SSLError("tlsv1 alert internal error"))["text"], "No certificate")
+        expired = self.status(make_certificate("Lab CA", hours=-1))
+        self.assertEqual((expired["short"], expired["issuer"]), ("Expired", "Lab CA"))
+        self.assertEqual(self.status(main.ssl.SSLError("tlsv1 alert internal error"))["short"], "No certificate")
         self.assertEqual(self.status(OSError("refused"))["level"], "unknown")
 
     def test_nothing_to_check_without_tls_or_metadata(self):
@@ -1577,7 +1578,7 @@ class TestCertificates(RouteTest):
         self.assertIn('class="cert warn"', page)
         # The explanation is the tooltip only, so the row stays one line.
         self.assertEqual(page.count("internal CA instead of your ACME CA"), 1)
-        self.assertIn("Caddy Local Authority - ECC Intermediate - ", page)
+        self.assertIn('title="Issued by Caddy Local Authority - ECC Intermediate. Issued by Caddy', page)
         # A good one only says how long it lasts, the label next to it names the CA already.
         self.served.return_value = make_certificate("Lab CA Intermediate", hours=30)
         main.PROBE_CACHE.clear()

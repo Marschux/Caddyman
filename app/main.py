@@ -2562,17 +2562,16 @@ def certificate_status(host: dict, route: dict | None) -> dict | None:
         certificate = served_certificate(address, int(route["port"] or 443), route["host"].replace("*", "wildcard-check", 1))
     except ssl.SSLError:
         # Caddy answers the handshake with an alert as long as it has no certificate for the name.
-        return {"level": "fail", "text": "No certificate", "detail": "Caddy has not obtained one yet. Its log says why."}
+        return {"level": "fail", "short": "No certificate", "detail": "Caddy has not obtained one yet. Its log says why."}
     except (OSError, ValueError) as error:
-        return {"level": "unknown", "text": "Not checked", "detail": f"{address} is not reachable for a TLS handshake: {error}"}
+        return {"level": "unknown", "short": "Not checked", "detail": f"{address} is not reachable for a TLS handshake: {error}"}
     issuer = display_name(certificate.issuer)
     expires = certificate.not_valid_after_utc
     detail = f"Expires {expires:%Y-%m-%d %H:%M} UTC"
     if expires <= datetime.now(timezone.utc):
-        return {"level": "fail", "text": f"Expired - {issuer}", "detail": detail}
-    left = f"{time_left(expires)} left"
-    # short is what the list shows where the TLS label next to it already says who issues.
-    status = {"level": "ok", "text": f"{issuer} - {left}", "short": left, "issuer": issuer, "detail": detail, "expires": expires}
+        return {"level": "fail", "short": "Expired", "issuer": issuer, "detail": detail}
+    # short is what the list shows; who issued it and what is wrong are its tooltip.
+    status = {"level": "ok", "short": f"{time_left(expires)} left", "issuer": issuer, "detail": detail, "expires": expires}
     if route["tls"] == "acme_ca" and CADDY_INTERNAL_ISSUER in issuer:
         # The failure that went unnoticed longest: a route quietly served from Caddy's own CA.
         status.update(level="warn", detail=f"Issued by Caddy's internal CA instead of your ACME CA. {detail}")
@@ -2760,7 +2759,7 @@ def index(request: Request):
                 item["reach_keys"][target] = ("target", target)
                 jobs[("target", target)] = (target_reachable, (target,), bool)
     found = probes(jobs)
-    late = {"level": "unknown", "text": "Still checking", "detail": "The check did not finish in time. Reload the page in a moment."}
+    late = {"level": "unknown", "short": "Still checking", "detail": "The check did not finish in time. Reload the page in a moment."}
     for item in routes:
         # The worst of all names is what the row shows; a further name is called by name.
         item["certificate"], main = None, True
