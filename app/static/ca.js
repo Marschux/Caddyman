@@ -9,7 +9,9 @@ document.addEventListener("change", async (event) => {
 		// A redirect means the session ended: let the browser show the login.
 		if (!response.ok || response.redirected) throw new Error();
 		const fresh = new DOMParser().parseFromString(await response.text(), "text/html");
-		document.querySelector("main").replaceWith(fresh.querySelector("main"));
+		const main = fresh.querySelector("main");
+		document.querySelector("main").replaceWith(main);
+		addCopyButtons(main);
 		history.replaceState(null, "", address);
 	} catch {
 		select.form.submit();
