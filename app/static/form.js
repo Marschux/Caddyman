@@ -4,6 +4,7 @@ document.addEventListener("click", (event) => {
 	const remove = event.target.closest(".entry .remove");
 	if (remove) {
 		remove.parentElement.remove();
+		syncVerify();
 		return;
 	}
 	const add = event.target.closest("[data-add]");
@@ -30,3 +31,18 @@ document.addEventListener("click", (event) => {
 	add.closest("details").querySelector(".fields").append(entry);
 	entry.querySelector("input").focus();
 });
+
+// Not checking the target's certificate only means something for an https:// target;
+// saving drops the option otherwise, so the box is not offered.
+function syncVerify() {
+	const box = document.querySelector("input[name=skip_verify]");
+	if (!box) return;
+	const targets = document.querySelectorAll("input[name=upstream], input[name=path_upstream]");
+	const https = [...targets].some((field) => field.value.trim().startsWith("https://"));
+	box.disabled = !https;
+	if (!https) box.checked = false;
+}
+document.addEventListener("input", (event) => {
+	if (event.target.matches("input[name=upstream], input[name=path_upstream]")) syncVerify();
+});
+syncVerify();
