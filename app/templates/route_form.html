@@ -104,8 +104,8 @@
 	<small>Only sorts the list. <a href="/groups">Manage groups</a></small>
 	{% endif %}
 
-	{# Everything below is optional. A block opens by itself when something in it is set. #}
-	<details {{ "open" if route.aliases or route.port }}>
+	{# Everything below is optional, and folded on every visit; the route list shows what is set. #}
+	<details>
 		<summary>More hostnames and port</summary>
 
 		{# One field per name, one per line. The button adds a field, the x removes one. #}
@@ -120,7 +120,7 @@
 		<small>Has to be published on the Caddy container as well.</small>
 	</details>
 
-	<details {{ "open" if route.allow or route.sso or route.auth_user }}>
+	<details>
 		<summary>Access</summary>
 
 		<div class="for-reverse_proxy">
@@ -150,7 +150,7 @@
 		</div>
 	</details>
 
-	<details class="for-reverse_proxy" {{ "open" if route.host_header or route.skip_verify or route.paths }}>
+	<details class="for-reverse_proxy">
 		<summary>Target options</summary>
 
 		<label class="check"><input type="checkbox" name="host_header" value="1" {{ "checked" if route.host_header }}>
@@ -168,7 +168,7 @@
 		<small><code>/api/*</code> sends everything below <code>/api/</code> to its own target. The path is passed on unchanged.</small>
 	</details>
 
-	<details {{ "open" if route.errors or route.hsts or route.log }}>
+	<details>
 		<summary>Error pages, HSTS and log</summary>
 
 		<div class="not-redirect">
