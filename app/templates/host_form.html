@@ -78,14 +78,14 @@
 	<input id="tls_snippet" name="tls_snippet" value="{{ host.tls_snippet }}" placeholder="stepca">
 	<small>The snippet that points at your own ACME CA.</small>
 
-	<label for="dns_snippet">DNS snippet <span class="optional">optional</span></label>
+	<label for="dns_snippet">DNS snippets <span class="optional">optional</span></label>
 	<input id="dns_snippet" name="dns_snippet" value="{{ host.dns_snippet }}" placeholder="dns">
-	<small>The snippet with <code>tls { dns ... }</code>. Needs a Caddy built with the plugin of your DNS provider.</small>
+	<small>The snippet with <code>tls { dns ... }</code>, one per DNS provider, separated by spaces. Caddy needs the plugin of each.</small>
 	{# Nothing is written from here: the three blocks are to be copied to where Caddy lives. #}
 	<details class="guide">
 		<summary>What Caddy needs for it, by provider</summary>
 		<p>Build Caddy from the Dockerfile, give it the variables, and put the snippet above the line that imports the routes.</p>
-		{% for guide in dns_guides(host.dns_snippet or "dns") %}
+		{% for guide in dns_guides((host.dns_snippet or "dns").split()[0]) %}
 		<details>
 			<summary>{{ guide.name }}</summary>
 			<small>Dockerfile for Caddy</small>

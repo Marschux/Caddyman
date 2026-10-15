@@ -382,6 +382,9 @@ details { margin-top: 24px; padding: 12px 16px; background: var(--surface-2); bo
 details[open] { padding-bottom: 20px; }
 /* In a table cell it is only a line that unfolds: further names or paths of a route. */
 td details.more, td details.more[open] { margin: 4px 0 0; padding: 0; background: none; }
+/* The DNS provider of a route only matters with the DNS challenge. */
+.route .for-dns { display: none; }
+.route:has(#tls option[value="dns"]:checked) .for-dns { display: block; }
 /* Every row is as high as one with a second line under its value, so the list stays even. */
 table.even tbody tr:not(.group) > td { height: 80px; }
 td details.more summary { color: var(--ink-subtle); font-size: 13px; font-weight: 400; }

@@ -62,12 +62,22 @@
 		</option>
 		<option value="default" {{ "selected" if route.tls == "default" }}>Caddy default (Let's Encrypt for public names)</option>
 		<option value="dns" {{ "selected" if route.tls == "dns" }} {{ "disabled" if not dns }}>
-			Let's Encrypt over DNS{{ " (" ~ host.dns_snippet ~ ")" if dns else " - no snippet configured for this host" }}
+			Let's Encrypt over DNS{{ " (" ~ dns_names|join(", ") ~ ")" if dns else " - no snippet configured for this host" }}
 		</option>
 		<option value="internal" {{ "selected" if route.tls == "internal" }}>Caddy internal CA</option>
 		<option value="none" {{ "selected" if route.tls == "none" }}>None - plain HTTP</option>
 	</select>
 	<small>Over DNS, a name needs no access from the internet. The internal CA is lost with Caddy's data directory.</small>
+	{% if dns_names|length > 1 %}
+	{# Shown with the DNS challenge only (app.css). #}
+	<div class="for-dns">
+		<label for="dns">DNS provider</label>
+		<select id="dns" name="dns">
+			{% for name in dns_names %}<option value="{{ name }}" {{ "selected" if (route.dns or dns_names[0]) == name }}>{{ name }}</option>{% endfor %}
+		</select>
+		<small>The snippet for the provider that holds this domain.</small>
+	</div>
+	{% endif %}
 
 	{% if groups %}
 	<label for="group">Group <span class="optional">optional</span></label>

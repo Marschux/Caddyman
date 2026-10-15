@@ -262,7 +262,7 @@ class TestHosts(AppTest):
         self.assertNotIn(label, self.checks(imports))
 
     def test_dns_snippet_is_handed_to_caddy_to_read(self):
-        label = "Caddy understands the DNS snippet"
+        label = "Caddy understands the DNS snippet 'dns'"
         text = "(dns) {\n\ttls {\n\t\tdns cloudflare {env.TOKEN}\n\t}\n}\n" + f"import {self.sites}/*.caddy\n"
         refused = mock.Mock(status_code=400, json=lambda: {"error": "module not registered: dns.providers.cloudflare"})
         with mock.patch.object(main.httpx, "post", mock.Mock(return_value=refused)) as post:
@@ -2397,6 +2397,31 @@ class TestEdit(RouteTest):
         self.assertIn('<option value="dns" selected', self.client.get("/routes/pdf/edit").text)
         self.assertIn(">DNS challenge<", self.client.get("/").text)
         self.assertEqual(main.adopt_route(text, self.host)[0]["tls"], "dns")
+
+    def test_one_dns_snippet_per_provider(self):
+        with open(self.caddyfile, "a", encoding="utf-8") as handle:
+            handle.write("\n(cf) {\n\ttls {\n\t\tdns cloudflare {env.CF}\n\t}\n}\n(hz) {\n\ttls {\n\t\tdns hetzner {env.HZ}\n\t}\n}\n")
+        # A route from the time with one snippet keeps the first.
+        self.host["dns_snippet"] = "cf"
+        main.save_hosts([self.host])
+        self.edit(tls="dns")
+        before = self.read("pdf.caddy")
+        self.host["dns_snippet"] = "cf hz"
+        main.save_hosts([self.host])
+        self.assertIsNotNone(main.read_route(main.Path(self.sites) / "pdf.caddy", self.host))
+        self.assertIn('<select id="dns" name="dns">', self.client.get("/routes/pdf/edit").text)
+        # Picked, it stands right after the TLS mode and the file imports it.
+        self.client.post("/groups", data={"name": "Media"})
+        self.edit(tls="dns", dns="hz", group="Media")
+        text = self.read("pdf.caddy")
+        self.assertIn('"tls":"dns","group":"Media","dns":"hz"', text)
+        self.assertIn("\timport hz\n", text)
+        # Renaming the group keeps the file Caddyman's own.
+        self.client.post("/groups/rename", data={"old": "Media", "new": "Films"})
+        self.assertIsNotNone(main.read_route(main.Path(self.sites) / "pdf.caddy", self.host))
+        self.assertEqual(main.adopt_route(text.split("\n", 1)[1], self.host)[0]["dns"], "hz")
+        self.assertEqual(self.edit(tls="dns", dns="nope").status_code, 400)
+        self.assertNotEqual(before, text)
 
     def test_settings_show_what_caddy_needs_per_dns_provider(self):
         self.host["dns_snippet"] = "le-dns"
