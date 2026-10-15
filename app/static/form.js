@@ -12,7 +12,7 @@ document.addEventListener("click", (event) => {
 	// One [name, hint] per field of the entry: one for a hostname or a network, two for a path and its target.
 	const fields = JSON.parse(add.dataset.add);
 	const entry = document.createElement("span");
-	entry.className = fields.length > 1 ? "entry pair" : "entry";
+	entry.className = "entry";
 	for (const [name, hint] of fields) {
 		const field = document.createElement("input");
 		field.name = name;

@@ -94,7 +94,7 @@
 	<details {{ "open" if route.aliases or route.port }}>
 		<summary>More hostnames and port</summary>
 
-		{# One field per name, two side by side. The button adds a field, the x removes one. #}
+		{# One field per name, one per line. The button adds a field, the x removes one. #}
 		<label>More hostnames <span class="optional">optional</span></label>
 		<div class="fields">{% for alias in route.aliases or [] %}<span class="entry"><input name="aliases" value="{{ alias }}" aria-label="Further hostname" autocomplete="off"><button type="button" class="remove" title="Remove" aria-label="Remove">&times;</button></span>{% endfor %}</div>
 		<noscript><input name="aliases" aria-label="Further hostnames, separated by commas"></noscript>
@@ -149,7 +149,7 @@
 
 		{# One pair of fields per path: the path at the left, its target at the right. #}
 		<label>Paths to other targets <span class="optional">optional</span></label>
-		<div class="fields">{% for path, target in route.paths or [] %}<span class="entry pair"><input name="path" value="{{ path }}" aria-label="Path" autocomplete="off"><input name="path_upstream" value="{{ target }}" aria-label="Target for this path" autocomplete="off"><button type="button" class="remove" title="Remove" aria-label="Remove">&times;</button></span>{% endfor %}</div>
+		<div class="fields">{% for path, target in route.paths or [] %}<span class="entry"><input name="path" value="{{ path }}" aria-label="Path" autocomplete="off"><input name="path_upstream" value="{{ target }}" aria-label="Target for this path" autocomplete="off"><button type="button" class="remove" title="Remove" aria-label="Remove">&times;</button></span>{% endfor %}</div>
 		<button type="button" class="secondary" data-add='[["path", "Path, like /api/*"], ["path_upstream", "Target for this path"]]'>Add path</button>
 		<small><code>/api/*</code> sends everything below <code>/api/</code> to its own target. The path is passed on unchanged.</small>
 	</details>
@@ -158,13 +158,13 @@
 		<summary>Headers</summary>
 
 		<label>Headers to the browser <span class="optional">optional</span></label>
-		<div class="fields">{% for name, value in route.headers or [] %}<span class="entry pair"><input name="header_name" value="{{ name }}" aria-label="Header name" autocomplete="off"><input name="header_value" value="{{ value }}" aria-label="Header value" autocomplete="off"><button type="button" class="remove" title="Remove" aria-label="Remove">&times;</button></span>{% endfor %}</div>
+		<div class="fields">{% for name, value in route.headers or [] %}<span class="entry"><input name="header_name" value="{{ name }}" aria-label="Header name" autocomplete="off"><input name="header_value" value="{{ value }}" aria-label="Header value" autocomplete="off"><button type="button" class="remove" title="Remove" aria-label="Remove">&times;</button></span>{% endfor %}</div>
 		<button type="button" class="secondary" data-add='[["header_name", "Name, like X-Frame-Options"], ["header_value", "Value, like DENY"]]'>Add header</button>
 		<small>On every answer, for CORS or security headers. <code>-Server</code> without a value removes one.</small>
 
 		<div class="for-reverse_proxy">
 			<label>Headers to the target <span class="optional">optional</span></label>
-			<div class="fields">{% for name, value in route.headers_up or [] %}<span class="entry pair"><input name="header_up_name" value="{{ name }}" aria-label="Header name" autocomplete="off"><input name="header_up_value" value="{{ value }}" aria-label="Header value" autocomplete="off"><button type="button" class="remove" title="Remove" aria-label="Remove">&times;</button></span>{% endfor %}</div>
+			<div class="fields">{% for name, value in route.headers_up or [] %}<span class="entry"><input name="header_up_name" value="{{ name }}" aria-label="Header name" autocomplete="off"><input name="header_up_value" value="{{ value }}" aria-label="Header value" autocomplete="off"><button type="button" class="remove" title="Remove" aria-label="Remove">&times;</button></span>{% endfor %}</div>
 			<button type="button" class="secondary" data-add='[["header_up_name", "Name, like X-Real-IP"], ["header_up_value", "Value, like {remote_host}"]]'>Add header</button>
 			<small>On every request to the target. Placeholders like <code>{remote_host}</code> work.</small>
 		</div>
