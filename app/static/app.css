@@ -391,9 +391,11 @@ td details.more, td details.more[open] { margin: 4px 0 0; padding: 0; background
 table.even tbody tr:not(.group) > td { height: 80px; }
 /* The route list keeps its columns: what does not fit wraps inside its cell instead of widening it. */
 table.routes { table-layout: fixed; }
-/* Type, options, TLS label and buttons have a size of their own; host, target and certificate share the rest. */
+/* Type, options, TLS label and buttons have a size of their own; the target gets what host and certificate leave. */
+table.routes col:nth-child(1) { width: 13%; }
 table.routes col:nth-child(2) { width: 125px; }
-table.routes col:nth-child(4) { width: 290px; }
+table.routes col:nth-child(4) { width: 270px; }
+table.routes col:nth-child(6) { width: 12%; }
 table.routes col:nth-child(5) { width: 130px; }
 table.routes col:nth-child(7) { width: 250px; }
 table.routes td.nowrap { white-space: normal; overflow-wrap: anywhere; }
