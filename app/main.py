@@ -1918,7 +1918,7 @@ def header_line(directive: str, name: str, value: str) -> str:
     return f'{directive} {name} "{value}"' if value else f"{directive} {name}"
 
 
-MAX_NOTE = 200
+MAX_NOTE = 100
 
 
 # A path that goes to a target of its own. Never '/' alone: that is what the main target is for.
@@ -2702,7 +2702,7 @@ def the_host() -> dict:
 def route_form_page(request: Request, host: dict, route: dict, error: str | None = None, **context):
     context.setdefault("status_code", 400 if error else 200)
     context["groups"] = load_groups(host)
-    return page(request, "route_form.html", host=host, route=route, error=error, acme_ca=has_snippet(host, "tls_snippet"), sso=has_snippet(host, "sso_snippet"), dns=has_snippet(host, "dns_snippet"), **context)
+    return page(request, "route_form.html", host=host, route=route, error=error, acme_ca=has_snippet(host, "tls_snippet"), sso=has_snippet(host, "sso_snippet"), dns=has_snippet(host, "dns_snippet"), max_note=MAX_NOTE, **context)
 
 
 def existing_route(name: str) -> tuple[dict | None, Path | None]:

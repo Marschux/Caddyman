@@ -1,3 +1,9 @@
+// A field with a counter below it: the counter follows what is typed.
+document.addEventListener("input", (event) => {
+	const count = event.target.dataset && event.target.dataset.count;
+	if (count) document.getElementById(count).textContent = event.target.value.length;
+});
+
 // The lists of fields in the route form: a button adds an entry, the x next to an entry removes it.
 // Without this script the fields that are there still work: an emptied one is dropped on saving.
 document.addEventListener("click", (event) => {

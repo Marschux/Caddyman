@@ -2515,11 +2515,13 @@ class TestEdit(RouteTest):
         page = self.client.get("/").text
         self.assertIn('title="Jellyfin on the NAS, ask Ada"><strong>nt.lab.test', page)
         self.assertIn('data-note="Jellyfin on the NAS, ask Ada"', page)  # for the search
-        self.assertIn('value="Jellyfin on the NAS, ask Ada"', self.client.get("/routes/nt/edit").text)
+        form = self.client.get("/routes/nt/edit").text
+        self.assertIn(">Jellyfin on the NAS, ask Ada</textarea>", form)
+        self.assertIn(f'<span id="note-count">{len("Jellyfin on the NAS, ask Ada")}</span> / 100', form)
         # Renaming the group keeps the note where it was.
         self.client.post("/groups/rename", data={"old": "Media", "new": "Films"})
         self.assertIn('"group":"Films","note":"Jellyfin', self.read("nt.caddy"))
-        self.assertEqual(self.create(host="nt2", note="x" * 201).status_code, 400)
+        self.assertEqual(self.create(host="nt2", note="x" * 101).status_code, 400)
 
     def test_switched_off_routes_can_show_the_maintenance_page(self):
         self.assertEqual(self.create(host="mt", auth_user="ada", auth_password="secret-pass", hsts="1").status_code, 303)

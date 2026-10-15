@@ -211,6 +211,8 @@ input, select, textarea {
 .fields .entry button.remove:hover { background: var(--product-bg); border-color: var(--product); }
 input::placeholder, textarea::placeholder { color: var(--ink-subtle); }
 textarea { font: 13px/1.6 var(--mono); tab-size: 4; resize: vertical; }
+/* Words, not code: the note of a route. */
+textarea.note { font: inherit; }
 input:focus, select:focus, textarea:focus { outline: 1px solid var(--link); border-color: var(--link); }
 input[type="radio"], input[type="checkbox"] { width: auto; padding: 0; accent-color: var(--product); }
 input[type="file"] { padding: 7px; font-size: 14px; }
