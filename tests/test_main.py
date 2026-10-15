@@ -2507,26 +2507,12 @@ class TestEdit(RouteTest):
                     text.replace("\t\tada " + bcrypt_hash + "\n", "")):
             self.assertIsNone(main.adopt_route(odd, self.host)[0], odd)
 
-    def test_own_headers_to_the_browser_and_to_the_target(self):
-        form = {"header_name": ["X-Frame-Options", "-Server"], "header_value": ["DENY", ""],
-                "header_up_name": ["X-Real-IP"], "header_up_value": ["{remote_host}"], "host_header": "1"}
-        self.assertEqual(self.create(host="hd.lab.test", **form, path="/api/*", path_upstream="10.0.0.6:8080").status_code, 303)
-        text = self.read("hd.caddy")
-        self.assertIn('\theader X-Frame-Options "DENY"\n\theader -Server\n', text)
-        # For every target, after the Host header.
-        self.assertEqual(text.count('\t\theader_up Host {upstream_hostport}\n\t\theader_up X-Real-IP "{remote_host}"\n'), 2)
-        self.assertIn('value="X-Frame-Options"', self.client.get("/routes/hd/edit").text)
-        # A file like that, written by hand, is taken over and written back the same.
-        body = text.split("\n", 1)[1]
-        self.put("b.caddy", body.replace("hd.lab.test", "b.lab.test"))
-        self.client.post("/routes/b/adopt")
-        self.assertEqual(self.read("b.caddy").split("\n", 1)[1], body.replace("hd.lab.test", "b.lab.test"))
-        # Refused: a value without a name, a removal with a value, quotes, and what reads Caddy's secrets.
-        for name, value in (("", "x"), ("-Server", "x"), ("X-A", 'a"b'), ("X-A", "{env.CF_TOKEN}"), ("X-A", "{$CF_TOKEN}"),
-                            ("X-A", "{file./etc/passwd}"), ("X A", "x"), ("X-A", "")):
-            self.assertEqual(self.create(host="c.lab.test", header_name=name, header_value=value).status_code, 400, (name, value))
-        self.assertFalse(os.path.exists(os.path.join(self.sites, "c.caddy")))
-
+    def test_a_route_with_own_headers_from_before_opens_as_raw_text(self):
+        self.create(host="hd.lab.test")
+        meta, body = self.read("hd.caddy").split("\n", 1)
+        meta = meta.replace('"tls"', '"headers":[["X-Frame-Options","DENY"]],"tls"')
+        self.put("hd.caddy", meta + "\n" + body.replace("\treverse_proxy", '\theader X-Frame-Options "DENY"\n\treverse_proxy'))
+        self.assertIsNone(main.read_route(main.Path(self.sites) / "hd.caddy", self.host))
 
     def test_a_suffix_from_before_keeps_the_short_file_names(self):
         # No field for it, and a short name stays short; an old suffix still names the files.
