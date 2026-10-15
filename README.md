@@ -24,7 +24,7 @@ and a change Caddy rejects is undone on the spot.
 
 ## Requirements
 
-- Docker with Compose 2.24 or newer, on an x86-64 machine (no ARM image yet)
+- Docker with Compose 2.24 or newer, on x86-64 or ARM64 (a Raspberry Pi 4 or 5 with a 64-bit system)
 - Caddy 2, tested with 2.11, with the admin API on (the default)
 - About 80 MB of RAM
 
