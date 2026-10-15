@@ -1811,6 +1811,14 @@ def has_snippet(host: dict, key: str, name: str = "") -> bool:
         return False
 
 
+def base_snippet(host: dict, name: str) -> bool:
+    """Whether the base Caddyfile defines a snippet of this name, set at the host or not."""
+    try:
+        return snippet_exists(Path(host["caddyfile"]).read_text(encoding="utf-8"), name)
+    except (OSError, UnicodeDecodeError):
+        return False
+
+
 MAX_NETWORKS = 20
 MAX_ALIASES = 20
 HSTS_LINE = 'header Strict-Transport-Security "max-age=31536000"'
@@ -2510,6 +2518,8 @@ def adopt_route(content: str, host: dict) -> tuple[dict | None, str]:
             form.update(type="redirect", target=tokens[1].removesuffix("{uri}"), code=tokens[2])
         elif tokens[:2] == ["root", "*"] and len(tokens) == 3:
             form.update(type="static", root=tokens[2])
+        elif len(tokens) == 2 and tokens[0] == "import" and base_snippet(host, tokens[1]):
+            return None, f"it imports {tokens[1]}, which is not set as a TLS, SSO or DNS snippet under Settings → Caddy"
         elif tokens != ["file_server"]:
             return None, f"it contains a line Caddyman would not write: {' '.join(tokens)}"
     if "type" not in form:

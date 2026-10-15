@@ -2286,6 +2286,14 @@ class TestEdit(RouteTest):
         self.edit(hsts="1", tls="none")
         self.assertNotIn("Strict-Transport-Security", self.read("pdf.caddy"))
 
+    def test_adopt_names_a_snippet_not_set_at_the_host(self):
+        text = "pdf.lab.test {\n\timport stepca\n\treverse_proxy 10.0.0.5:9005\n}\n"
+        _, reason = main.adopt_route(text, {**self.host, "tls_snippet": ""})
+        self.assertIn("imports stepca, which is not set", reason)
+        # A name the base Caddyfile does not define stays a foreign line.
+        _, reason = main.adopt_route(text.replace("stepca", "nowhere"), self.host)
+        self.assertIn("would not write: import nowhere", reason)
+
     def test_error_pages_on_a_route(self):
         self.edit(errors="1", allow="private")
         text = self.read("pdf.caddy")
