@@ -1313,7 +1313,7 @@ class TestCa(RouteTest):
         main.save_hosts([{**self.host, "public_ca": "", "login_ca_hint": "1"}])
         guest = self.guest()
         self.assertEqual(guest.get("/trust").headers["location"], "/login")
-        self.assertEqual(self.client.post("/hosts/h1/edit", data=self.host).headers["location"], "/status")
+        self.assertEqual(self.client.post("/hosts/h1/edit", data=self.host).headers["location"], "/hosts/h1/edit")
         self.assertNotIn("public_ca", main.load_hosts()[0])
         self.assertEqual(guest.get("/trust").headers["location"], "/login")
 

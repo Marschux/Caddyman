@@ -3182,6 +3182,9 @@ async def host_save(request: Request, host_id: str | None = None):
         kind, message = move_caddyman_upstream(host, reach)
         if kind != "ok":
             return redirect(f"/hosts/{host['id']}/edit", kind, message)
+    # Only the first setup goes on to the status page, to show what Caddy still lacks.
+    if existing:
+        return redirect(f"/hosts/{host['id']}/edit", "ok", "Saved.")
     return RedirectResponse("/status", status_code=303)
 
 
