@@ -2708,6 +2708,13 @@ class TestEdit(RouteTest):
 
 
 class TestHardening(RouteTest):
+    def test_no_page_of_caddyman_goes_into_a_frame(self):
+        self.create()
+        for client, path in ((self.client, "/"), (self.client, "/routes/pdf/edit"), (self.client, "/settings/users"), (self.guest(), "/login")):
+            response = client.get(path)
+            self.assertEqual(response.headers["x-frame-options"], "DENY")
+            self.assertEqual(response.headers["content-security-policy"], "frame-ancestors 'none'")
+
     def test_lock_on_the_second_factor_grows(self):
         for expected in (main.LOCK_SECONDS, main.LOCK_SECONDS * 2, main.LOCK_SECONDS * 4):
             main.LOGIN_FAILS.clear()

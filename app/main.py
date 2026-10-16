@@ -585,6 +585,9 @@ def page(request: Request, template: str, status_code: int = 200, **context):
             pass
     context = {"version": VERSION, "source_url": SOURCE_URL, "flash": flash, **context}
     response = templates.TemplateResponse(request, template, context, status_code=status_code)
+    # No page of Caddyman inside a frame: a route next to it could put Disable under a click of its own.
+    response.headers["X-Frame-Options"] = "DENY"
+    response.headers["Content-Security-Policy"] = "frame-ancestors 'none'"
     if template == "reset.html":
         # The link from the mail is this page's address: it is not to travel on as a Referer.
         response.headers["Referrer-Policy"] = "no-referrer"
