@@ -1743,8 +1743,16 @@ class TestLogs(RouteTest):
             handle.write("packed line\n")
         got = self.client.get("/logs/download", params={"file": "older.log.gz"})
         self.assertEqual((got.text, got.headers["content-disposition"]), ("\t-\t\tpacked line\n", 'attachment; filename="older.log"'))
-        for name in ("notes.txt", "../caddy.log", "sub.log"):
+        os.symlink(self.caddyfile, os.path.join(self.logs, "link.log"))
+        for name in ("notes.txt", "../caddy.log", "sub.log", "link.log"):
             self.assertEqual(self.client.get("/logs/download", params={"file": name}).status_code, 303, name)
+        self.assertNotIn("link.log", self.client.get("/logs").text)
+
+    def test_a_long_line_is_downloaded_in_pieces(self):
+        self.write("long.log", ["x" * 50], mtime=4000)
+        self.patch(main, "LOG_TAIL_BYTES", 20)
+        got = self.client.get("/logs/download", params={"file": "long.log"}).text.splitlines()
+        self.assertEqual([len(line) for line in got], [24, 24, 14])  # tab, dash and two tabs ahead of each piece
 
     def test_newest_file_newest_line_first(self):
         page = self.client.get("/logs").text

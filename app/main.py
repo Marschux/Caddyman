@@ -4023,7 +4023,8 @@ def logs_download(file: str = ""):
         read = 0
         with handle:
             try:
-                for raw in handle:
+                # A line without an end would otherwise be read whole into memory; a longer one comes in pieces.
+                for raw in iter(lambda: handle.readline(LOG_TAIL_BYTES), b""):
                     read += len(raw)
                     if read > LOG_UNPACK_MAX:
                         break
