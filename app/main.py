@@ -101,6 +101,11 @@ def zone_names() -> list[str]:
 TIME_ZONE = find_zone(os.getenv("TZ")) or ZoneInfo("UTC")
 
 
+def is_number(value: str) -> bool:
+    """Digits 0 to 9 only. isdigit() alone also takes "²", which int() refuses."""
+    return value.isascii() and value.isdigit()
+
+
 def read_json(path: Path, default):
     """What a file in the data directory holds, or the default as long as it does not exist."""
     try:
@@ -555,7 +560,7 @@ async def require_session(request: Request, call_next):
             return Response("This request was sent from another site. Open Caddyman and try again from there.", status_code=403, media_type="text/plain")
         # Refused before a byte of it is read. A body that does not say how long it is could be any size.
         length = request.headers.get("content-length", "0")
-        if "transfer-encoding" in request.headers or not length.isdigit() or int(length) > MAX_BODY_BYTES:
+        if "transfer-encoding" in request.headers or not is_number(length) or int(length) > MAX_BODY_BYTES:
             return Response("This request is larger than anything Caddyman takes.", status_code=413, media_type="text/plain")
     users = load_users()
     me = request.state.me = session_user(request, users)
@@ -835,7 +840,7 @@ def mail_problem(mail: dict) -> str | None:
         return None  # an empty server switches mail off, the rest does not matter then
     if not mail["host"].isprintable() or " " in mail["host"] or len(mail["host"]) > 253:
         return "The mail server has to be a hostname or an address."
-    if not mail["port"].isdigit() or not 0 < int(mail["port"]) < 65536:
+    if not is_number(mail["port"]) or not 0 < int(mail["port"]) < 65536:
         return "The port has to be a number between 1 and 65535."
     if not EMAIL_RE.match(mail["sender"]):
         return "The sender has to be an email address."
@@ -1082,7 +1087,7 @@ def settings_alerts(request: Request):
 async def settings_alerts_save(request: Request):
     form = await request.form()
     days = str(form.get("alert_cert_days", "")).strip()
-    if not days.isdigit() or not 1 <= int(days) <= 90:
+    if not is_number(days) or not 1 <= int(days) <= 90:
         return redirect("/settings/alerts", "error", "The days before a certificate ends are a number from 1 to 90.")
     save_settings(**{key: "1" if form.get(key) else "" for key in ALERT_DEFAULTS if key != "alert_cert_days"}, alert_cert_days=days)
     return redirect("/settings/alerts", "ok", "Saved.")
@@ -1729,7 +1734,7 @@ def typed_target(value: str) -> str:
 
 
 def valid_port(value: str) -> bool:
-    return value.isdigit() and 1 <= int(value) <= 65535
+    return is_number(value) and 1 <= int(value) <= 65535
 
 
 # A snippet and its block, up to the closing brace at the start of a line.
@@ -2926,7 +2931,7 @@ async def route_update(request: Request, name: str):
     if path is None:
         return redirect("/", "error", "This route does not exist.")
     form = await request.form()
-    mtime = int(form["mtime"]) if str(form.get("mtime", "")).isdigit() else 0
+    mtime = int(form["mtime"]) if is_number(str(form.get("mtime", ""))) else 0
     raw = form.get("mode") == "raw"
     route, new_path = None, path
     if raw:
@@ -3616,7 +3621,7 @@ def read_backup(data: bytes) -> dict:
     if find_zone(stored.get("time_zone")):
         settings["time_zone"] = stored["time_zone"]
     days = str(stored.get("alert_cert_days", ""))
-    if days.isdigit() and 1 <= int(days) <= 90:
+    if is_number(days) and 1 <= int(days) <= 90:
         settings["alert_cert_days"] = days
     mail = extra.get("mail.json")
     mail = {key: str(mail.get(key, default)) for key, default in MAIL_DEFAULTS.items()} if isinstance(mail, dict) else {}

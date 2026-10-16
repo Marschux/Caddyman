@@ -2774,6 +2774,14 @@ class TestHardening(RouteTest):
                 main.render_route(route, host)
         self.assertIn("reverse_proxy caddyman:5052", main.render_route({**base, "errors": "caddyman:5052"}, host))
 
+    def test_digits_of_other_scripts_are_no_number(self):
+        for value in ("²", "١٢", "8080²"):
+            self.assertFalse(main.is_number(value))
+            self.assertFalse(main.valid_port(value))
+        self.assertTrue(main.valid_port("8080"))
+        self.create()
+        self.assertLess(self.client.post("/routes/pdf/edit", data={"mtime": "²"}).status_code, 500)
+
     def test_a_path_without_an_area_is_shut(self):
         for route in main.app.routes:
             # A mount like /static serves what lies below it.
