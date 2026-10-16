@@ -603,6 +603,14 @@ async def require_session(request: Request, call_next):
     return await call_next(request)
 
 
+@app.middleware("http")
+async def no_sniffing(request: Request, call_next):
+    """Every answer is taken as the type it names: a log or a certificate is never run as a page."""
+    response = await call_next(request)
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    return response
+
+
 def page(request: Request, template: str, status_code: int = 200, **context):
     flash = None
     if cookie := request.cookies.get(FLASH_COOKIE):
