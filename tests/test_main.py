@@ -37,6 +37,7 @@ class AppTest(unittest.TestCase):
         main.GROUPS_FILE.unlink(missing_ok=True)
         main.ERRORS_FILE.unlink(missing_ok=True)
         main.LOGIN_FAILS.clear()
+        main.FAIL_SWEEP["next"] = 0.0
         main.LOCK_ROUNDS.clear()
         # No name is looked up from a test: where "Caddy" sits is said by each test that needs it.
         self.patch(main, "resolve_addresses", mock.Mock(return_value=set()))
@@ -203,6 +204,9 @@ class TestAuth(AppTest):
         main.LOGIN_FAILS["192.0.2.7"] = [3, 0.0, main.time.monotonic() - main.FAIL_SECONDS - 1]
         guest.post("/login", data={"username": "admin", "password": "nope"})
         self.assertEqual(main.LOGIN_FAILS["testclient"][0], 1)
+        self.assertIn("192.0.2.7", main.LOGIN_FAILS)  # swept once a minute, not on every failure
+        main.FAIL_SWEEP["next"] = 0.0
+        guest.post("/login", data={"username": "admin", "password": "nope"})
         self.assertNotIn("192.0.2.7", main.LOGIN_FAILS)  # and is then cleared away
 
     def test_login_locks_after_five_failures(self):

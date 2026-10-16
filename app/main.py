@@ -184,6 +184,7 @@ SETUP_TOKEN: str | None = None
 # In memory, one entry per failing address or account, dropped once it is neither locked nor
 # recent. Fine for a LAN tool with one worker; move to a shared store if there are ever several.
 LOGIN_FAILS: dict[str, list[float]] = {}  # address or account -> [fail count, locked until, last fail]
+FAIL_SWEEP = {"next": 0.0}
 # The lock on the second factor of an account doubles each time, up to an hour, and starts over
 # after a day without one. At that step the password is known, so 30 seconds each time would
 # leave thousands of guesses a day at a code of six digits.
@@ -326,9 +327,13 @@ def locked_seconds(*keys: str) -> int:
 
 def record_fail(*keys: str) -> None:
     now = time.monotonic()
-    for key, entry in list(LOGIN_FAILS.items()):
-        if entry[1] < now and now - entry[2] > FAIL_SECONDS:
-            LOGIN_FAILS.pop(key, None)
+    # Swept once a minute, not on every failure: many guesses would otherwise each walk the whole list.
+    # An entry left over in between counts nothing, it is reset below once it is old.
+    if now >= FAIL_SWEEP["next"]:
+        FAIL_SWEEP["next"] = now + 60
+        for key, entry in list(LOGIN_FAILS.items()):
+            if entry[1] < now and now - entry[2] > FAIL_SECONDS:
+                LOGIN_FAILS.pop(key, None)
     for key in keys:
         entry = LOGIN_FAILS.setdefault(key, [0, 0.0, now])
         if now - entry[2] > FAIL_SECONDS:
