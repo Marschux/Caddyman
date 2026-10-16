@@ -2774,6 +2774,11 @@ class TestHardening(RouteTest):
                 main.render_route(route, host)
         self.assertIn("reverse_proxy caddyman:5052", main.render_route({**base, "errors": "caddyman:5052"}, host))
 
+    def test_a_name_is_taken_in_any_letter_case(self):
+        others = [{"username": "admin"}]
+        self.assertEqual(main.user_problem({"username": "Admin"}, others), "This username is taken.")
+        self.assertIsNone(main.user_problem({"username": "admin2"}, others))
+
     def test_two_logouts_at_once_both_count(self):
         self.create()
         stale = main.find_user(main.load_users(), "admin")

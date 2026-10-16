@@ -272,7 +272,8 @@ def user_problem(user: dict, others: list[dict]) -> str | None:
     name, email = user["username"], user.get("email", "")
     if not name or len(name) > 64 or name != name.strip() or not name.isprintable():
         return "The username needs 1 to 64 characters."
-    if any(other["username"] == name for other in others):
+    # Not even in other letter case: the login lock counts names in small letters, so both would share one.
+    if any(other["username"].lower() == name.lower() for other in others):
         return "This username is taken."
     if len(user.get("realname", "")) > 64:
         return "The name is longer than 64 characters."
