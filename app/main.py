@@ -118,9 +118,9 @@ def write_whole(path: Path, data: bytes, mode: int | None = None) -> None:
 
     Without a mode, a file that is replaced keeps the one it had.
     """
-    # Not a name the import of the sites directory would pick up.
-    draft = path.with_name(f".{path.name}.tmp")
-    draft.unlink(missing_ok=True)
+    # Not a name the import of the sites directory would pick up. One per call, so two writes of
+    # the same file at once do not take each other's draft away.
+    draft = path.with_name(f".{path.name}.{secrets.token_hex(4)}.tmp")
     try:
         fd = os.open(draft, os.O_WRONLY | os.O_CREAT | os.O_EXCL, mode or 0o666)
         with os.fdopen(fd, "wb") as handle:

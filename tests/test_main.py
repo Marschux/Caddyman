@@ -2749,6 +2749,22 @@ class TestHardening(RouteTest):
                 post.join()
         self.assertEqual(main.stored_groups(), ["Media", "Tools"])
 
+    def test_two_writes_of_one_file_at_once_both_get_through(self):
+        path = main.DATA_DIR / "same.json"
+        path.unlink(missing_ok=True)
+        self.addCleanup(path.unlink, missing_ok=True)
+        replace, calls = main.os.replace, []
+
+        def other_write_in_between(source, target):
+            calls.append(source)
+            if len(calls) == 1:
+                main.write_json(path, {"first": False})
+            replace(source, target)
+
+        with mock.patch.object(main.os, "replace", other_write_in_between):
+            main.write_json(path, {"first": True})
+        self.assertEqual(main.read_json(path, None), {"first": True})
+
     def test_no_page_of_caddyman_goes_into_a_frame(self):
         self.create()
         for client, path in ((self.client, "/"), (self.client, "/routes/pdf/edit"), (self.client, "/settings/users"), (self.guest(), "/login")):
