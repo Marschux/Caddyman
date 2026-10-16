@@ -3242,7 +3242,14 @@ async def host_save(request: Request, host_id: str | None = None):
         # A login that was kept only goes to a server that shows the CA remembered for it. Typing
         # the password again is the way to trust a new CA at the same address.
         known = previous if not password else ""
-        if admin_ca := remember_admin_ca({**host, "admin_ca": known} if known else host, previous):
+        if known:
+            asked = {**host, "admin_ca": known}
+        elif password:
+            asked = host
+        else:
+            # Kept, and no CA to check the server against: the login is not sent along.
+            asked = {**host, "admin_user": ""}
+        if admin_ca := remember_admin_ca(asked, previous):
             host["admin_ca"] = admin_ca
     if host["storage"] == "managed":
         # The one base Caddyfile this tool writes: its own copy, which Caddy never reads from disk.

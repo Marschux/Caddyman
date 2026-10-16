@@ -1354,6 +1354,24 @@ class TestManaged(AppTest):
         data = {"type": "reverse_proxy", "host": "pdf.lab.test", "upstream": "10.0.0.5:9005", "tls": "acme_ca"}
         return self.client.post("/routes/new", data=data)
 
+    def test_a_kept_login_is_never_sent_unchecked(self):
+        from cryptography.hazmat.primitives.serialization import Encoding
+
+        fetched = make_certificate("Somebody's CA").public_bytes(Encoding.PEM).decode()
+        pasted = make_certificate("Lab Root CA").public_bytes(Encoding.PEM).decode().strip()
+        answer = mock.Mock(status_code=200, content=b"running", json=lambda: {"root_certificate": fetched})
+        # A pasted CA that is removed again, and a first fetch that failed: no CA to check against.
+        for first in ({"admin_ca": pasted}, {}):
+            main.HOSTS_FILE.unlink(missing_ok=True)
+            self.get.return_value = answer if first else mock.Mock(status_code=500, content=b"")
+            _, host = self.add_host(**first)
+            self.get.return_value = answer
+            self.get.reset_mock()
+            self.client.post(f"/hosts/{host['id']}/edit", data=self.form(admin_password=""))
+            unchecked = [call for call in self.get.call_args_list if call.kwargs.get("verify") is False]
+            self.assertTrue(unchecked)
+            self.assertFalse([call for call in unchecked if call.kwargs.get("auth")])
+
     def test_the_host_header_never_becomes_the_address_of_caddyman_in_a_route(self):
         self.add_host()
         self.add_route()
