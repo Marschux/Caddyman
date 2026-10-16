@@ -3,6 +3,8 @@
 (() => {
 	const filter = document.getElementById("route-filter");
 	if (!filter) return;
+	// Filtering happens as you type; Enter sends nothing.
+	filter.addEventListener("submit", (event) => event.preventDefault());
 	const table = document.querySelector("table");
 	const body = table.tBodies[0];
 	// As the server sent them: the name of a group, then its routes.

@@ -32,7 +32,7 @@
 				<a class="button" href="/settings/users/{{ user.username|urlencode }}/edit">Edit</a>
 				{% if user.username != request.state.user %}
 				<form method="post" action="/settings/users/{{ user.username|urlencode }}/delete"
-					data-confirm="Delete the account {{ user.username }}?" onsubmit="return confirm(this.dataset.confirm)">
+					data-confirm="Delete the account {{ user.username }}?">
 					<button type="submit" class="danger">Delete</button>
 				</form>
 				{% endif %}

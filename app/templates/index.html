@@ -6,7 +6,7 @@
 <div class="toolbar">
 	{# Shown by routes.js, which also makes the column titles sort. #}
 	{% if routes %}
-	<form class="row filters" id="route-filter" hidden onsubmit="return false">
+	<form class="row filters" id="route-filter" hidden>
 		<input type="search" name="q" placeholder="Search host, target, group ..." aria-label="Search the routes">
 	</form>
 	{% endif %}
@@ -115,12 +115,12 @@
 				{% if route %}
 				{# Only asks where switching off cuts the way this page came in. #}
 				<form method="post" action="/routes/{{ item.name|urlencode }}/toggle"
-					{% if item.own and not route.off %}data-confirm="This route leads to Caddyman itself{{ ', and you are using it right now' if item.own == 'used' }}. Without it Caddyman only answers on port {{ own_port }} of its machine. Switch it off?" onsubmit="return confirm(this.dataset.confirm)"{% endif %}>
+					{% if item.own and not route.off %}data-confirm="This route leads to Caddyman itself{{ ', and you are using it right now' if item.own == 'used' }}. Without it Caddyman only answers on port {{ own_port }} of its machine. Switch it off?"{% endif %}>
 					<button type="submit" title="{{ 'Caddy serves this route again' if route.off else 'Switch the route off; what it shows then is set under Error pages. Settings are kept.' }}">{{ "Enable" if route.off else "Disable" }}</button>
 				</form>
 				{% endif %}
 				<form method="post" action="/routes/{{ item.name|urlencode }}/delete"
-					data-confirm="{% if item.own %}This route leads to Caddyman itself{{ ', and you are using it right now' if item.own == 'used' }}. Without it Caddyman only answers on port {{ own_port }} of its machine. {% endif %}Delete {{ item.name }}.caddy and reload Caddy?" onsubmit="return confirm(this.dataset.confirm)">
+					data-confirm="{% if item.own %}This route leads to Caddyman itself{{ ', and you are using it right now' if item.own == 'used' }}. Without it Caddyman only answers on port {{ own_port }} of its machine. {% endif %}Delete {{ item.name }}.caddy and reload Caddy?">
 					<button type="submit" class="danger">Delete</button>
 				</form>
 				{% endif %}

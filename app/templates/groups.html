@@ -28,7 +28,7 @@
 					<button type="submit">Rename</button>
 				</form>
 				<form method="post" action="/groups/delete"
-					data-confirm="Remove the group {{ name }}? Its routes are kept." onsubmit="return confirm(this.dataset.confirm)">
+					data-confirm="Remove the group {{ name }}? Its routes are kept.">
 					<input type="hidden" name="name" value="{{ name }}">
 					<button type="submit" class="danger">Delete</button>
 				</form>

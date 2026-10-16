@@ -28,7 +28,7 @@
 		<h2>Caddy</h2>
 		{% if "routes" in rights %}
 		<form method="post" action="/hosts/{{ host.id }}/push" class="inline"
-			data-confirm="Send the configuration to Caddy now? It replaces what Caddy currently runs." onsubmit="return confirm(this.dataset.confirm)">
+			data-confirm="Send the configuration to Caddy now? It replaces what Caddy currently runs.">
 			<button type="submit" class="secondary">Reload Caddy</button>
 		</form>
 		{% endif %}
