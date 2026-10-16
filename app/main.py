@@ -248,15 +248,20 @@ def find_user(users: list[dict], username: str) -> dict | None:
     return next((user for user in users if user["username"] == username), None)
 
 
+def one_more_logout(user: dict) -> int:
+    """For update_user: counted under the lock, so two logouts at once both end every session."""
+    return user.get("logouts", 0) + 1
+
+
 def update_user(username: str, **fields) -> None:
     """Read, change and write under one lock, so two requests cannot lose each other's change.
 
-    A field set to None is removed.
+    A field set to None is removed. A function as value gets the account as it is under the lock.
     """
     with USERS_LOCK:
         users = load_users()
         if user := find_user(users, username):
-            user.update(fields)
+            user.update({key: value(user) if callable(value) else value for key, value in fields.items()})
             for key in [key for key, value in fields.items() if value is None]:
                 user.pop(key, None)
             save_users(users)
@@ -807,7 +812,7 @@ def login_code_submit(request: Request, code: str = Form("")):
 def logout(request: Request):
     # Counted on the account: the cookie is worth nothing afterwards, wherever a copy of it lies.
     if me := request.state.me:
-        update_user(me["username"], logouts=me.get("logouts", 0) + 1)
+        update_user(me["username"], logouts=one_more_logout)
     response = RedirectResponse("/login", status_code=303)
     response.delete_cookie(SESSION_COOKIE)
     return response
@@ -1047,7 +1052,7 @@ def profile_2fa_confirm(request: Request, code: str = Form("")):
         return profile_page(request, status_code=400, totp_error="This code does not fit. Check the clock of your phone and try the next one.")
     codes = [secrets.token_hex(5) for _ in range(RECOVERY_CODES)]
     # Every session opened with the password alone ends here; this one continues.
-    fields = {"totp": me["totp_pending"], "totp_pending": None, "totp_last": step, "logouts": me.get("logouts", 0) + 1}
+    fields = {"totp": me["totp_pending"], "totp_pending": None, "totp_last": step, "logouts": one_more_logout}
     update_user(me["username"], recovery=[recovery_digest(code) for code in codes], **fields)
     # Shown this once and never again: only their hashes are kept.
     response = profile_page(request, recovery_codes=[f"{code[:5]}-{code[5:]}" for code in codes])

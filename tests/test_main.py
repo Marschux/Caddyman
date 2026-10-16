@@ -2774,6 +2774,21 @@ class TestHardening(RouteTest):
                 main.render_route(route, host)
         self.assertIn("reverse_proxy caddyman:5052", main.render_route({**base, "errors": "caddyman:5052"}, host))
 
+    def test_two_logouts_at_once_both_count(self):
+        self.create()
+        stale = main.find_user(main.load_users(), "admin")
+        update = main.update_user
+
+        def other_logout_first(username, **fields):
+            if not getattr(other_logout_first, "done", False):
+                other_logout_first.done = True
+                update(username, logouts=main.one_more_logout)
+            update(username, **fields)
+
+        with mock.patch.object(main, "update_user", other_logout_first):
+            self.client.post("/logout")
+        self.assertEqual(main.find_user(main.load_users(), "admin").get("logouts", 0), stale.get("logouts", 0) + 2)
+
     def test_digits_of_other_scripts_are_no_number(self):
         for value in ("²", "١٢", "8080²"):
             self.assertFalse(main.is_number(value))
