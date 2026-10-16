@@ -1418,6 +1418,12 @@ class TestManaged(AppTest):
             text = (sites / name).read_text(encoding="utf-8")
             self.assertIn("reverse_proxy caddyman:5052", text)
             self.assertNotIn("example", text)
+        # Saving the suggestion under Settings, Caddy is what takes it over: with the right for that.
+        host_id = main.pick_host()["id"]
+        suggested = self.client.get(f"/hosts/{host_id}/edit", headers={"host": "192.168.2.71"}).text
+        self.assertIn('value="192.168.2.71:5052"', suggested)
+        self.client.post(f"/hosts/{host_id}/edit", data=self.form(admin_password="", reach="192.168.2.71:5052"), headers={"host": "192.168.2.71"})
+        self.assertIn("reverse_proxy 192.168.2.71:5052", (sites / route).read_text(encoding="utf-8"))
 
     def test_ca_of_an_https_admin_api_is_remembered(self):
         from cryptography.hazmat.primitives.serialization import Encoding

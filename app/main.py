@@ -3264,7 +3264,7 @@ async def host_save(request: Request, host_id: str | None = None):
     # Before the host is rewritten without them: keep the root CA switches an older version stored in it.
     save_settings()
     save_hosts([host if item["id"] == host["id"] else item for item in hosts] if existing else [*hosts, host])
-    if existing and reach and reach != caddyman_upstream(host, request):
+    if existing and reach and reach != caddyman_upstream(host):
         kind, message = move_caddyman_upstream(host, reach)
         if kind != "ok":
             return redirect(f"/hosts/{host['id']}/edit", kind, message)
