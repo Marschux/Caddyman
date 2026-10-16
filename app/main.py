@@ -481,8 +481,13 @@ def load_settings() -> dict:
     return {**SETTING_DEFAULTS, **old, **read_json(SETTINGS_FILE, {})}
 
 
+# Read and write of settings.json and errors.json in one go, so two saves at once both stay.
+JSON_LOCK = threading.Lock()
+
+
 def save_settings(**changes) -> None:
-    write_json(SETTINGS_FILE, {**load_settings(), **changes})
+    with JSON_LOCK:
+        write_json(SETTINGS_FILE, {**load_settings(), **changes})
 
 
 def flag(key: str) -> bool:
@@ -1479,7 +1484,7 @@ def preflight(host: dict) -> list[dict]:
     caddyfile, sites, snippet = host["caddyfile"], host["sites_dir"], host["tls_snippet"]
     managed = host.get("storage") == "managed"
     try:
-        text = Path(caddyfile).read_text(encoding="utf-8")
+        text = read_caddyfile(host).decode("utf-8")
     except (OSError, UnicodeDecodeError) as error:
         text = None
         if managed:
@@ -1912,10 +1917,26 @@ def dns_snippet_problem(host: dict, caddyfile_text: str, name: str) -> str:
         return said(error)
 
 
+CADDYFILE_MAX_BYTES = MAX_BODY_BYTES
+
+
+def read_caddyfile(host: dict) -> bytes:
+    """The base Caddyfile as bytes. Raises OSError when it is not a plain file or too big:
+    the mount behind the path can change after the settings were saved."""
+    path = Path(host["caddyfile"])
+    if not path.is_file():
+        raise OSError(f"{path} is not a file")
+    with path.open("rb") as file:
+        data = file.read(CADDYFILE_MAX_BYTES + 1)
+    if len(data) > CADDYFILE_MAX_BYTES:
+        raise OSError(f"{path} is larger than {CADDYFILE_MAX_BYTES // 1024 // 1024} MiB")
+    return data
+
+
 def base_text(host: dict) -> str:
     """The base Caddyfile, or '' when it cannot be read."""
     try:
-        return Path(host["caddyfile"]).read_text(encoding="utf-8")
+        return read_caddyfile(host).decode("utf-8")
     except (OSError, UnicodeDecodeError):
         return ""
 
@@ -1979,6 +2000,12 @@ def load_errors() -> dict:
     stored = read_json(ERRORS_FILE, {})
     disabled = "maintenance" if stored.get("disabled") == "maintenance" else ""
     return {"upstream": stored.get("upstream", ""), "designs": stored.get("designs", {}), "texts": error_texts(stored.get("texts")), "disabled": disabled}
+
+
+def change_errors(change) -> None:
+    """Read, change and write errors.json under the lock: change gets what load_errors() returns."""
+    with JSON_LOCK:
+        write_json(ERRORS_FILE, change(load_errors()))
 
 
 def off_value(host: dict):
@@ -2383,7 +2410,7 @@ def admin_get(host: dict, path: str, **more) -> httpx.Response:
 
 def caddy_body(host: dict) -> bytes:
     """The complete Caddyfile for a host, as text. Never JSON: Caddy adapts it itself."""
-    base = Path(host["caddyfile"]).read_bytes()
+    base = read_caddyfile(host)
     if host.get("storage") != "managed":
         # Sent word for word: Caddy resolves the import of the sites directory itself, so what
         # is pushed here can never differ from what Caddy reads from the file after a restart.
@@ -3217,7 +3244,7 @@ def move_caddyman_upstream(current: dict, upstream: str) -> tuple[str, str]:
         return "warn", CHANGED_MEANWHILE
     if error:
         return "error", f"Caddy rejected the reload, the address was not changed: {error}"
-    write_json(ERRORS_FILE, {**load_errors(), "upstream": upstream})
+    change_errors(lambda stored: {**stored, "upstream": upstream})
     return "ok", "Saved." + (f" {len(changes)} route files now use the new address." if changes else "")
 
 
@@ -3226,7 +3253,7 @@ def error_pages_disabled(request: Request, mode: str = Form("")):
     """What a route shows while it is switched off. Rewrites the routes that are off right now."""
     current = the_host()
     mode = "maintenance" if mode == "maintenance" else ""
-    write_json(ERRORS_FILE, {**load_errors(), "disabled": mode})
+    change_errors(lambda stored: {**stored, "disabled": mode})
     value = off_value(current)
     stamps, changes = route_stamps(current), {}
     for item in list_routes(current):
@@ -3275,11 +3302,13 @@ def error_design(request: Request, code: str):
 def error_design_save(code: str, design: str = Form(""), everywhere: str = Form(""), title: str = Form(""), text: str = Form("")):
     if code not in ERROR_PAGES or design not in ERROR_DESIGNS:
         return redirect("/error-pages", "error", "Unknown error or design.")
-    stored = load_errors()
-    designs = dict.fromkeys(ERROR_PAGES, design) if everywhere else {**stored["designs"], code: design}
-    # Empty fields bring back the wording Caddyman ships with.
-    texts = error_texts({**stored["texts"], code: {"title": title, "text": text}})
-    write_json(ERRORS_FILE, {**stored, "designs": designs, "texts": texts})
+
+    def change(stored: dict) -> dict:
+        designs = dict.fromkeys(ERROR_PAGES, design) if everywhere else {**stored["designs"], code: design}
+        # Empty fields bring back the wording Caddyman ships with.
+        return {**stored, "designs": designs, "texts": error_texts({**stored["texts"], code: {"title": title, "text": text}})}
+
+    change_errors(change)
     return redirect(f"/error-pages/{code}", "ok", f"Every error now shows {ERROR_DESIGNS[design]}." if everywhere else f"{ERROR_PAGES[code][0]} now shows {ERROR_DESIGNS[design]}.")
 
 
@@ -3309,7 +3338,7 @@ def host_edit(request: Request, host_id: str):
     host = {"storage": "mounted", **host}
     if host["storage"] == "managed":
         try:
-            host["form_base"] = Path(host["caddyfile"]).read_text(encoding="utf-8")
+            host["form_base"] = read_caddyfile(host).decode("utf-8")
         except (OSError, UnicodeDecodeError):
             host["form_base"] = ""
     # The field shows a CA only when somebody put it there; one Caddyman fetched stays on the status page.
@@ -3620,7 +3649,7 @@ def build_backup(host: dict) -> bytes:
         there = {"upstream": errors["upstream"]} if errors["upstream"] else {}
         archive.writestr("errors.json", json.dumps({"designs": errors["designs"], "texts": errors["texts"], "disabled": errors["disabled"], **there}, indent=2))
         try:
-            archive.writestr("Caddyfile", Path(host["caddyfile"]).read_bytes())
+            archive.writestr("Caddyfile", read_caddyfile(host))
         except OSError:
             pass
         for path in sorted(Path(host["sites_dir"]).glob("*.caddy")):
@@ -3815,7 +3844,7 @@ async def backup_restore(request: Request):
     if with_mail and backup["mail"]:
         write_json(MAIL_FILE, backup["mail"])
     if with_errors and backup["errors"]:
-        write_json(ERRORS_FILE, backup["errors"])
+        change_errors(lambda stored: backup["errors"])
     if new_groups:
         change_groups(lambda groups: [*groups, *new_groups])
     if not changes:
@@ -4115,7 +4144,7 @@ def caddyfile_page(request: Request):
     """The base Caddyfile, to read. Right "caddy": its snippets can hold logins and API tokens."""
     current = the_host()
     try:
-        text, error = Path(current["caddyfile"]).read_text(encoding="utf-8", errors="replace"), ""
+        text, error = read_caddyfile(current).decode("utf-8", errors="replace"), ""
     except OSError as problem:
         text, error = "", f"It could not be read: {problem.strerror or problem}."
     return page(request, "caddyfile.html", host=current, text=text, error=error)
@@ -4212,17 +4241,17 @@ def alert(setting: str, subject: str, body: str, key: str = "", every: int = 0, 
     return True
 
 
-def watched(key: str, ok: bool, setting: str, down: tuple[str, str], up: tuple[str, str]) -> None:
+def watched(key: str, ok: bool, setting: str, down: tuple[str, str], up: tuple[str, str], right: str = "") -> None:
     """Count looks in a row that found something down; tell when it has been down a while, and when it is back."""
     failures = WATCH_STATE.get(key, 0)
     if ok:
         if failures >= WATCH_AFTER:
-            alert(setting, *up)
+            alert(setting, *up, right=right)
         WATCH_STATE.pop(key, None)
         return
     WATCH_STATE[key] = failures + 1
     if failures + 1 == WATCH_AFTER:
-        alert(setting, *down)
+        alert(setting, *down, right=right)
 
 
 def watch_once() -> None:
@@ -4237,7 +4266,7 @@ def watch_once() -> None:
     minutes = WATCH_SECONDS * WATCH_AFTER // 60
     watched("admin", admin_ok, "alert_admin",
             ("Caddy's admin API does not answer", f"{host['admin_url']} has not answered for {minutes} minutes. Changes to routes cannot be made."),
-            ("Caddy's admin API answers again", f"{host['admin_url']} answers again."))
+            ("Caddy's admin API answers again", f"{host['admin_url']} answers again."), right="caddy")
     routes = [item["route"] for item in list_routes(host) if item["route"] and not item["route"].get("off")]
     # Whether the services behind the routes answer is left to a monitor like Uptime Kuma (Max, 15.10.2026).
     now = time.monotonic()
@@ -4253,7 +4282,7 @@ def watch_once() -> None:
                 alert("alert_cert", f"The certificate of {name} ends in {time_left(expires)}",
                       f"{name} is served with a certificate that ends {expires:%Y-%m-%d %H:%M} UTC, issued by {status['issuer']}. "
                       "Caddy renews on its own; when it does not, its log says why.",
-                      key=f"cert:{name}", every=24 * 3600)
+                      key=f"cert:{name}", every=24 * 3600, right="routes")
 
 
 def start_watcher() -> None:

@@ -2788,6 +2788,36 @@ class TestHardening(RouteTest):
                 post.join()
         self.assertEqual(main.stored_groups(), ["Media", "Tools"])
 
+    def test_two_saves_of_settings_or_error_pages_at_once_both_stay(self):
+        settings, errors = main.load_settings, main.load_errors
+
+        def slow(load):
+            def wrapped():
+                found = load()
+                main.time.sleep(0.2)
+                return found
+            return wrapped
+
+        saves = [lambda: main.save_settings(time_zone="Europe/Berlin"), lambda: main.save_settings(public_ca=""),
+                 lambda: self.client.post("/error-pages/404", data={"design": "paper"}),
+                 lambda: self.client.post("/error-pages/disabled", data={"mode": "maintenance"})]
+        with mock.patch.object(main, "load_settings", slow(settings)), mock.patch.object(main, "load_errors", slow(errors)):
+            threads = [main.threading.Thread(target=save) for save in saves]
+            for thread in threads:
+                thread.start()
+            for thread in threads:
+                thread.join()
+        self.assertEqual((settings()["time_zone"], settings()["public_ca"]), ("Europe/Berlin", ""))
+        self.assertEqual((errors()["designs"].get("404"), errors()["disabled"]), ("paper", "maintenance"))
+
+    def test_the_base_caddyfile_is_read_only_as_a_plain_file_of_a_sane_size(self):
+        host = main.pick_host()
+        self.assertTrue(main.read_caddyfile(host))
+        with mock.patch.object(main, "CADDYFILE_MAX_BYTES", 3):
+            self.assertRaises(OSError, main.read_caddyfile, host)
+        self.assertRaises(OSError, main.read_caddyfile, {**host, "caddyfile": self.sites})
+        self.assertEqual(main.base_text({**host, "caddyfile": self.sites}), "")
+
     def test_two_writes_of_one_file_at_once_both_get_through(self):
         path = main.DATA_DIR / "same.json"
         path.unlink(missing_ok=True)
@@ -3143,6 +3173,20 @@ class TestAlerts(RouteTest):
         main.WATCH_STATE.pop("certs")  # the next round of certificate checks
         main.watch_once()
         self.assertEqual(len(self.sent), 1)
+
+    def test_the_watcher_only_mails_who_may_see_what_it_names(self):
+        self.client.post("/settings/users/new", data={"username": "viewer", "password": PASSWORD, "repeat": PASSWORD})
+        viewer = self.guest()
+        viewer.post("/login", data={"username": "viewer", "password": PASSWORD})
+        viewer.post("/profile", data={"email": "v@lab.test", "current": PASSWORD, "alerts": "1"})
+        self.create()
+        self.patch(main, "admin_get", mock.Mock(side_effect=main.httpx.ConnectError("refused")))
+        soon = main.datetime.now(main.timezone.utc) + main.timedelta(days=3)
+        self.patch(main, "certificate_status", mock.Mock(return_value={"level": "ok", "issuer": "Lab CA", "expires": soon}))
+        main.watch_once()
+        main.watch_once()
+        self.assertEqual(len(self.sent), 2)  # the certificate and the admin API
+        self.assertEqual({to for to, _, _ in self.sent}, {"ada@lab.test"})
 
 
 if __name__ == "__main__":
