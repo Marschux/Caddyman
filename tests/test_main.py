@@ -1,3 +1,4 @@
+import asyncio
 import base64
 import gzip
 import io
@@ -2773,6 +2774,25 @@ class TestHardening(RouteTest):
             with self.assertRaises(ValueError):
                 main.render_route(route, host)
         self.assertIn("reverse_proxy caddyman:5052", main.render_route({**base, "errors": "caddyman:5052"}, host))
+
+    def test_the_first_look_for_caddy_does_not_hold_other_requests(self):
+        release = main.threading.Event()
+        self.patch(main, "resolve_addresses", lambda name: release.wait(2) and {"10.0.0.9"})
+        seen = []
+
+        async def inner(scope, receive, send):
+            seen.append(scope["client"][0])
+
+        async def other_request():
+            release.set()  # runs only while the first one waits without holding the loop
+
+        scope = {"type": "http", "client": ("10.0.0.9", 1), "headers": [(b"x-forwarded-for", b"192.0.2.7")]}
+
+        async def both():
+            await asyncio.gather(main.TrustCaddy(inner)(scope, None, None), other_request())
+
+        asyncio.run(both())
+        self.assertEqual(seen, ["192.0.2.7"])
 
     def test_a_name_is_taken_in_any_letter_case(self):
         others = [{"username": "admin"}]

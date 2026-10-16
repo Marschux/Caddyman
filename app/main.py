@@ -1,5 +1,6 @@
 """Caddyman - a web interface for Caddy routes."""
 
+import asyncio
 import base64
 import binascii
 import contextvars
@@ -4089,6 +4090,13 @@ def caddy_addresses() -> frozenset[str]:
     Looked up again every minute in the background, so a slow DNS never holds a request.
     Only the very first look, and the one after the settings changed, waits a moment.
     """
+    if looking := look_up_caddy():
+        wait([looking], timeout=1)
+    return CADDY_ADDRESSES["found"]
+
+
+def look_up_caddy():
+    """Starts a look for caddy_addresses when one is due. What to wait for when nothing was found before, else None."""
     state = CADDY_ADDRESSES
     if state["until"] < time.monotonic() and not state["busy"]:
         state["busy"] = True
@@ -4104,9 +4112,8 @@ def caddy_addresses() -> frozenset[str]:
 
         first = state["until"] == 0
         looking = PROBES.submit(refresh)
-        if first:
-            wait([looking], timeout=1)
-    return state["found"]
+        return looking if first else None
+    return None
 
 
 # Alerts: mailed to every account that asks for them in its profile. The watcher looks every
@@ -4211,7 +4218,10 @@ class TrustCaddy:
 
     async def __call__(self, scope, receive, send):
         client = scope.get("client")
-        if scope["type"] == "http" and client and client[0] in caddy_addresses():
+        # Waited for without holding every other request: this runs on the event loop.
+        if scope["type"] == "http" and client and (looking := look_up_caddy()):
+            await asyncio.wait([asyncio.wrap_future(looking)], timeout=1)
+        if scope["type"] == "http" and client and client[0] in CADDY_ADDRESSES["found"]:
             headers = {name: value.decode("latin-1") for name, value in scope["headers"]}
             scheme = headers.get(b"x-forwarded-proto", "").strip().lower()
             if scheme in ("http", "https"):
