@@ -2111,6 +2111,11 @@ def route_from_form(form, host: dict, previous: dict | None = None) -> tuple[dic
 
 def render_route(route: dict, host: dict) -> str:
     """The complete file for a route. Expects metadata that passed route_from_form."""
+    # Caddyman's own address goes in from several places, not only the form: checked once here, for all of them.
+    own = [route.get("errors"), route["off"] if isinstance(route.get("off"), str) else ""]
+    own += [route.get("upstream")] if route["type"] == "error_page" else []
+    if any(value and not valid_upstream(value) for value in own):
+        raise ValueError("not an address Caddy can reach Caddyman under")
     # Caddy has no directive that turns TLS off; an http:// address does.
     scheme, port = "http://" if route["tls"] == "none" else "", f":{route['port']}" if route["port"] else ""
     address = ", ".join(f"{scheme}{name}{port}" for name in (route["host"], *route.get("aliases", [])))

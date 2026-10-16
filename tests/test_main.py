@@ -2765,6 +2765,15 @@ class TestHardening(RouteTest):
             main.write_json(path, {"first": True})
         self.assertEqual(main.read_json(path, None), {"first": True})
 
+    def test_no_route_is_written_with_a_broken_caddyman_address(self):
+        host = main.pick_host() or {"tls_snippet": "", "sso_snippet": "", "domain_suffix": ""}
+        base = {"type": "reverse_proxy", "host": "a.lab.test", "port": "", "tls": "none", "upstream": "10.0.0.5:80"}
+        bad = "caddyman:5052\n}\nevil {"
+        for route in ({**base, "errors": bad}, {**base, "off": bad}, {**base, "type": "error_page", "page": "404", "upstream": bad}):
+            with self.assertRaises(ValueError):
+                main.render_route(route, host)
+        self.assertIn("reverse_proxy caddyman:5052", main.render_route({**base, "errors": "caddyman:5052"}, host))
+
     def test_a_path_without_an_area_is_shut(self):
         for route in main.app.routes:
             # A mount like /static serves what lies below it.
