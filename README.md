@@ -183,6 +183,8 @@ The `handle_path` block serves the log to the Logs page and can be left out.
 - **Restart both containers after editing the base Caddyfile by hand.** Mounted as a single
   file, it can stay stale inside the container when an editor replaces it.
 - **One Caddyman manages one Caddy.** For a second Caddy, run a second Caddyman.
+- **The right "Settings: Caddy" is control over Caddy.** With "Network only" it edits the base
+  Caddyfile that Caddy runs, so give it only to accounts you would trust with Caddy itself.
 
 Left out on purpose: load balancing, free-form headers, metrics and an undo history. For
 history, put the sites directory under Git.
