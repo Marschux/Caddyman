@@ -1533,6 +1533,16 @@ def preflight(host: dict) -> list[dict]:
                 f"({sso}) {{\n\tforward_auth authelia:9091 {{\n\t\turi /api/authz/forward-auth\n"
                 "\t\tcopy_headers Remote-User Remote-Groups Remote-Email Remote-Name\n\t}\n}",
             )
+        # Allowed networks go by client_ip, and that follows X-Forwarded-For from every proxy Caddy trusts.
+        # With a wide trust, anyone in that range names their own address.
+        wide = re.search(r"^\s*trusted_proxies\s+static\s+.*?(0\.0\.0\.0/0|::/0|private_ranges).*$", text, re.MULTILINE)
+        if any(path.read_text(encoding="utf-8", errors="replace").find("not client_ip ") > 0 for path in Path(sites).glob("*.caddy")):
+            add(
+                "Allowed networks see the real visitor",
+                not wide,
+                wide.group(0).strip() if wide else "",
+                "With this line, a client in that range can claim any address and get past Allowed networks. Trust only the proxies in front of Caddy.",
+            )
         # Caddy reads from top to bottom: a snippet below the import is unknown to the routes
         # and every route that names it is rejected. Sent inline, the routes always come last.
         for name in filter(None, dict.fromkeys((snippet, *dns_snippets(host), host["sso_snippet"]))):

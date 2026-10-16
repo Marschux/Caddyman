@@ -2785,6 +2785,17 @@ class TestHardening(RouteTest):
                 main.render_route(route, host)
         self.assertIn("reverse_proxy caddyman:5052", main.render_route({**base, "errors": "caddyman:5052"}, host))
 
+    def test_preflight_warns_when_allowed_networks_trust_every_proxy(self):
+        label = "Allowed networks see the real visitor"
+        self.patch(main, "admin_get", mock.Mock(side_effect=main.httpx.ConnectError("offline")))
+        with open(self.caddyfile, "a", encoding="utf-8") as handle:
+            handle.write("{\n\tservers {\n\t\ttrusted_proxies static private_ranges\n\t}\n}\n")
+        self.assertNotIn(label, [check["label"] for check in main.preflight(main.pick_host())])
+        self.client.post("/routes/new", data=self.form(allow="10.0.0.0/8"))
+        check = next(check for check in main.preflight(main.pick_host()) if check["label"] == label)
+        self.assertFalse(check["ok"])
+        self.assertIn("private_ranges", check["detail"])
+
     def test_the_first_look_for_caddy_does_not_hold_other_requests(self):
         release = main.threading.Event()
         self.patch(main, "resolve_addresses", lambda name: release.wait(2) and {"10.0.0.9"})
