@@ -6,10 +6,12 @@
 {% include "settings_nav.html" %}
 <div class="heading">
 	<h2>Caddy</h2>
+	{% if "routes" in request.state.me.permissions %}
 	<form method="post" action="/hosts/{{ host.id }}/delete" class="inline"
 		data-confirm="{% if host.storage == 'managed' %}Disconnect Caddyman from this Caddy? Caddyman DELETES its copies with it: the base Caddyfile and {{ route_count if route_count is defined else 'all' }} route files. Download a backup first if you want to keep them. Caddy itself keeps running what it has, and the setup dialog comes back.{% else %}Disconnect Caddyman from this Caddy? The route files and Caddy itself stay untouched, and the setup dialog comes back, for instance to switch between the two layouts.{% endif %}">
 		<button type="submit" class="secondary">Disconnect this Caddy</button>
 	</form>
+	{% endif %}
 </div>
 {% endif %}
 <form method="post" class="card wide hostform">

@@ -536,7 +536,8 @@ AREAS = (
 # Where the right for the area is not enough, and which one it takes on top. The mail server
 # carries the reset link of every account; an import writes route files word for word, and a
 # download hands them out, with the hashes of their logins.
-SECOND_RIGHT = {("POST", "/settings/mail"): "users", ("POST", "/backup/import"): "routes", ("GET", "/backup/download"): "routes"}
+SECOND_RIGHT = {("POST", "/settings/mail"): "users", ("POST", "/backup/import"): "routes", ("GET", "/backup/download"): "routes",
+                ("POST", "/hosts/*/delete"): "routes"}
 
 
 # Open to every account. "/settings" only forwards to the first block this account may open.
@@ -601,7 +602,9 @@ async def require_session(request: Request, call_next):
         if right == "":
             return Response("Not found.", status_code=404, media_type="text/plain")
         if right in me["permissions"]:
-            right = SECOND_RIGHT.get((request.method, path), right)
+            # Disconnect deletes every route file of a Caddy elsewhere, which is the work of the right routes.
+            key = "/hosts/*/delete" if re.fullmatch(r"/hosts/[^/]+/delete", path) else path
+            right = SECOND_RIGHT.get((request.method, key), right)
         if right and right not in me["permissions"]:
             return page(request, "forbidden.html", status_code=403, right=PERMISSIONS[right])
         # Where the second factor is required, an account without one gets as far as its profile.

@@ -3095,6 +3095,15 @@ class TestHardening(RouteTest):
         self.assertEqual(answer.headers["location"], "/hosts")  # not the settings page a save leads back to
         self.assertEqual(main.load_hosts(), [])
 
+    def test_disconnect_needs_the_right_routes_as_well(self):
+        self.client.post("/settings/users/new", data={"username": "ops", "password": PASSWORD, "repeat": PASSWORD, "right_caddy": "1"})
+        ops = self.guest()
+        ops.post("/login", data={"username": "ops", "password": PASSWORD})
+        self.assertNotIn("Disconnect this Caddy", ops.get("/hosts/h1/edit").text)
+        self.assertEqual(ops.post("/hosts/h1/delete").status_code, 403)
+        self.assertEqual(len(main.load_hosts()), 1)
+        self.assertIn("Disconnect this Caddy", self.client.get("/hosts/h1/edit").text)
+
     def test_a_route_file_is_never_the_caddyfile(self):
         self.create(auth_user="bob", auth_password="open sesame")
         self.client.post("/settings/users/new", data={"username": "ops", "password": PASSWORD, "repeat": PASSWORD, "right_caddy": "1"})
