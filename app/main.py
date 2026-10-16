@@ -515,15 +515,23 @@ AREAS = (
 SECOND_RIGHT = {("POST", "/settings/mail"): "users", ("POST", "/backup/import"): "routes", ("GET", "/backup/download"): "routes"}
 
 
+# Open to every account. "/settings" only forwards to the first block this account may open.
+OPEN_PATHS = {"/", "/status", "/changes", "/settings", "/logout", "/healthz", "/setup"} | LOGIN_PATHS
+OPEN_PREFIXES = ("/profile/", "/static/", "/error/")
+
+
 def needed_permission(path: str) -> str | None:
-    """The right a request needs. Decided here by its path, so no endpoint can forget its own check."""
-    if path == "/settings":
-        return None  # only forwards to the first block this account may open
+    """The right a request needs. Decided here by its path, so no endpoint can forget its own check.
+
+    "" for a path that is neither open nor in AREAS: a page added and forgotten there stays shut.
+    """
+    if path in OPEN_PATHS or path == "/profile" or path.startswith(OPEN_PREFIXES):
+        return None
     if path in PUBLIC_PATHS:
         return None if flag("public_ca") else "ca"  # switched off, they are part of the Root CA page
     if re.fullmatch(r"/hosts/[^/]+/push", path):
         return "routes"  # "Reload Caddy" lives under /hosts but is part of working with routes
-    return next((right for prefix, right in AREAS if path == prefix or path.startswith(prefix + "/")), None)
+    return next((right for prefix, right in AREAS if path == prefix or path.startswith(prefix + "/")), "")
 
 
 @app.middleware("http")
@@ -566,6 +574,8 @@ async def require_session(request: Request, call_next):
     else:
         CURRENT_USER.set(me["username"])
         right = needed_permission(path)
+        if right == "":
+            return Response("Not found.", status_code=404, media_type="text/plain")
         if right in me["permissions"]:
             right = SECOND_RIGHT.get((request.method, path), right)
         if right and right not in me["permissions"]:

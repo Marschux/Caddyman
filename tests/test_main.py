@@ -2765,6 +2765,14 @@ class TestHardening(RouteTest):
             main.write_json(path, {"first": True})
         self.assertEqual(main.read_json(path, None), {"first": True})
 
+    def test_a_path_without_an_area_is_shut(self):
+        for route in main.app.routes:
+            # A mount like /static serves what lies below it.
+            path = route.path.replace("{", "").replace("}", "") + ("" if hasattr(route, "methods") else "/")
+            self.assertNotEqual(main.needed_permission(path), "", route.path)
+        self.create()
+        self.assertEqual(self.client.get("/forgotten").status_code, 404)
+
     def test_no_page_of_caddyman_goes_into_a_frame(self):
         self.create()
         for client, path in ((self.client, "/"), (self.client, "/routes/pdf/edit"), (self.client, "/settings/users"), (self.guest(), "/login")):
