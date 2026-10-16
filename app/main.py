@@ -2258,8 +2258,13 @@ def stored_groups() -> list[str]:
     return read_json(GROUPS_FILE, [])
 
 
-def save_groups(names) -> None:
-    write_json(GROUPS_FILE, sorted(set(names), key=str.lower))
+GROUPS_LOCK = threading.Lock()
+
+
+def change_groups(change) -> None:
+    """Read, change and write the stored names in one go, so two changes at once both stay."""
+    with GROUPS_LOCK:
+        write_json(GROUPS_FILE, sorted(set(change(stored_groups())), key=str.lower))
 
 
 def load_groups(host: dict) -> list[str]:
@@ -2866,7 +2871,11 @@ def route_delete(name: str):
     path = route_path(current, name) if current else None
     if path is None or not path.exists():
         return redirect("/", "error", "This route does not exist.")
-    if error := apply_route(current, {path: None}, "delete", path.stem):
+    try:
+        error = apply_route(current, {path: None}, "delete", path.stem, expect=(path, file_mtime(path)))
+    except Conflict:
+        return redirect("/", "warn", f"{path.name} was changed in the meantime. Nothing was done.")
+    if error:
         return redirect("/", "error", f"Caddy rejected the reload, {path.name} was kept: {error}")
     return redirect("/", "ok", f"{path.name} was removed.")
 
@@ -2975,10 +2984,16 @@ def route_adopt(name: str):
     current, path = existing_route(name)
     if path is None:
         return redirect("/", "error", "This route does not exist.")
+    # Taken before reading: a save in between would otherwise be replaced by what was read.
+    mtime = file_mtime(path)
     route, reason = adopt_route(path.read_text(encoding="utf-8", errors="replace"), current)
     if route is None:
         return redirect("/", "warn", f"{path.name} was left as it is: {reason}.")
-    if error := apply_route(current, {path: render_route(route, current)}, "adopt", name):
+    try:
+        error = apply_route(current, {path: render_route(route, current)}, "adopt", name, expect=(path, mtime))
+    except Conflict:
+        return redirect("/", "warn", f"{path.name} was changed in the meantime. Nothing was done.")
+    if error:
         return redirect("/", "error", f"Caddy rejected the reload, {path.name} was left as it is: {error}")
     return redirect("/", "ok", f"{path.name} now opens in the form.")
 
@@ -3002,7 +3017,7 @@ def group_add(name: str = Form("")):
         return redirect("/groups", "error", GROUP_HINT)
     if taken(name, load_groups(current)):
         return redirect("/groups", "error", f"A group {name} already exists.")
-    save_groups([*stored_groups(), name])
+    change_groups(lambda groups: [*groups, name])
     return redirect("/groups", "ok", f"{name} was added. Pick it in the form of a route.")
 
 
@@ -3023,7 +3038,7 @@ def group_rename(old: str = Form(""), new: str = Form("")):
         return redirect("/groups", "warn", CHANGED_MEANWHILE)
     if error:
         return redirect("/groups", "error", f"Caddy rejected the reload, nothing was changed: {error}")
-    save_groups([new if group == old else group for group in [*stored_groups(), old]])
+    change_groups(lambda groups: [new if group == old else group for group in [*groups, old]])
     return redirect("/groups", "ok", f"{old} is now {new}.")
 
 
@@ -3038,7 +3053,7 @@ def group_delete(name: str = Form("")):
         return redirect("/groups", "warn", CHANGED_MEANWHILE)
     if error:
         return redirect("/groups", "error", f"Caddy rejected the reload, nothing was changed: {error}")
-    save_groups(group for group in stored_groups() if group != name)
+    change_groups(lambda groups: [group for group in groups if group != name])
     return redirect("/groups", "ok", f"{name} was removed. Its routes are kept, without a group.")
 
 
@@ -3144,11 +3159,19 @@ def error_pages_disabled(request: Request, mode: str = Form("")):
 def error_pages_catch_all(request: Request, on: str = Form("")):
     """The route for every name no other route knows. A file like the others, but not in the route list."""
     current = the_host()
-    path, state = route_path(current, CATCH_ALL), catch_all_state(current)
+    path = route_path(current, CATCH_ALL)
+    # What was looked at is what gets replaced: a file put there in between is not overwritten.
+    mtime, state = file_mtime(path), catch_all_state(current)
     if state == "taken":
         return redirect("/error-pages", "error", f"{path.name} exists and was not written here. Rename or delete it first.")
     route = {"type": "error_page", "host": "*", "port": "", "tls": "none", "upstream": caddyman_upstream(current), "page": "blocked"}
-    if (on or state) and (error := apply_route(current, {path: render_route(route, current) if on else None}, "create" if on else "delete", CATCH_ALL)):
+    error = None
+    try:
+        if on or state:
+            error = apply_route(current, {path: render_route(route, current) if on else None}, "create" if on else "delete", CATCH_ALL, expect=(path, mtime))
+    except Conflict:
+        return redirect("/error-pages", "warn", CHANGED_MEANWHILE)
+    if error:
         return redirect("/error-pages", "error", f"Caddy rejected the reload, nothing was changed: {error}")
     return redirect("/error-pages", "ok", "Every unknown name now gets the Blocked page." if on else "Unknown names are no longer answered.")
 
@@ -3707,7 +3730,7 @@ async def backup_restore(request: Request):
     if with_errors and backup["errors"]:
         write_json(ERRORS_FILE, backup["errors"])
     if new_groups:
-        save_groups([*stored_groups(), *new_groups])
+        change_groups(lambda groups: [*groups, *new_groups])
     if not changes:
         return redirect("/", "ok", "Everything in the archive is already in place.")
     return redirect("/", "ok", f"{len(changes)} routes imported and live.")

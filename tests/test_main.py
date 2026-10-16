@@ -2714,6 +2714,41 @@ class TestEdit(RouteTest):
 
 
 class TestHardening(RouteTest):
+    def test_a_save_in_between_is_never_replaced_by_what_was_read_before(self):
+        self.put("plain.caddy", "plain.lab.test {\n\treverse_proxy 10.0.0.5:9005\n}\n")
+        adopt, state = main.adopt_route, main.catch_all_state
+
+        def adopt_then_saved(text, host):
+            self.put("plain.caddy", "saved meanwhile\n")
+            return adopt(text, host)
+
+        def state_then_foreign(host):
+            found = state(host)
+            self.put("catch-all.caddy", "somebody else's\n")
+            return found
+
+        with mock.patch.object(main, "adopt_route", adopt_then_saved), mock.patch.object(main, "catch_all_state", state_then_foreign):
+            self.client.post("/routes/plain/adopt")
+            self.client.post("/error-pages/catch-all", data={"on": "1"})
+        self.assertEqual(self.read("plain.caddy"), "saved meanwhile\n")
+        self.assertEqual(self.read("catch-all.caddy"), "somebody else's\n")
+
+    def test_two_new_groups_at_once_are_both_kept(self):
+        stored = main.stored_groups
+
+        def slow():
+            groups = stored()
+            main.time.sleep(0.2)
+            return groups
+
+        with mock.patch.object(main, "stored_groups", slow):
+            posts = [main.threading.Thread(target=self.client.post, args=("/groups",), kwargs={"data": {"name": name}}) for name in ("Media", "Tools")]
+            for post in posts:
+                post.start()
+            for post in posts:
+                post.join()
+        self.assertEqual(main.stored_groups(), ["Media", "Tools"])
+
     def test_no_page_of_caddyman_goes_into_a_frame(self):
         self.create()
         for client, path in ((self.client, "/"), (self.client, "/routes/pdf/edit"), (self.client, "/settings/users"), (self.guest(), "/login")):
