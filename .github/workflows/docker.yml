@@ -38,8 +38,9 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-      # Tag builds are named after the tag, branch builds after the short SHA.
+      # Tag builds are named after the tag, builds of main after the short SHA and latest.
+      # A tag never moves latest: main already set it for that commit.
       - run: |
-          tag=$([ "$GITHUB_REF_TYPE" = tag ] && echo "$GITHUB_REF_NAME" || echo "${GITHUB_SHA::7}")
+          if [ "$GITHUB_REF_TYPE" = tag ]; then names="-t $IMAGE:$GITHUB_REF_NAME"; else names="-t $IMAGE:${GITHUB_SHA::7} -t $IMAGE:latest"; fi
           docker buildx build --pull --provenance=false --platform linux/amd64,linux/arm64 \
-            -f docker/Dockerfile -t "$IMAGE:latest" -t "$IMAGE:$tag" --push .
+            -f docker/Dockerfile $names --push .
