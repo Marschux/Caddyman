@@ -2552,7 +2552,11 @@ def apply_route(
             raise Conflict
         if fresh and fresh.exists():
             return f"A route file {fresh.name} already exists."
-        previous = {path: path.read_bytes() if path.exists() else None for path in changes}
+        try:
+            previous = {path: read_plain(path) if path.exists() else None for path in changes}
+        except OSError as os_error:
+            # Nothing written yet: a file that cannot be read back could not be put back either.
+            return f"The file in place cannot be read, nothing was changed: {os_error}"
         try:
             for path, content in changes.items():
                 if content is None:
@@ -2979,7 +2983,7 @@ def own_route_address(host: dict) -> tuple[bool, str]:
     def leads_here(path: Path) -> bool:
         # Comments do not count: a route that is switched off leads nowhere. Neither does the
         # line after a rewrite to /error/, which only fetches an error page.
-        lines = [line for line in path.read_bytes().splitlines() if not line.startswith(b"#")]
+        lines = [line for line in read_plain(path).splitlines() if not line.startswith(b"#")]
         return any(f":{OWN_PORT}".encode() in line and b"/error/" not in before for before, line in zip([b"", *lines], lines))
 
     try:
@@ -3445,13 +3449,25 @@ async def host_save(request: Request, host_id: str | None = None):
     if existing and not password and host.get("admin_password_enc") and not attested and host.get("admin_ca", "") != existing.get("admin_ca", ""):
         context = {**host, "id": host_id, "form_base": base, "form_ca": pasted_ca, "form_reach": reach}
         return page(request, "host_form.html", status_code=400, error="Type the admin API password to trust another CA for it.", host=context)
+    # Before the host is rewritten without them: keep the root CA switches an older version stored in it.
+    save_settings()
+
+    def put(now: list[dict]) -> list[dict]:
+        # Looked at again under the lock: a second first setup, or a host deleted in the meantime, is not written.
+        if any(item["id"] == host["id"] for item in now):
+            return [host if item["id"] == host["id"] else item for item in now]
+        if existing or now:
+            raise Conflict
+        return [host]
+
+    try:
+        change_hosts(put)
+    except Conflict:
+        return redirect("/hosts", "warn", "The Caddy settings were changed in the meantime. Nothing was saved, try again.")
     if host["storage"] == "managed":
         # The one base Caddyfile this tool writes: its own copy, which Caddy never reads from disk.
         Path(host["sites_dir"]).mkdir(parents=True, exist_ok=True)
         write_private(Path(host["caddyfile"]), base + "\n")
-    # Before the host is rewritten without them: keep the root CA switches an older version stored in it.
-    save_settings()
-    change_hosts(lambda now: [host if item["id"] == host["id"] else item for item in now] if any(item["id"] == host["id"] for item in now) else [*now, host])
     if existing and reach and reach != caddyman_upstream(host):
         kind, message = move_caddyman_upstream(host, reach)
         if kind != "ok":
@@ -3819,7 +3835,12 @@ def backup_download():
     current = the_host()
     stamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M")
     headers = {"Content-Disposition": f'attachment; filename="caddyman-{stamp}.zip"'}
-    return Response(build_backup(current), media_type="application/zip", headers=headers)
+    try:
+        archive = build_backup(current)
+    except OSError as error:
+        # A route file that is not a plain file, or too big: named, instead of a backup without it.
+        return redirect("/backup", "error", f"The backup could not be made: {error}.")
+    return Response(archive, media_type="application/zip", headers=headers)
 
 
 @app.post("/backup/import")

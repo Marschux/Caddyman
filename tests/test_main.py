@@ -3070,6 +3070,31 @@ class TestHardening(RouteTest):
             found = main.host_problem({**self.host, "caddyfile": path})
             self.assertEqual(found == "The Caddyfile has to be a plain file.", problem, path)
 
+    def test_a_fifo_in_the_sites_directory_holds_nothing_up(self):
+        self.create()
+        fifo = os.path.join(self.sites, "pipe.caddy")
+        os.mkfifo(fifo)
+        # Each of these would wait for a writer if it read the FIFO; the test would hang.
+        self.assertEqual(self.client.get("/").status_code, 200)
+        main.own_route_address(main.pick_host())
+        error = main.apply_route(main.pick_host(), {main.Path(fifo): "x"}, "update", "pipe")
+        self.assertIn("cannot be read, nothing was changed", error)
+        answer = self.client.get("/backup/download", follow_redirects=True)
+        self.assertIn("The backup could not be made", answer.text)
+        self.assertIn("pipe.caddy", answer.text)
+
+    def test_a_host_deleted_while_its_settings_are_saved_stays_deleted(self):
+        save = main.save_settings
+
+        def deleted_meanwhile(**changes):
+            save(**changes)
+            main.save_hosts([])
+
+        with mock.patch.object(main, "save_settings", deleted_meanwhile):
+            answer = self.reach(f"caddyman:{main.OWN_PORT}")
+        self.assertEqual(answer.headers["location"], "/hosts")  # not the settings page a save leads back to
+        self.assertEqual(main.load_hosts(), [])
+
     def test_a_route_file_is_never_the_caddyfile(self):
         self.create(auth_user="bob", auth_password="open sesame")
         self.client.post("/settings/users/new", data={"username": "ops", "password": PASSWORD, "repeat": PASSWORD, "right_caddy": "1"})
