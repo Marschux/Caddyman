@@ -482,17 +482,23 @@ class TestRoutes(RouteTest):
         main.resolve_addresses.return_value = {"testclient"}
         main.CADDY_ADDRESSES["until"] = 0.0
         through = {"x-forwarded-proto": "https"}
+        other = self.guest()
+        other.post("/login", data={"username": "admin", "password": PASSWORD})
         self.client.post("/settings/security", data={"https_only_on": "1"}, headers=through)
         self.assertTrue(main.https_only())
-        self.assertEqual(self.client.get("/", headers=through).status_code, 200)
-        self.assertEqual(self.client.get("/").status_code, 403)
+        # A cookie from plain HTTP is worth nothing once only HTTPS is answered.
+        self.assertEqual(other.get("/", headers=through).headers["location"], "/login")
+        # This session started over, with a cookie only ever sent over HTTPS.
+        self.client.base_url = "https://testserver"
+        self.assertEqual(self.client.get("/").status_code, 200)
+        self.assertEqual(self.client.get("http://testserver/").status_code, 403)
         # What Caddy fetches itself and the health check stay open.
-        self.assertEqual(self.client.get("/healthz").status_code, 200)
-        self.assertEqual(self.client.get("/error/502").status_code, 502)
-        self.assertNotEqual(self.client.get("/root-ca.crt").status_code, 403)
+        self.assertEqual(self.client.get("http://testserver/healthz").status_code, 200)
+        self.assertEqual(self.client.get("http://testserver/error/502").status_code, 502)
+        self.assertNotEqual(self.client.get("http://testserver/root-ca.crt").status_code, 403)
         # With a route to Caddyman the browser is sent there.
-        self.client.post("/routes/new", data=self.form(host="caddyman.lab.test", upstream=f"caddyman:{main.OWN_PORT}"), headers=through)
-        self.assertEqual(self.client.get("/status").headers["location"], "https://caddyman.lab.test/status")
+        self.client.post("/routes/new", data=self.form(host="caddyman.lab.test", upstream=f"caddyman:{main.OWN_PORT}"))
+        self.assertEqual(self.client.get("http://testserver/status").headers["location"], "https://caddyman.lab.test/status")
         # The way back in: the variable switches it off at the next start.
         with mock.patch.object(main, "RESET_HTTPS_ONLY", True):
             main.reset_https_only()

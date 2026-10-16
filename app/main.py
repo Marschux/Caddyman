@@ -1121,8 +1121,18 @@ def settings_security_save(
     if https_only_on and not https_only() and not is_https(request):
         return redirect("/settings/security", "error", "Open Caddyman over HTTPS first, through its own route, and switch it on from there.")
     # Checkboxes in one form: one that is not sent was unticked.
+    switched_on = https_only_on and not https_only()
     save_settings(require_2fa=require_2fa and "1", public_ca=public_ca and "1", login_ca_hint=login_ca_hint and "1", https_only=https_only_on and "1")
-    return redirect("/settings/security", "ok", "Saved.")
+    if not switched_on:
+        return redirect("/settings/security", "ok", "Saved.")
+    # A cookie set over plain HTTP may have been read on the way. Every session ends; this one starts over, over HTTPS.
+    with USERS_LOCK:
+        users = load_users()
+        for user in users:
+            user["logouts"] = one_more_logout(user)
+        save_users(users)
+    response = redirect("/settings/security", "ok", "Saved. Every other session has ended.")
+    return start_session(response, request, find_user(users, request.state.user))
 
 
 @app.get("/settings/general")
