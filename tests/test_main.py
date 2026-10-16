@@ -1469,6 +1469,21 @@ class TestManaged(AppTest):
         self.assertNotIn("admin_ca", main.load_hosts()[0])
         self.assertIs(main.admin_verify(main.load_hosts()[0]), True)
 
+    def test_only_a_ca_behind_the_admin_site_is_remembered(self):
+        from cryptography.hazmat.primitives.serialization import Encoding
+
+        pem = make_certificate("Somebody's CA").public_bytes(Encoding.PEM).decode()
+        answer = mock.Mock(status_code=200, content=b"running", json=lambda: {"root_certificate": pem})
+
+        def get(url, **kwargs):
+            if isinstance(kwargs.get("verify"), main.ssl.SSLContext) and not kwargs.get("auth"):
+                raise main.httpx.ConnectError("certificate verify failed")
+            return answer
+
+        self.get.side_effect = get
+        _, host = self.add_host()
+        self.assertFalse(host.get("admin_ca"))
+
     def test_ca_of_the_admin_api_can_be_entered_instead_of_fetched(self):
         from cryptography.hazmat.primitives.serialization import Encoding
 
@@ -1726,7 +1741,7 @@ class TestLogs(RouteTest):
         self.assertNotIn("WyJhZG1pbiJd", page)
         # The download hides them just the same.
         got = self.client.get("/logs/download", params={"file": "access-caddyman.log"})
-        self.assertIn('filename="access-caddyman.log"', got.headers["content-disposition"])
+        self.assertIn("filename*=UTF-8''access-caddyman.log", got.headers["content-disposition"])
         self.assertIn("/reset?token=[hidden]", got.text)
         self.assertNotIn("WyJhZG1pbiJd", got.text)
 
@@ -1742,11 +1757,16 @@ class TestLogs(RouteTest):
         with gzip.open(os.path.join(self.logs, "older.log.gz"), "wt", encoding="utf-8") as handle:
             handle.write("packed line\n")
         got = self.client.get("/logs/download", params={"file": "older.log.gz"})
-        self.assertEqual((got.text, got.headers["content-disposition"]), ("\t-\t\tpacked line\n", 'attachment; filename="older.log"'))
+        self.assertEqual((got.text, got.headers["content-disposition"]), ("\t-\t\tpacked line\n", "attachment; filename*=UTF-8''older.log"))
         os.symlink(self.caddyfile, os.path.join(self.logs, "link.log"))
         for name in ("notes.txt", "../caddy.log", "sub.log", "link.log"):
             self.assertEqual(self.client.get("/logs/download", params={"file": name}).status_code, 303, name)
         self.assertNotIn("link.log", self.client.get("/logs").text)
+
+    def test_a_quote_in_a_log_name_stays_in_the_name(self):
+        self.write('a"b.log', ["line"], mtime=4000)
+        got = self.client.get("/logs/download", params={"file": 'a"b.log'})
+        self.assertEqual(got.headers["content-disposition"], "attachment; filename*=UTF-8''a%22b.log")
 
     def test_a_long_line_is_downloaded_in_pieces(self):
         self.write("long.log", ["x" * 50], mtime=4000)
@@ -2943,6 +2963,11 @@ class TestHardening(RouteTest):
     def test_log_directory_is_no_place_for_the_caddyfile(self):
         self.assertTrue(main.is_own_ground(str(main.LOG_DIR / "caddy.log")))
         self.assertFalse(main.is_own_ground("/etc/caddy/Caddyfile"))
+
+    def test_the_caddyfile_is_a_plain_file(self):
+        for path, problem in (("/dev/zero", True), (self.sites, True), (self.caddyfile, False), ("/etc/caddy/missing", False)):
+            found = main.host_problem({**self.host, "caddyfile": path})
+            self.assertEqual(found == "The Caddyfile has to be a plain file.", problem, path)
 
     def test_a_short_secret_key_is_named_on_the_status_page(self):
         labels = lambda: [check["label"] for check in main.preflight(self.host)]  # noqa: E731

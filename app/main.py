@@ -883,8 +883,7 @@ def send_mail(to: str, subject: str, body: str) -> str | None:
     message = EmailMessage()
     message["From"], message["To"], message["Subject"] = mail["sender"], to, subject
     message.set_content(body)
-    # The server's certificate is verified against the public CAs, and against the CA from the
-    # mail settings for a server whose certificate comes from a private one.
+    # The server's certificate is verified against the public CAs of the container, nothing else.
     context = ssl.create_default_context()
     try:
         password = unseal(mail["password_enc"]) if mail.get("password_enc") else ""
@@ -1379,10 +1378,21 @@ def remember_admin_ca(host: dict, previous: str = "") -> str:
         try:
             pem = fetch_root_ca({**host, "root_ca_url": source}, first=True)[0]
             fingerprints(pem)
-            found.append(pem)
+            # Fetched unchecked, so kept only if the admin site's own certificate goes back to it.
+            if signs_admin_site(host, pem):
+                found.append(pem)
         except ValueError:
             pass
     return "".join(found) or previous
+
+
+def signs_admin_site(host: dict, pem: str) -> bool:
+    """Whether the certificate of the admin site checks out against these CAs alone. Asked without the login."""
+    try:
+        httpx.get(host["admin_url"], verify=ssl.create_default_context(cadata=pem), timeout=REACH_TIMEOUT)
+        return True
+    except (httpx.HTTPError, ssl.SSLError):
+        return False
 
 
 def save_hosts(hosts: list[dict]) -> None:
@@ -1421,6 +1431,9 @@ def host_problem(host: dict) -> str | None:
         return "Caddyfile and sites directory have to be absolute paths without '..'."
     if host.get("storage") != "managed" and (is_own_ground(host["caddyfile"]) or is_own_ground(host["sites_dir"])):
         return "Caddyfile and sites directory have to be those of Caddy, not a place in Caddyman's own data or in the log directory."
+    # Missing is fine, the status page explains the mount. A device like /dev/zero would be read without end.
+    if host.get("storage") != "managed" and Path(host["caddyfile"]).exists() and not Path(host["caddyfile"]).is_file():
+        return "The Caddyfile has to be a plain file."
     if host.get("admin_user") and not AUTH_USER_RE.match(host["admin_user"]):
         return "The admin API username may only contain letters, digits, '.', '_', '@' and '-'."
     snippets = [host[key] for key in ("tls_snippet", "sso_snippet") if host[key]] + dns_snippets(host)
@@ -4035,8 +4048,9 @@ def logs_download(file: str = ""):
             except (OSError, EOFError, zlib.error):
                 return
 
-    filename = name.removesuffix(".gz")
-    return StreamingResponse(lines(), media_type="text/plain; charset=utf-8", headers={"Content-Disposition": f'attachment; filename="{filename}"'})
+    # Escaped: the name comes from a directory, or from Caddy's listing, and may hold a quote.
+    filename = quote(name.removesuffix(".gz"))
+    return StreamingResponse(lines(), media_type="text/plain; charset=utf-8", headers={"Content-Disposition": f"attachment; filename*=UTF-8''{filename}"})
 
 
 # The status page is open to every account, and its checks ask Caddy, the CA and the admin API
