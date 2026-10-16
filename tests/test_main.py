@@ -1948,6 +1948,25 @@ class TestBackup(RouteTest):
     def confirm(self, data, query=""):
         return self.client.post(f"/backup/import{query}", data={"payload": base64.b64encode(data).decode()})
 
+    def test_an_archive_that_unpacks_to_more_than_it_says_is_refused_without_unpacking_it(self):
+        import struct
+        import tracemalloc
+
+        for method in (zipfile.ZIP_DEFLATED, zipfile.ZIP_BZIP2):
+            buffer = io.BytesIO()
+            with zipfile.ZipFile(buffer, "w", method) as archive:
+                archive.writestr("sites/a.caddy", b"\0" * (64 * 1024 * 1024))
+            data = bytearray(buffer.getvalue())
+            # It claims to unpack to ten bytes, in the local header and in the directory.
+            struct.pack_into("<I", data, 22, 10)
+            struct.pack_into("<I", data, data.rindex(b"PK\x01\x02") + 24, 10)
+            tracemalloc.start()
+            with self.assertRaises(ValueError):
+                main.read_backup(bytes(data))
+            peak = tracemalloc.get_traced_memory()[1]
+            tracemalloc.stop()
+            self.assertLess(peak, 8 * 1024 * 1024)
+
     def test_export_holds_routes_and_settings_but_no_secrets(self):
         with zipfile.ZipFile(io.BytesIO(self.archive)) as archive:
             self.assertEqual(
@@ -1988,7 +2007,7 @@ class TestBackup(RouteTest):
 
     def test_an_archive_that_does_not_unpack_is_refused(self):
         data = self.make_zip({"sites/pdf.caddy": "x"})
-        with mock.patch.object(zipfile.ZipFile, "read", side_effect=main.zlib.error("invalid stored block lengths")):
+        with mock.patch.object(zipfile.ZipExtFile, "read", side_effect=main.zlib.error("invalid stored block lengths")):
             self.assertEqual(self.upload(data).status_code, 400)
 
     def test_archive_cannot_write_outside_the_sites_directory(self):

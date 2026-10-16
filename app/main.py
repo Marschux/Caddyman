@@ -3528,15 +3528,24 @@ def read_backup(data: bytes) -> dict:
         members = archive.infolist()
         if len(members) > BACKUP_MAX_FILES or sum(item.file_size for item in members) > BACKUP_MAX_UNPACKED:
             raise ValueError("The archive unpacks to more than a backup ever holds.")
+        if any(item.compress_type not in (zipfile.ZIP_STORED, zipfile.ZIP_DEFLATED) for item in members):
+            raise ValueError("This is not a readable Caddyman backup.")
+
+        def read(item: zipfile.ZipInfo) -> bytes:
+            # Never more than the archive says: a member that unpacks to more fails its checksum
+            # instead of filling the memory first.
+            with archive.open(item) as member:
+                return member.read(item.file_size)
+
         routes, ignored, extra = {}, [], {}
         for item in members:
             name = item.filename[len("sites/") : -len(".caddy")]
             if item.filename == f"sites/{name}.caddy" and ROUTE_NAME_RE.match(name) and ".." not in name:
-                routes[name] = archive.read(item).decode("utf-8")
+                routes[name] = read(item).decode("utf-8")
             elif item.filename in ("hosts.json", "backup.json", "settings.json", "mail.json", "groups.json", "errors.json"):
-                extra[item.filename] = json.loads(archive.read(item))
+                extra[item.filename] = json.loads(read(item))
             elif item.filename == "Caddyfile":
-                extra["Caddyfile"] = archive.read(item).decode("utf-8")
+                extra["Caddyfile"] = read(item).decode("utf-8")
             elif item.filename != "README.txt":
                 ignored.append(item.filename)
     except (zipfile.BadZipFile, zlib.error, UnicodeDecodeError, json.JSONDecodeError, RuntimeError, NotImplementedError):
