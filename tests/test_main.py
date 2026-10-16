@@ -1,6 +1,7 @@
 import base64
 import gzip
 import io
+import json
 import os
 import shutil
 import tempfile
@@ -1090,6 +1091,24 @@ class TestUsers(RouteTest):
         self.assertIn('action="/backup/import"', both.get("/backup").text)
         self.assertEqual(both.get("/backup/download").status_code, 200)
         self.assertNotEqual(both.post("/backup/import", data={"payload": ""}).status_code, 403)
+
+    def test_a_fresh_import_leaves_alerts_and_error_pages_to_their_rights(self):
+        self.create()
+        archive = zipfile.ZipFile(io.BytesIO(self.client.get("/backup/download").content))
+        buffer = io.BytesIO()
+        with zipfile.ZipFile(buffer, "w") as changed:
+            for name in archive.namelist():
+                if name not in ("settings.json", "errors.json"):
+                    changed.writestr(name, archive.read(name))
+            changed.writestr("settings.json", json.dumps({"alert_reload": "", "alert_cert": "", "alert_admin": "", "require_2fa": ""}))
+            changed.writestr("errors.json", json.dumps({"designs": {}, "texts": {}, "disabled": "maintenance"}))
+        self.add_user("ops", right_backup="1", right_routes="1", right_caddy="1", right_general="1", right_smtp="1")
+        ops, _ = self.log_in("ops")
+        ops.post(f"/hosts/{main.load_hosts()[0]['id']}/delete")
+        ops.post("/backup/import", data={"payload": base64.b64encode(buffer.getvalue()).decode()})
+        self.assertEqual(len(main.load_hosts()), 1)
+        self.assertEqual([main.flag(key) for key in ("alert_reload", "alert_cert", "alert_admin")], [True, True, True])
+        self.assertEqual(main.load_errors()["disabled"], "")
 
     def test_trust_page_switched_off_is_part_of_the_root_ca_right(self):
         self.add_user("viewer")

@@ -3651,15 +3651,20 @@ async def backup_restore(request: Request):
         return refuse("This archive has no base Caddyfile, which the layout of its Caddy needs. Set the Caddy up under Settings first, then import the routes.")
     plan = backup_plan(backup, target)
     # The switches and the mail settings come back only into an empty install.
+    rights = request.state.me["permissions"]
     with_settings = fresh
     # Like on the page for it: the mail settings take the right to manage users as well.
-    with_mail = fresh and "users" in request.state.me["permissions"]
+    with_mail = fresh and "users" in rights
+    # Alerts and error pages each have a right of their own; without it they stay as they are.
+    with_errors = fresh and "errors" in rights
+    if "alerts" not in rights:
+        backup["settings"] = {key: value for key, value in backup["settings"].items() if key not in ALERT_DEFAULTS}
     new_groups = [name for name in backup["groups"] if not taken(name, stored_groups())]
     also = [
         *([f"{len(new_groups)} route groups"] if new_groups else []),
         *(["the switches under Settings, General"] if with_settings and backup["settings"] else []),
         *(["the mail settings, without the password"] if with_mail and backup["mail"] else []),
-        *(["the designs of the error pages"] if with_settings and backup["errors"] else []),
+        *(["the designs of the error pages"] if with_errors and backup["errors"] else []),
     ]
     if not confirmed:
         payload = base64.b64encode(data).decode()
@@ -3684,7 +3689,7 @@ async def backup_restore(request: Request):
         save_settings(**backup["settings"])
     if with_mail and backup["mail"]:
         write_json(MAIL_FILE, backup["mail"])
-    if with_settings and backup["errors"]:
+    if with_errors and backup["errors"]:
         write_json(ERRORS_FILE, backup["errors"])
     if new_groups:
         save_groups([*stored_groups(), *new_groups])
