@@ -3822,7 +3822,8 @@ def log_name(name: str) -> bool:
 def local_log_files() -> list[Path]:
     """The log files directly in the mounted log directory, newest first. Caddy packs the ones it rotated away."""
     try:
-        files = [path for path in LOG_DIR.iterdir() if log_name(path.name) and path.is_file()]
+        # No links: one could point at any file the container can read.
+        files = [path for path in LOG_DIR.iterdir() if log_name(path.name) and path.is_file() and not path.is_symlink()]
         return sorted(files, key=file_mtime, reverse=True)
     except OSError:
         return []
