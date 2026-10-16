@@ -2419,7 +2419,7 @@ def apply_route(
         audit(host, label, action, error)
         if error:
             alert("alert_reload", f"Caddy rejected a change to {label}",
-                  f"{CURRENT_USER.get()} tried to {action} {label}. Caddy did not take it, and the change was undone.\n\n{error}")
+                  f"{CURRENT_USER.get()} tried to {action} {label}. Caddy did not take it, and the change was undone.\n\n{error}", right="routes")
         return error
 
 
@@ -3290,7 +3290,7 @@ def host_push(host_id: str):
         PROBE_CACHE.clear()
         audit(host, "-", "reload", error)
     if error:
-        alert("alert_reload", "Caddy rejected a reload", f"{CURRENT_USER.get()} pressed Reload Caddy. Caddy did not take it:\n\n{error}")
+        alert("alert_reload", "Caddy rejected a reload", f"{CURRENT_USER.get()} pressed Reload Caddy. Caddy did not take it:\n\n{error}", right="routes")
         return redirect(f"/status#host-{host_id}", "error", f"Caddy rejected the configuration: {error}")
     return redirect(f"/status#host-{host_id}", "ok", "Caddy now runs the configuration from Caddyman.")
 
@@ -4051,14 +4051,15 @@ ALERT_SENT: dict = {}
 WATCHER = {"started": False}
 
 
-def alert(setting: str, subject: str, body: str, key: str = "", every: int = 0) -> bool:
-    """Mail an alert if it is switched on, mail works and somebody wants it. key with every: at most once per every seconds."""
+def alert(setting: str, subject: str, body: str, key: str = "", every: int = 0, right: str = "") -> bool:
+    """Mail an alert if it is switched on, mail works and somebody wants it. key with every: at most once per every seconds.
+    right: only to accounts that may see what the mail says."""
     if not flag(setting) or not mail_ready():
         return False
     now = time.monotonic()
     if key and every and ALERT_SENT.get(key, -every) > now - every:
         return False
-    receivers = [user["email"] for user in load_users() if user.get("alerts") and user.get("email")]
+    receivers = [user["email"] for user in load_users() if user.get("alerts") and user.get("email") and (not right or right in user["permissions"])]
     if not receivers:
         return False
     if key:

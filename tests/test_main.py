@@ -2856,6 +2856,15 @@ class TestAlerts(RouteTest):
         self.client.post("/profile", data={"email": "ada@lab.test"})
         self.assertNotIn("alerts", main.find_user(main.load_users(), "admin"))
 
+    def test_what_caddy_said_is_only_mailed_to_who_may_change_routes(self):
+        self.client.post("/settings/users/new", data={"username": "viewer", "password": PASSWORD, "repeat": PASSWORD})
+        viewer = self.guest()
+        viewer.post("/login", data={"username": "viewer", "password": PASSWORD})
+        viewer.post("/profile", data={"email": "v@lab.test", "current": PASSWORD, "alerts": "1"})
+        self.reject()
+        self.create()
+        self.assertEqual([to for to, _, _ in self.sent], ["ada@lab.test"])
+
     def test_a_rejected_reload_is_mailed(self):
         self.reject()
         self.create()
