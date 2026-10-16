@@ -1,5 +1,18 @@
 # Changelog
 
+## 2026-10-16 03:16
+- chore: version 0.27.16
+- fix: adopt, delete and the catch-all route do not replace a save made in between, and group names are changed under a lock
+- fix: saving the suggested address under Settings, Caddy takes it over into the routes
+- fix: no page of Caddyman can be put into a frame
+- fix: a backup member is read no further than the size the archive gives for it
+- fix: a started setup of the second factor expires after 15 minutes
+- fix: a fresh import leaves the alert switches and the error pages to the accounts with those rights
+- fix: a rejected reload is mailed only to accounts that may change routes
+- fix: a kept admin login is not sent along when there is no CA to check the server against
+- fix: the address Caddy reaches Caddyman by is never taken from the Host header when a route is written
+
+
 ## 2026-10-16 01:25
 - chore: version 0.27.8
 - feat: the image is built for arm64 as well, for a Raspberry Pi
