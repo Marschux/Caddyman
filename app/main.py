@@ -1892,9 +1892,9 @@ def load_errors() -> dict:
     return {"upstream": stored.get("upstream", ""), "designs": stored.get("designs", {}), "texts": error_texts(stored.get("texts")), "disabled": disabled}
 
 
-def off_value(host: dict, request: Request | None = None):
+def off_value(host: dict):
     """What "off" holds for a route switched off now: True, or where Caddy fetches the maintenance page."""
-    return caddyman_upstream(host, request) if load_errors()["disabled"] == "maintenance" else True
+    return caddyman_upstream(host) if load_errors()["disabled"] == "maintenance" else True
 
 
 def error_texts(texts) -> dict:
@@ -1920,6 +1920,7 @@ def caddyman_upstream(host: dict, request: Request | None = None) -> str:
         if route and not route.get("off") and route["type"] == "reverse_proxy" and route["upstream"].endswith(f":{OWN_PORT}"):
             return route["upstream"]
     # A Caddy next door reaches this container by name, one elsewhere by the address the browser used.
+    # That address comes from the Host header: only a suggestion in a form, never written into a route.
     there = asked_host(request)[0] if request and host.get("storage") == "managed" else "caddyman"
     return f"{there}:{OWN_PORT}"
 
@@ -1958,7 +1959,7 @@ def after_group(route: dict, key: str, value: str) -> dict:
     return dict(items[:at] + [(key, value)] + items[at:])
 
 
-def route_from_form(form, host: dict, previous: dict | None = None, request: Request | None = None) -> tuple[dict, str | None]:
+def route_from_form(form, host: dict, previous: dict | None = None) -> tuple[dict, str | None]:
     """Normalise the form into route metadata and name the first problem, if any.
 
     previous is the route as it is on disk when editing; its password hash is kept
@@ -2005,7 +2006,7 @@ def route_from_form(form, host: dict, previous: dict | None = None, request: Req
         route["hsts"] = True
     # Caddy's own errors as a page from Caddyman. A redirect has no error to show.
     if get("errors") and get("type") != "redirect":
-        route["errors"] = caddyman_upstream(host, request)
+        route["errors"] = caddyman_upstream(host)
     if not usable(name):
         return route, "The hostname may only contain lowercase letters, digits, '-' and '.'."
     if route["port"] and not valid_port(route["port"]):
@@ -2088,7 +2089,7 @@ def route_from_form(form, host: dict, previous: dict | None = None, request: Req
     # Always the last key, so the button in the list can add and drop it without the form.
     # A route switched off with the maintenance page keeps it when it is saved.
     if get("off"):
-        route["off"] = caddyman_upstream(host, request) if get("off") == "maintenance" else True
+        route["off"] = caddyman_upstream(host) if get("off") == "maintenance" else True
     return route, None
 
 
@@ -2838,7 +2839,7 @@ def own_route_address(host: dict) -> tuple[bool, str]:
 @app.post("/routes/new")
 async def route_create(request: Request):
     current = the_host()
-    route, error = route_from_form(await request.form(), current, request=request)
+    route, error = route_from_form(await request.form(), current)
     if error:
         return route_form_page(request, current, route, error)
     path = route_path(current, route_file_name(route, current))
@@ -2903,7 +2904,7 @@ async def route_update(request: Request, name: str):
         content = str(form.get("content", "")).replace("\r\n", "\n").rstrip() + "\n"
         error = None if content.strip() else "The file would be empty. Delete the route instead."
     else:
-        route, error = route_from_form(form, current, previous=read_route(path, current), request=request)
+        route, error = route_from_form(form, current, previous=read_route(path, current))
         if not error:
             content = render_route(route, current)
             new_path = route_path(current, route_file_name(route, current))
@@ -2950,7 +2951,7 @@ def route_toggle(request: Request, name: str):
         return redirect("/", "warn", f"{path.name} was written by hand. Adopt it first, or comment it out as text.")
     off = not route.pop("off", False)
     if off:
-        route["off"] = off_value(current, request)
+        route["off"] = off_value(current)
     try:
         error = apply_route(current, {path: render_route(route, current)}, "disable" if off else "enable", name, expect=(path, mtime))
     except Conflict:
@@ -3117,7 +3118,7 @@ def error_pages_disabled(request: Request, mode: str = Form("")):
     current = the_host()
     mode = "maintenance" if mode == "maintenance" else ""
     write_json(ERRORS_FILE, {**load_errors(), "disabled": mode})
-    value = off_value(current, request)
+    value = off_value(current)
     stamps, changes = route_stamps(current), {}
     for item in list_routes(current):
         route = item["route"]
@@ -3140,7 +3141,7 @@ def error_pages_catch_all(request: Request, on: str = Form("")):
     path, state = route_path(current, CATCH_ALL), catch_all_state(current)
     if state == "taken":
         return redirect("/error-pages", "error", f"{path.name} exists and was not written here. Rename or delete it first.")
-    route = {"type": "error_page", "host": "*", "port": "", "tls": "none", "upstream": caddyman_upstream(current, request), "page": "blocked"}
+    route = {"type": "error_page", "host": "*", "port": "", "tls": "none", "upstream": caddyman_upstream(current), "page": "blocked"}
     if (on or state) and (error := apply_route(current, {path: render_route(route, current) if on else None}, "create" if on else "delete", CATCH_ALL)):
         return redirect("/error-pages", "error", f"Caddy rejected the reload, nothing was changed: {error}")
     return redirect("/error-pages", "ok", "Every unknown name now gets the Blocked page." if on else "Unknown names are no longer answered.")

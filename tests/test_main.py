@@ -1354,6 +1354,24 @@ class TestManaged(AppTest):
         data = {"type": "reverse_proxy", "host": "pdf.lab.test", "upstream": "10.0.0.5:9005", "tls": "acme_ca"}
         return self.client.post("/routes/new", data=data)
 
+    def test_the_host_header_never_becomes_the_address_of_caddyman_in_a_route(self):
+        self.add_host()
+        self.add_route()
+        sites = main.Path(main.pick_host()["sites_dir"])
+        route = next(sites.glob("*.caddy")).name
+        self.client.post(f"/routes/{route[:-len('.caddy')]}/toggle")
+        self.client.post("/settings/users/new", data={"username": "eve", "password": PASSWORD, "repeat": PASSWORD, "right_errors": "1"})
+        eve = self.guest()
+        eve.post("/login", data={"username": "eve", "password": PASSWORD})
+        # Only a suggestion in the form may come from the address the browser used.
+        self.assertIn("attacker.example:5052", eve.get("/error-pages", headers={"host": "attacker.example"}).text)
+        eve.post("/error-pages/disabled", data={"mode": "maintenance"}, headers={"host": "attacker.example"})
+        eve.post("/error-pages/catch-all", data={"on": "1"}, headers={"host": "a.example b.example"})
+        for name in (route, f"{main.CATCH_ALL}.caddy"):
+            text = (sites / name).read_text(encoding="utf-8")
+            self.assertIn("reverse_proxy caddyman:5052", text)
+            self.assertNotIn("example", text)
+
     def test_ca_of_an_https_admin_api_is_remembered(self):
         from cryptography.hazmat.primitives.serialization import Encoding
 
