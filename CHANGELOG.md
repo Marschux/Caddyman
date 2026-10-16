@@ -1,5 +1,31 @@
 # Changelog
 
+## 2026-10-16 13:21
+- chore: version 0.27.32
+- refactor: one place for the headers every answer carries, route files read once in the checks, smaller tidy-ups
+- docs: the example says the admin login site speaks plain HTTP
+- build: only app/ and the requirements go to the image builder
+- ci: only a build of main is tagged latest
+- build: the base image is pinned by digest and every package by its hash
+- ci: the tests run before an image is built, and the actions are pinned to commits
+- refactor: confirm questions come from a script file instead of inline handlers
+- fix: every answer says nosniff
+- fix: hardening of log names, the Caddyfile path, the remembered admin CA and a comment on mail
+- fix: a log line without an end is downloaded in pieces instead of read whole
+- fix: links in the log directory are neither listed nor downloaded
+- docs: README says what the right Settings: Caddy can do
+- feat: the status page warns when routes with allowed networks sit behind a wide trusted_proxies
+- fix: switching on HTTPS only ends every session, so no cookie set over plain HTTP stays good
+- fix: old login failures are swept once a minute instead of on every failure
+- fix: the first look up of Caddy's address no longer holds every other request
+- fix: a username is taken in any letter case
+- fix: logouts are counted under the lock of the accounts, so two at once both end every session
+- fix: digits of other scripts in a port, a length or a count are refused instead of failing
+- fix: a route is never written with an unchecked address of Caddyman, whoever hands it over
+- fix: a path that is neither open nor part of an area is refused instead of open to every account
+- fix: two writes of the same file at once no longer take each other's draft away
+
+
 ## 2026-10-16 03:16
 - chore: version 0.27.16
 - fix: adopt, delete and the catch-all route do not replace a save made in between, and group names are changed under a lock
