@@ -533,7 +533,7 @@ SECOND_RIGHT = {("POST", "/settings/mail"): "users", ("POST", "/backup/import"):
 
 
 # Open to every account. "/settings" only forwards to the first block this account may open.
-OPEN_PATHS = {"/", "/status", "/changes", "/settings", "/logout", "/healthz", "/setup"} | LOGIN_PATHS
+OPEN_PATHS = {"/", "/status", "/changes", "/settings", "/logout", "/healthz", "/setup", "/profile"} | LOGIN_PATHS
 OPEN_PREFIXES = ("/profile/", "/static/", "/error/")
 
 
@@ -542,7 +542,7 @@ def needed_permission(path: str) -> str | None:
 
     "" for a path that is neither open nor in AREAS: a page added and forgotten there stays shut.
     """
-    if path in OPEN_PATHS or path == "/profile" or path.startswith(OPEN_PREFIXES):
+    if path in OPEN_PATHS or path.startswith(OPEN_PREFIXES):
         return None
     if path in PUBLIC_PATHS:
         return None if flag("public_ca") else "ca"  # switched off, they are part of the Root CA page
@@ -603,12 +603,28 @@ async def require_session(request: Request, call_next):
     return await call_next(request)
 
 
-@app.middleware("http")
-async def no_sniffing(request: Request, call_next):
-    """Every answer is taken as the type it names: a log or a certificate is never run as a page."""
-    response = await call_next(request)
-    response.headers["X-Content-Type-Options"] = "nosniff"
-    return response
+class SafeHeaders:
+    """Headers on every answer: each is taken as the type it names, so a log or a certificate is never
+    run as a page. And no page of Caddyman inside a frame: a route next to it could put Disable under a
+    click of its own. The error pages are shown under other sites' names and may sit in their frames."""
+
+    TYPE = [(b"x-content-type-options", b"nosniff")]
+    FRAME = [(b"x-frame-options", b"DENY"), (b"content-security-policy", b"frame-ancestors 'none'")]
+
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http":
+            return await self.app(scope, receive, send)
+        added = self.TYPE + ([] if scope["path"].startswith("/error/") else self.FRAME)
+
+        async def send_with_headers(message):
+            if message["type"] == "http.response.start":
+                message["headers"] = [*message.get("headers", []), *added]
+            await send(message)
+
+        await self.app(scope, receive, send_with_headers)
 
 
 def page(request: Request, template: str, status_code: int = 200, **context):
@@ -620,9 +636,6 @@ def page(request: Request, template: str, status_code: int = 200, **context):
             pass
     context = {"version": VERSION, "source_url": SOURCE_URL, "flash": flash, **context}
     response = templates.TemplateResponse(request, template, context, status_code=status_code)
-    # No page of Caddyman inside a frame: a route next to it could put Disable under a click of its own.
-    response.headers["X-Frame-Options"] = "DENY"
-    response.headers["Content-Security-Policy"] = "frame-ancestors 'none'"
     if template == "reset.html":
         # The link from the mail is this page's address: it is not to travel on as a Referer.
         response.headers["Referrer-Policy"] = "no-referrer"
@@ -1124,11 +1137,11 @@ def settings_security(request: Request):
 def settings_security_save(
     request: Request, require_2fa: str = Form(""), public_ca: str = Form(""), login_ca_hint: str = Form(""), https_only_on: str = Form("")
 ):
+    switched_on = https_only_on and not https_only()
     # Switched on over plain HTTP, the answer to this very request would already be refused.
-    if https_only_on and not https_only() and not is_https(request):
+    if switched_on and not is_https(request):
         return redirect("/settings/security", "error", "Open Caddyman over HTTPS first, through its own route, and switch it on from there.")
     # Checkboxes in one form: one that is not sent was unticked.
-    switched_on = https_only_on and not https_only()
     save_settings(require_2fa=require_2fa and "1", public_ca=public_ca and "1", login_ca_hint=login_ca_hint and "1", https_only=https_only_on and "1")
     if not switched_on:
         return redirect("/settings/security", "ok", "Saved.")
@@ -1257,7 +1270,7 @@ async def user_save(request: Request, name: str | None = None):
             for key in TOTP_KEYS:
                 user.pop(key, None)
             # Whatever sessions the account has were opened with the factor that is gone now.
-            user["logouts"] = user.get("logouts", 0) + 1
+            user["logouts"] = one_more_logout(user)
         save_users([user if other is existing else other for other in users] if existing else [*users, user])
     if existing and existing["username"] == request.state.user and (password or form.get("reset_totp")):
         return start_session(redirect("/settings/users", "ok", f"{user['username']} is saved."), request, user)
@@ -1483,6 +1496,8 @@ def preflight(host: dict) -> list[dict]:
         add("Base Caddyfile is stored" if managed else "Base Caddyfile is readable", True, caddyfile)
 
     if text is not None:
+        # Read once for the checks below that look into the routes.
+        routes = {path.stem: path.read_text(encoding="utf-8", errors="replace") for path in sorted(Path(sites).glob("*.caddy"))}
         import_line = f"import {sites}/*.caddy"
         imported = None if managed else re.search(rf"^\s*{re.escape(import_line)}\s*$", text, re.MULTILINE)
         if managed:
@@ -1529,7 +1544,7 @@ def preflight(host: dict) -> list[dict]:
                     "",
                 )
         if not snippet:
-            lost = [path.stem for path in sorted(Path(sites).glob("*.caddy")) if lost_tls_snippet(host, path.read_text(encoding="utf-8", errors="replace"))]
+            lost = [name for name, content in routes.items() if lost_tls_snippet(host, content)]
             if lost:
                 add(
                     "Routes find their TLS snippet",
@@ -1557,7 +1572,7 @@ def preflight(host: dict) -> list[dict]:
         # Allowed networks go by client_ip, and that follows X-Forwarded-For from every proxy Caddy trusts.
         # With a wide trust, anyone in that range names their own address.
         wide = re.search(r"^\s*trusted_proxies\s+static\s+.*?(0\.0\.0\.0/0|::/0|private_ranges).*$", text, re.MULTILINE)
-        if any(path.read_text(encoding="utf-8", errors="replace").find("not client_ip ") > 0 for path in Path(sites).glob("*.caddy")):
+        if any("not client_ip " in content for content in routes.values()):
             add(
                 "Allowed networks see the real visitor",
                 not wide,
@@ -3343,11 +3358,10 @@ async def host_save(request: Request, host_id: str | None = None):
         previous = existing.get("admin_ca", "") if existing and not existing.get("admin_ca_pasted") else ""
         # A login that was kept only goes to a server that shows the CA remembered for it. Typing
         # the password again is the way to trust a new CA at the same address.
-        known = previous if not password else ""
-        if known:
-            asked = {**host, "admin_ca": known}
-        elif password:
+        if password:
             asked = host
+        elif previous:
+            asked = {**host, "admin_ca": previous}
         else:
             # Kept, and no CA to check the server against: the login is not sent along.
             asked = {**host, "admin_user": ""}
@@ -4266,11 +4280,11 @@ class TrustCaddy:
         self.app = app
 
     async def __call__(self, scope, receive, send):
-        client = scope.get("client")
+        client = scope.get("client") if scope["type"] == "http" else None
         # Waited for without holding every other request: this runs on the event loop.
-        if scope["type"] == "http" and client and (looking := look_up_caddy()):
+        if client and (looking := look_up_caddy()):
             await asyncio.wait([asyncio.wrap_future(looking)], timeout=1)
-        if scope["type"] == "http" and client and client[0] in CADDY_ADDRESSES["found"]:
+        if client and client[0] in CADDY_ADDRESSES["found"]:
             headers = {name: value.decode("latin-1") for name, value in scope["headers"]}
             scheme = headers.get(b"x-forwarded-proto", "").strip().lower()
             if scheme in ("http", "https"):
@@ -4285,5 +4299,6 @@ class TrustCaddy:
         await self.app(scope, receive, send)
 
 
+app.add_middleware(SafeHeaders)
 # Added last, so it runs first: everything else then sees the request as the visitor sent it.
 app.add_middleware(TrustCaddy)

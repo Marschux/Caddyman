@@ -2872,8 +2872,11 @@ class TestHardening(RouteTest):
         self.assertLess(self.client.post("/routes/pdf/edit", data={"mtime": "²"}).status_code, 500)
 
     def test_no_answer_is_sniffed_and_no_page_carries_a_handler(self):
-        for path in ("/", "/root-ca.crt", "/login", "/static/app.css", "/forgotten"):
-            self.assertEqual(self.client.get(path).headers.get("x-content-type-options"), "nosniff", path)
+        for path in ("/", "/root-ca.crt", "/login", "/static/app.css", "/forgotten", "/error/502"):
+            headers = self.client.get(path).headers
+            self.assertEqual(headers.get("x-content-type-options"), "nosniff", path)
+            # Error pages show under the names of other sites, and may sit in their frames.
+            self.assertEqual(headers.get("x-frame-options"), None if path.startswith("/error/") else "DENY", path)
         templates = main.Path(main.BASE_DIR / "templates").glob("*.html")
         self.assertEqual([path.name for path in templates if " onsubmit=" in path.read_text(encoding="utf-8")], [])
 
