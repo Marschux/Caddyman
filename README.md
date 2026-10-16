@@ -99,6 +99,8 @@ import /etc/caddy/sites/*.caddy
 
 # The login in front of Caddy's admin API. Create the hash with
 # `docker exec -it caddy caddy hash-password`, and do not publish port 2020.
+# It speaks plain HTTP, so the login crosses the network unencrypted: keep port 2020
+# inside proxy-net, where only Caddyman talks to it. From another machine, see "Network only".
 :2020 {
 	basic_auth {
 		caddyman <hash>
