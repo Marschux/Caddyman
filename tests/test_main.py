@@ -1768,11 +1768,18 @@ class TestLogs(RouteTest):
         got = self.client.get("/logs/download", params={"file": 'a"b.log'})
         self.assertEqual(got.headers["content-disposition"], "attachment; filename*=UTF-8''a%22b.log")
 
-    def test_a_long_line_is_downloaded_in_pieces(self):
-        self.write("long.log", ["x" * 50], mtime=4000)
+    def test_of_a_long_line_only_the_first_piece_is_downloaded(self):
+        # The token is cut by the piece boundary: what follows the first piece would hold its rest unhidden.
+        self.write("long.log", ["x" * 10 + "/reset?token=SECRETSECRETSECRET", "next"], mtime=4000)
         self.patch(main, "LOG_TAIL_BYTES", 20)
         got = self.client.get("/logs/download", params={"file": "long.log"}).text.splitlines()
-        self.assertEqual([len(line) for line in got], [24, 24, 14])  # tab, dash and two tabs ahead of each piece
+        self.assertEqual(got, ["\t-\t\t" + "x" * 10 + "/reset?tok", "\t-\t\tnext"])
+        self.assertNotIn("SECRET", "".join(got))
+
+    def test_a_log_with_a_second_name_is_not_read(self):
+        os.link(os.path.join(self.logs, "caddy.log"), os.path.join(self.logs, "other.log"))
+        self.assertEqual(self.client.get("/logs/download", params={"file": "other.log"}).status_code, 303)
+        self.assertNotIn("will retry", self.client.get("/logs", params={"file": "caddy.log"}).text)
 
     def test_newest_file_newest_line_first(self):
         page = self.client.get("/logs").text
@@ -1992,6 +1999,11 @@ class TestBackup(RouteTest):
 
     def confirm(self, data, query=""):
         return self.client.post(f"/backup/import{query}", data={"payload": base64.b64encode(data).decode()})
+
+    def test_a_file_larger_than_caddyman_reads_back_is_refused(self):
+        self.patch(main, "FILE_MAX_BYTES", 100)
+        with self.assertRaisesRegex(ValueError, "larger than"):
+            main.read_backup(self.make_zip({"Caddyfile": "x" * 101}))
 
     def test_an_archive_that_unpacks_to_more_than_it_says_is_refused_without_unpacking_it(self):
         import struct
@@ -2813,10 +2825,41 @@ class TestHardening(RouteTest):
     def test_the_base_caddyfile_is_read_only_as_a_plain_file_of_a_sane_size(self):
         host = main.pick_host()
         self.assertTrue(main.read_caddyfile(host))
-        with mock.patch.object(main, "CADDYFILE_MAX_BYTES", 3):
+        with mock.patch.object(main, "FILE_MAX_BYTES", 3):
             self.assertRaises(OSError, main.read_caddyfile, host)
         self.assertRaises(OSError, main.read_caddyfile, {**host, "caddyfile": self.sites})
         self.assertEqual(main.base_text({**host, "caddyfile": self.sites}), "")
+        # A FIFO in place of the file is refused at once instead of holding the worker.
+        fifo = os.path.join(self.dir.name, "fifo")
+        os.mkfifo(fifo)
+        self.assertRaises(OSError, main.read_caddyfile, {**host, "caddyfile": fifo})
+
+    def test_a_route_file_too_big_to_be_written_here_is_neither_read_nor_pushed(self):
+        self.create()
+        host, route = main.pick_host(), os.path.join(self.sites, "pdf.caddy")
+        # The base file still fits, the route file does not.
+        self.patch(main, "FILE_MAX_BYTES", os.path.getsize(self.caddyfile))
+        self.assertGreater(os.path.getsize(route), main.FILE_MAX_BYTES)
+        self.assertIsNone(main.read_route(main.Path(route), host))
+        self.assertIn("pdf.caddy is larger than", main.caddy_load({**host, "storage": "managed"}))
+        self.assertEqual(self.client.get("/status").status_code, 200)
+
+    def test_a_draft_of_the_same_name_is_left_to_whoever_writes_it(self):
+        path = main.DATA_DIR / "drafted.json"
+        draft = main.DATA_DIR / ".drafted.json.0000.tmp"
+        draft.write_text("someone else's", encoding="utf-8")
+        self.addCleanup(draft.unlink, missing_ok=True)
+        with mock.patch.object(main.secrets, "token_hex", return_value="0000"):
+            self.assertRaises(FileExistsError, main.write_json, path, {})
+        self.assertEqual(draft.read_text(encoding="utf-8"), "someone else's")
+
+    def test_a_rejected_maintenance_switch_is_not_stored(self):
+        self.create(host="mt.lab.test")
+        self.client.post("/routes/mt/toggle")
+        self.reject()
+        self.client.post("/error-pages/disabled", data={"mode": "maintenance"})
+        self.assertEqual(main.load_errors()["disabled"], "")
+        self.assertTrue(self.read("mt.caddy").splitlines()[0].endswith('"off":true}'))
 
     def test_two_writes_of_one_file_at_once_both_get_through(self):
         path = main.DATA_DIR / "same.json"

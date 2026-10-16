@@ -17,6 +17,7 @@ import shutil
 import smtplib
 import socket
 import ssl
+import stat
 import struct
 import threading
 import time
@@ -127,8 +128,9 @@ def write_whole(path: Path, data: bytes, mode: int | None = None) -> None:
     # Not a name the import of the sites directory would pick up. One per call, so two writes of
     # the same file at once do not take each other's draft away.
     draft = path.with_name(f".{path.name}.{secrets.token_hex(4)}.tmp")
+    # Outside the try: a draft of that name that is already there belongs to someone else and stays.
+    fd = os.open(draft, os.O_WRONLY | os.O_CREAT | os.O_EXCL, mode or 0o666)
     try:
-        fd = os.open(draft, os.O_WRONLY | os.O_CREAT | os.O_EXCL, mode or 0o666)
         with os.fdopen(fd, "wb") as handle:
             handle.write(data)
         if mode is None and path.exists():
@@ -481,7 +483,7 @@ def load_settings() -> dict:
     return {**SETTING_DEFAULTS, **old, **read_json(SETTINGS_FILE, {})}
 
 
-# Read and write of settings.json and errors.json in one go, so two saves at once both stay.
+# Read and write of settings.json, errors.json, mail.json and hosts.json in one go, so two saves at once both stay.
 JSON_LOCK = threading.Lock()
 
 
@@ -1189,17 +1191,18 @@ def mail_form(request: Request):
 @app.post("/settings/mail")
 async def mail_save(request: Request):
     form = await request.form()
-    stored = load_mail()
     mail = {key: str(form.get(key, "")).strip() for key in MAIL_DEFAULTS}
     mail["public_url"] = mail["public_url"].rstrip("/")
     if error := mail_problem(mail):
         return page(request, "mail_form.html", status_code=400, error=error, mail=mail, securities=MAIL_SECURITY)
-    if password := str(form.get("password", "")):
-        mail["password_enc"] = seal(password)
-    elif mail["user"] and all(mail[key] == stored[key] for key in ("user", "host", "port", "security")) and stored.get("password_enc"):
-        # An empty field keeps the password of the same login at the same server, sent the same way.
-        mail["password_enc"] = stored["password_enc"]
-    write_json(MAIL_FILE, mail)
+    with JSON_LOCK:
+        stored = load_mail()
+        if password := str(form.get("password", "")):
+            mail["password_enc"] = seal(password)
+        elif mail["user"] and all(mail[key] == stored[key] for key in ("user", "host", "port", "security")) and stored.get("password_enc"):
+            # An empty field keeps the password of the same login at the same server, sent the same way.
+            mail["password_enc"] = stored["password_enc"]
+        write_json(MAIL_FILE, mail)
     if not mail["host"]:
         return redirect("/settings/mail", "ok", 'Mail is switched off. The login page no longer offers "Forgot password?".')
     return redirect("/settings/mail", "ok", "The mail settings are saved. Send a test mail to check them.")
@@ -1421,6 +1424,12 @@ def signs_admin_site(host: dict, pem: str) -> bool:
         return False
 
 
+def change_hosts(change) -> None:
+    """Read, change and write hosts.json under the lock: change gets what load_hosts() returns."""
+    with JSON_LOCK:
+        save_hosts(change(load_hosts()))
+
+
 def save_hosts(hosts: list[dict]) -> None:
     write_json(HOSTS_FILE, hosts)
     CADDY_ADDRESSES["until"] = 0.0  # the admin URL may have changed: look its addresses up again
@@ -1502,7 +1511,12 @@ def preflight(host: dict) -> list[dict]:
 
     if text is not None:
         # Read once for the checks below that look into the routes.
-        routes = {path.stem: path.read_text(encoding="utf-8", errors="replace") for path in sorted(Path(sites).glob("*.caddy"))}
+        routes = {}
+        for path in sorted(Path(sites).glob("*.caddy")):
+            try:
+                routes[path.stem] = read_plain(path).decode("utf-8", errors="replace")
+            except OSError:
+                continue
         import_line = f"import {sites}/*.caddy"
         imported = None if managed else re.search(rf"^\s*{re.escape(import_line)}\s*$", text, re.MULTILINE)
         if managed:
@@ -1917,20 +1931,33 @@ def dns_snippet_problem(host: dict, caddyfile_text: str, name: str) -> str:
         return said(error)
 
 
-CADDYFILE_MAX_BYTES = MAX_BODY_BYTES
+# The base Caddyfile and every route file: a form never sends more.
+FILE_MAX_BYTES = MAX_BODY_BYTES
+
+
+def open_plain(path: Path, single_link: bool = False):
+    """A binary handle on a plain file. Raises OSError for anything else, checked on the open file:
+    a FIFO does not hold the worker, and a link or file swapped in after a look is still refused."""
+    fd = os.open(path, os.O_RDONLY | getattr(os, "O_NONBLOCK", 0) | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_BINARY", 0))
+    found = os.fstat(fd)
+    if not stat.S_ISREG(found.st_mode) or (single_link and found.st_nlink != 1):
+        os.close(fd)
+        raise OSError(f"{path} is not a plain file")
+    return os.fdopen(fd, "rb")
+
+
+def read_plain(path: Path) -> bytes:
+    """A whole file of at most FILE_MAX_BYTES. Raises OSError when it is not a plain file or too big."""
+    with open_plain(path) as file:
+        data = file.read(FILE_MAX_BYTES + 1)
+    if len(data) > FILE_MAX_BYTES:
+        raise OSError(f"{path} is larger than {FILE_MAX_BYTES // 1024 // 1024} MiB")
+    return data
 
 
 def read_caddyfile(host: dict) -> bytes:
-    """The base Caddyfile as bytes. Raises OSError when it is not a plain file or too big:
-    the mount behind the path can change after the settings were saved."""
-    path = Path(host["caddyfile"])
-    if not path.is_file():
-        raise OSError(f"{path} is not a file")
-    with path.open("rb") as file:
-        data = file.read(CADDYFILE_MAX_BYTES + 1)
-    if len(data) > CADDYFILE_MAX_BYTES:
-        raise OSError(f"{path} is larger than {CADDYFILE_MAX_BYTES // 1024 // 1024} MiB")
-    return data
+    """The base Caddyfile as bytes. The mount behind the path can change after the settings were saved."""
+    return read_plain(Path(host["caddyfile"]))
 
 
 def base_text(host: dict) -> str:
@@ -2342,7 +2369,7 @@ def lost_tls_snippet(host: dict, content: str) -> bool:
 def read_route(path: Path, host: dict) -> dict | None:
     """Metadata of a file this tool wrote and nobody changed since, else None."""
     try:
-        content = path.read_text(encoding="utf-8")
+        content = read_plain(path).decode("utf-8")
         route = route_meta(content)
         if not well_formed(route):
             return None
@@ -2416,7 +2443,7 @@ def caddy_body(host: dict) -> bytes:
         # is pushed here can never differ from what Caddy reads from the file after a restart.
         return base
     # A Caddy elsewhere cannot see these files, an import would find nothing: put them inline.
-    routes = [path.read_bytes() for path in sorted(Path(host["sites_dir"]).glob("*.caddy"))]
+    routes = [read_plain(path) for path in sorted(Path(host["sites_dir"]).glob("*.caddy"))]
     return b"\n".join([base, *routes])
 
 
@@ -2868,7 +2895,7 @@ def index(request: Request):
         item["hand"] = None
         if not item["route"]:
             try:
-                text = (Path(current["sites_dir"]) / f"{item['name']}.caddy").read_text(encoding="utf-8")
+                text = read_plain(Path(current["sites_dir"]) / f"{item['name']}.caddy").decode("utf-8")
             except (OSError, UnicodeDecodeError):
                 item["refused"] = "it cannot be read"
             else:
@@ -3014,9 +3041,11 @@ def route_edit(request: Request, name: str, raw: bool = False):
     if route:
         return route_form_page(request, current, route, name=name, mtime=mtime)
     try:
-        content = path.read_text(encoding="utf-8")
+        content = read_plain(path).decode("utf-8")
     except UnicodeDecodeError:
         return redirect("/", "error", f"{path.name} is not UTF-8 text and cannot be edited here.")
+    except OSError as error:
+        return redirect("/", "error", f"{path.name} cannot be edited here: {error.strerror or error}.")
     return raw_page(request, current, name, content, mtime)
 
 
@@ -3058,7 +3087,12 @@ async def route_update(request: Request, name: str):
         error = apply_route(current, changes, "update", label, expect=(path, mtime), fresh=new_path if new_path != path else None)
     except Conflict:
         # Saving once more from this page overwrites what is on disk, knowingly.
-        disk = path.read_text(encoding="utf-8", errors="replace") if path.exists() else "(the file was deleted)"
+        try:
+            disk = read_plain(path).decode("utf-8", errors="replace")
+        except FileNotFoundError:
+            disk = "(the file was deleted)"
+        except OSError as error:
+            disk = f"(the file cannot be shown: {error.strerror or error})"
         return again(conflict={"disk": disk, "yours": content}, mtime=file_mtime(path), status_code=409)
     if error:
         return again(error=f"Caddy rejected the change, nothing was changed: {error}", status_code=400)
@@ -3101,7 +3135,11 @@ def route_adopt(name: str):
         return redirect("/", "error", "This route does not exist.")
     # Taken before reading: a save in between would otherwise be replaced by what was read.
     mtime = file_mtime(path)
-    route, reason = adopt_route(path.read_text(encoding="utf-8", errors="replace"), current)
+    try:
+        text = read_plain(path).decode("utf-8", errors="replace")
+    except OSError as error:
+        return redirect("/", "error", f"{path.name} cannot be read: {error.strerror or error}.")
+    route, reason = adopt_route(text, current)
     if route is None:
         return redirect("/", "warn", f"{path.name} was left as it is: {reason}.")
     try:
@@ -3253,8 +3291,8 @@ def error_pages_disabled(request: Request, mode: str = Form("")):
     """What a route shows while it is switched off. Rewrites the routes that are off right now."""
     current = the_host()
     mode = "maintenance" if mode == "maintenance" else ""
-    change_errors(lambda stored: {**stored, "disabled": mode})
-    value = off_value(current)
+    # What off_value() gives once the mode is stored. Stored only after Caddy took the routes.
+    value = caddyman_upstream(current) if mode else True
     stamps, changes = route_stamps(current), {}
     for item in list_routes(current):
         route = item["route"]
@@ -3266,6 +3304,7 @@ def error_pages_disabled(request: Request, mode: str = Form("")):
         return redirect("/error-pages", "warn", CHANGED_MEANWHILE)
     if error:
         return redirect("/error-pages", "error", f"Caddy rejected the reload, the routes were left as they are: {error}")
+    change_errors(lambda stored: {**stored, "disabled": mode})
     said = "show the maintenance page" if mode else "are no longer answered"
     return redirect("/error-pages", "ok", f"Switched off routes {said}." + (f" {len(changes)} route files were rewritten." if changes else ""))
 
@@ -3402,7 +3441,7 @@ async def host_save(request: Request, host_id: str | None = None):
         write_private(Path(host["caddyfile"]), base + "\n")
     # Before the host is rewritten without them: keep the root CA switches an older version stored in it.
     save_settings()
-    save_hosts([host if item["id"] == host["id"] else item for item in hosts] if existing else [*hosts, host])
+    change_hosts(lambda now: [host if item["id"] == host["id"] else item for item in now] if any(item["id"] == host["id"] for item in now) else [*now, host])
     if existing and reach and reach != caddyman_upstream(host):
         kind, message = move_caddyman_upstream(host, reach)
         if kind != "ok":
@@ -3416,7 +3455,7 @@ async def host_save(request: Request, host_id: str | None = None):
 @app.post("/hosts/{host_id}/delete")
 def host_delete(host_id: str):
     hosts = load_hosts()
-    save_hosts([item for item in hosts if item["id"] != host_id])
+    change_hosts(lambda now: [item for item in now if item["id"] != host_id])
     for item in hosts:
         if item["id"] == host_id and item.get("storage") == "managed":
             # Its base Caddyfile and routes live here and nowhere else Caddyman would look again:
@@ -3653,7 +3692,7 @@ def build_backup(host: dict) -> bytes:
         except OSError:
             pass
         for path in sorted(Path(host["sites_dir"]).glob("*.caddy")):
-            archive.writestr(f"sites/{path.name}", path.read_bytes())
+            archive.writestr(f"sites/{path.name}", read_plain(path))
     return buffer.getvalue()
 
 
@@ -3670,6 +3709,9 @@ def read_backup(data: bytes) -> dict:
         members = archive.infolist()
         if len(members) > BACKUP_MAX_FILES or sum(item.file_size for item in members) > BACKUP_MAX_UNPACKED:
             raise ValueError("The archive unpacks to more than a backup ever holds.")
+        # A route or base file larger than this could be written but never read back.
+        if any(item.file_size > FILE_MAX_BYTES for item in members):
+            raise ValueError(f"A file in the archive is larger than {FILE_MAX_BYTES // 1024 // 1024} MiB.")
         if any(item.compress_type not in (zipfile.ZIP_STORED, zipfile.ZIP_DEFLATED) for item in members):
             raise ValueError("This is not a readable Caddyman backup.")
 
@@ -3749,7 +3791,7 @@ def backup_plan(backup: dict, host: dict | None) -> list[dict]:
     for name, content in sorted(backup["routes"].items()):
         path = route_path(host, name) if host else None
         try:
-            current = path.read_text(encoding="utf-8") if path and path.exists() else None
+            current = read_plain(path).decode("utf-8") if path and path.exists() else None
         except (OSError, UnicodeDecodeError):
             current = ""
         state = "new" if current is None else "unchanged" if current == content else "overwrite"
@@ -3838,11 +3880,12 @@ async def backup_restore(request: Request):
         return redirect(back, "error", f"Caddy rejected the imported routes, nothing was changed: {error}")
     # Everything else only now, so a rejected restore leaves the install as it was.
     if fresh:
-        save_hosts([target])
+        change_hosts(lambda now: [target])
     if with_settings and backup["settings"]:
         save_settings(**backup["settings"])
     if with_mail and backup["mail"]:
-        write_json(MAIL_FILE, backup["mail"])
+        with JSON_LOCK:
+            write_json(MAIL_FILE, backup["mail"])
     if with_errors and backup["errors"]:
         change_errors(lambda stored: backup["errors"])
     if new_groups:
@@ -3924,9 +3967,10 @@ def read_log_tail(path: Path, end: int = 0) -> tuple[list[str], int]:
     """Lines from the end of a log file, or from before byte end, and where the piece before them ends."""
     try:
         if path.name.endswith(".gz"):
-            data, start = unpacked_window(path, end)
+            with open_plain(path, single_link=True) as packed:
+                data, start = unpacked_window(packed, end)
         else:
-            with open(path, "rb") as handle:
+            with open_plain(path, single_link=True) as handle:
                 size = handle.seek(0, os.SEEK_END)
                 stop = min(end, size) if end else size
                 start = max(0, stop - LOG_TAIL_BYTES)
@@ -3947,7 +3991,7 @@ def remote_log_names(host: dict) -> list[str]:
     except (httpx.HTTPError, ValueError, AttributeError, TypeError):
         names = []
     # A site set up before the listing existed serves the file but not the directory.
-    return [name for name in names if "/" not in name] or [LOG_REMOTE_FILE]
+    return [name for name in names if "/" not in name and name.isprintable()] or [LOG_REMOTE_FILE]
 
 
 def read_remote_log(host: dict, name: str, end: int) -> tuple[list[str], int] | None:
@@ -4060,7 +4104,11 @@ def open_log(host: dict, wanted: str):
             path = next((path for path in local_log_files() if path.name == wanted), None)
             if path is None:
                 return None
-            handle = gzip.open(path, "rb") if path.name.endswith(".gz") else open(path, "rb")
+            handle = open_plain(path, single_link=True)
+            if path.name.endswith(".gz"):
+                packed = gzip.GzipFile(fileobj=handle)
+                packed.myfileobj = handle  # closed along with it, as a file gzip opens itself
+                return path.name, packed
             return path.name, handle
         if wanted not in remote_log_names(host):
             return None
@@ -4084,14 +4132,18 @@ def logs_download(file: str = ""):
     zone = time_zone()
 
     def lines():
-        read = 0
+        read, rest = 0, False
         with handle:
             try:
-                # A line without an end would otherwise be read whole into memory; a longer one comes in pieces.
+                # A line without an end would otherwise be read whole into memory. Of a longer one only
+                # the first piece is kept: a link cut in two would no longer be found to be hidden.
                 for raw in iter(lambda: handle.readline(LOG_TAIL_BYTES), b""):
                     read += len(raw)
                     if read > LOG_UNPACK_MAX:
                         break
+                    skip, rest = rest, not raw.endswith(b"\n")
+                    if skip:
+                        continue
                     line = LINK_TOKEN_RE.sub(r"\1[hidden]", raw.decode("utf-8", errors="replace").rstrip("\r\n"))
                     entry = parse_log_line(line, zone)
                     columns = (entry["time"], entry["level"].upper() or "-", entry["logger"], entry["msg"], entry["extra"])
