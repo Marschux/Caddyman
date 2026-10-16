@@ -1466,6 +1466,10 @@ def host_problem(host: dict) -> str | None:
         return "Caddyfile and sites directory have to be absolute paths without '..'."
     if host.get("storage") != "managed" and (is_own_ground(host["caddyfile"]) or is_own_ground(host["sites_dir"])):
         return "Caddyfile and sites directory have to be those of Caddy, not a place in Caddyman's own data or in the log directory."
+    # A route file is not the base Caddyfile: shown under /caddyfile, it would hand its logins to the right caddy.
+    sites = {Path(item["sites_dir"]).resolve() for item in [host, *load_hosts()] if item.get("sites_dir")}
+    if host.get("storage") != "managed" and any(Path(host["caddyfile"]).resolve().is_relative_to(place) for place in sites):
+        return "The Caddyfile cannot be a file in the sites directory."
     # Missing is fine, the status page explains the mount. A device like /dev/zero would be read without end.
     if host.get("storage") != "managed" and Path(host["caddyfile"]).exists() and not Path(host["caddyfile"]).is_file():
         return "The Caddyfile has to be a plain file."
@@ -3418,12 +3422,12 @@ async def host_save(request: Request, host_id: str | None = None):
         context = {**host, "id": host_id, "form_base": base, "form_ca": pasted_ca, "form_reach": reach}
         return page(request, "host_form.html", status_code=400, error=error, host=context)
     host = with_paths({"id": host_id or secrets.token_hex(4), **host})
+    # A CA that was pasted before and is now removed is not what gets remembered next.
+    previous = existing.get("admin_ca", "") if existing and not existing.get("admin_ca_pasted") else ""
     if pasted_ca:
         # Entered by hand: nothing is fetched, so nobody on the wire has a say in it.
         host["admin_ca"], host["admin_ca_pasted"] = pasted_ca, "1"
     else:
-        # A CA that was pasted before and is now removed is not what gets remembered next.
-        previous = existing.get("admin_ca", "") if existing and not existing.get("admin_ca_pasted") else ""
         # A login that was kept only goes to a server that shows the CA remembered for it. Typing
         # the password again is the way to trust a new CA at the same address.
         if password:
@@ -3435,6 +3439,12 @@ async def host_save(request: Request, host_id: str | None = None):
             asked = {**host, "admin_user": ""}
         if admin_ca := remember_admin_ca(asked, previous):
             host["admin_ca"] = admin_ca
+    # A kept password stays with the CA it was typed for. Only one fetched over a connection checked
+    # against the remembered CA may follow it; any other change needs the password typed again.
+    attested = previous and not pasted_ca
+    if existing and not password and host.get("admin_password_enc") and not attested and host.get("admin_ca", "") != existing.get("admin_ca", ""):
+        context = {**host, "id": host_id, "form_base": base, "form_ca": pasted_ca, "form_reach": reach}
+        return page(request, "host_form.html", status_code=400, error="Type the admin API password to trust another CA for it.", host=context)
     if host["storage"] == "managed":
         # The one base Caddyfile this tool writes: its own copy, which Caddy never reads from disk.
         Path(host["sites_dir"]).mkdir(parents=True, exist_ok=True)

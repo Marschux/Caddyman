@@ -1497,14 +1497,33 @@ class TestManaged(AppTest):
         self.assertIn("entered in the settings", next(c["detail"] for c in main.preflight(host) if "remembered" in c["label"]))
         form = self.client.get(f"/hosts/{host['id']}/edit").text
         self.assertIn(own.splitlines()[1], form)
-        # Saving the form as it is keeps it; emptying the field goes back to fetching.
+        # Saving the form as it is keeps it; emptying the field goes back to fetching, with the password typed again.
         self.client.post(f"/hosts/{host['id']}/edit", data=self.form(admin_password="", admin_ca=own))
         self.assertEqual(main.load_hosts()[0]["admin_ca"], own)
-        self.client.post(f"/hosts/{host['id']}/edit", data=self.form(admin_password=""))
+        self.assertEqual(self.client.post(f"/hosts/{host['id']}/edit", data=self.form(admin_password="")).status_code, 400)
+        self.assertEqual(main.load_hosts()[0]["admin_ca"], own)
+        self.client.post(f"/hosts/{host['id']}/edit", data=self.form())
         saved = main.load_hosts()[0]
         self.assertNotIn("admin_ca_pasted", saved)
         self.assertEqual(saved["admin_ca"].strip(), fetched.strip())
         self.assertNotIn(own.splitlines()[1], self.client.get(f"/hosts/{host['id']}/edit").text)  # a fetched one is not put into the field
+
+    def test_a_kept_login_is_never_given_another_ca_without_the_password(self):
+        from cryptography.hazmat.primitives.serialization import Encoding
+
+        lab = make_certificate("Lab CA").public_bytes(Encoding.PEM).decode().strip()
+        eve_ca = make_certificate("Eve CA").public_bytes(Encoding.PEM).decode().strip()
+        _, host = self.add_host(admin_ca=lab)
+        self.client.post("/settings/users/new", data={"username": "eve", "password": PASSWORD, "repeat": PASSWORD, "right_caddy": "1"})
+        eve = self.guest()
+        eve.post("/login", data={"username": "eve", "password": PASSWORD})
+        answer = eve.post(f"/hosts/{host['id']}/edit", data=self.form(admin_password="", admin_ca=eve_ca))
+        self.assertEqual(answer.status_code, 400)
+        self.assertIn("Type the admin API password", answer.text)
+        self.assertEqual(main.load_hosts()[0]["admin_ca"], lab)
+        # Who types the password may trust another CA, as before.
+        self.assertEqual(eve.post(f"/hosts/{host['id']}/edit", data=self.form(admin_ca=eve_ca)).status_code, 303)
+        self.assertEqual(main.load_hosts()[0]["admin_ca"], eve_ca)
 
     def test_unknown_ca_is_explained_on_the_status_page(self):
         _, host = self.add_host()
@@ -3047,9 +3066,23 @@ class TestHardening(RouteTest):
         self.assertFalse(main.is_own_ground("/etc/caddy/Caddyfile"))
 
     def test_the_caddyfile_is_a_plain_file(self):
-        for path, problem in (("/dev/zero", True), (self.sites, True), (self.caddyfile, False), ("/etc/caddy/missing", False)):
+        for path, problem in (("/dev/zero", True), (self.dir.name, True), (self.caddyfile, False), ("/etc/caddy/missing", False)):
             found = main.host_problem({**self.host, "caddyfile": path})
             self.assertEqual(found == "The Caddyfile has to be a plain file.", problem, path)
+
+    def test_a_route_file_is_never_the_caddyfile(self):
+        self.create(auth_user="bob", auth_password="open sesame")
+        self.client.post("/settings/users/new", data={"username": "ops", "password": PASSWORD, "repeat": PASSWORD, "right_caddy": "1"})
+        ops = self.guest()
+        ops.post("/login", data={"username": "ops", "password": PASSWORD})
+        route = os.path.join(self.sites, "pdf.caddy")
+        # Neither in the sites directory that is saved, nor in one typed along with it.
+        for sites in (self.sites, os.path.join(self.dir.name, "elsewhere")):
+            data = {**{key: self.host[key] for key in main.HOST_DEFAULTS}, "caddyfile": route, "sites_dir": sites}
+            answer = ops.post("/hosts/h1/edit", data=data)
+            self.assertEqual(answer.status_code, 400, sites)
+            self.assertIn("cannot be a file in the sites directory", answer.text)
+        self.assertNotIn("basic_auth", ops.get("/caddyfile").text)
 
     def test_a_short_secret_key_is_named_on_the_status_page(self):
         labels = lambda: [check["label"] for check in main.preflight(self.host)]  # noqa: E731
