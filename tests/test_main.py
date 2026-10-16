@@ -978,6 +978,16 @@ class TestUsers(RouteTest):
         self.assertEqual(self.log_in("admin")[1].status_code, 401)
         self.assertEqual(self.log_in("admin", "another horse")[1].headers["location"], "/")
 
+    def test_a_setup_of_the_second_factor_left_lying_around_expires(self):
+        self.client.post("/profile/2fa/start", data={"current": PASSWORD})
+        secret = main.totp_secret(main.load_users()[0], "totp_pending")
+        old = int(main.time.time()) - 3600
+        main.update_user("admin", totp_pending=main.VAULT.encrypt_at_time(secret.encode(), old).decode())
+        self.assertNotIn(secret, self.client.get("/profile").text)
+        code = main.totp_code(secret, int(main.time.time()) // main.TOTP_SECONDS)
+        self.assertEqual(self.client.post("/profile/2fa/confirm", data={"code": code}).status_code, 400)
+        self.assertNotIn("totp", main.load_users()[0])
+
     def test_two_factor_login(self):
         # A session alone does not set it up: that takes the password, like switching it off.
         self.assertEqual(self.client.post("/profile/2fa/start").status_code, 400)

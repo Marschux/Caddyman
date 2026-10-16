@@ -162,9 +162,9 @@ def seal(text: str) -> str:
     return VAULT.encrypt(text.encode()).decode()
 
 
-def unseal(text: str) -> str:
-    """Raises InvalidToken for what another secret key encrypted."""
-    return VAULT.decrypt(text.encode()).decode()
+def unseal(text: str, ttl: int | None = None) -> str:
+    """Raises InvalidToken for what another secret key encrypted, or what is older than ttl seconds."""
+    return VAULT.decrypt(text.encode(), ttl).decode()
 
 
 def said(error: Exception) -> str:
@@ -698,6 +698,8 @@ TOTP_SECONDS = 30
 # Everything a second factor leaves on an account.
 TOTP_KEYS = ("totp", "totp_pending", "totp_last", "recovery")
 RECOVERY_CODES = 8
+# How long a started setup waits for its first code. Later the password is asked for again.
+TOTP_SETUP_SECONDS = 900
 
 
 def totp_code(secret: str, step: int) -> str:
@@ -717,7 +719,8 @@ def totp_step(secret: str, code: str) -> int | None:
 
 def totp_secret(user: dict, key: str) -> str | None:
     try:
-        return unseal(user.get(key, ""))
+        # The sealed text carries the time it was sealed: a setup left lying around expires.
+        return unseal(user.get(key, ""), TOTP_SETUP_SECONDS if key == "totp_pending" else None)
     except (InvalidToken, ValueError):
         # Not set, or encrypted with another secret key. A recovery code or a reset by an admin gets around that.
         return None
