@@ -1,0 +1,5 @@
+# The image only takes app/ and the requirements. Nothing else goes to the builder, least of all the secrets in .env.
+*
+!app/
+!docker/requirements.txt
+**/__pycache__
