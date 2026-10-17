@@ -1,5 +1,6 @@
 import asyncio
 import base64
+import contextlib
 import gzip
 import io
 import json
@@ -251,7 +252,9 @@ class TestHosts(AppTest):
                 handle.write(caddyfile_text)
         admin = admin or mock.Mock(return_value=mock.Mock(status_code=200))
         root_ca = root_ca or mock.Mock(return_value=("pem", "source", True))
-        with mock.patch.object(main.httpx, "get", admin), mock.patch.object(main, "fetch_root_ca", root_ca):
+        # The ACME CA is asked through a stream, so its body is never read; it answers like the gets.
+        stream = lambda method, url, **kwargs: contextlib.nullcontext(admin(url, **kwargs))  # noqa: E731
+        with mock.patch.object(main.httpx, "get", admin), mock.patch.object(main.httpx, "stream", stream), mock.patch.object(main, "fetch_root_ca", root_ca):
             host = self.host(caddyfile=self.caddyfile, sites_dir=self.sites, **fields)
             if fields.get("admin_user"):
                 host["admin_password_enc"] = main.VAULT.encrypt(b"pw").decode()
@@ -1524,6 +1527,23 @@ class TestManaged(AppTest):
         # Who types the password may trust another CA, as before.
         self.assertEqual(eve.post(f"/hosts/{host['id']}/edit", data=self.form(admin_ca=eve_ca)).status_code, 303)
         self.assertEqual(main.load_hosts()[0]["admin_ca"], eve_ca)
+
+    def test_a_fetched_bundle_with_one_more_ca_needs_the_password(self):
+        from cryptography.hazmat.primitives.serialization import Encoding
+
+        lab = make_certificate("Lab CA").public_bytes(Encoding.PEM).decode()
+        eve_ca = make_certificate("Eve CA").public_bytes(Encoding.PEM).decode()
+        # Fetched and remembered, not pasted: the right CA alone first.
+        with mock.patch.object(main, "remember_admin_ca", return_value=lab):
+            _, host = self.add_host()
+        # A source that hands out the right CA along with another passes the check of the admin site.
+        with mock.patch.object(main, "remember_admin_ca", return_value=lab + eve_ca):
+            answer = self.client.post(f"/hosts/{host['id']}/edit", data=self.form(admin_password="", root_ca_url="https://ca.example"))
+        self.assertEqual(answer.status_code, 400)
+        self.assertEqual(main.load_hosts()[0]["admin_ca"], lab)
+        # The same CA fetched again needs nothing.
+        with mock.patch.object(main, "remember_admin_ca", return_value=lab):
+            self.assertEqual(self.client.post(f"/hosts/{host['id']}/edit", data=self.form(admin_password="")).status_code, 303)
 
     def test_unknown_ca_is_explained_on_the_status_page(self):
         _, host = self.add_host()
@@ -3104,18 +3124,51 @@ class TestHardening(RouteTest):
         self.assertEqual(len(main.load_hosts()), 1)
         self.assertIn("Disconnect this Caddy", self.client.get("/hosts/h1/edit").text)
 
+    def test_what_caddy_says_to_a_reload_stays_with_who_may_open_route_files(self):
+        self.create(host="wiki.lab.test", group="Media")
+        self.client.post("/settings/users/new", data={"username": "sorter", "password": PASSWORD, "repeat": PASSWORD, "right_groups": "1"})
+        sorter = self.guest()
+        sorter.post("/login", data={"username": "sorter", "password": PASSWORD})
+        self.reject()
+        page = sorter.post("/groups/rename", data={"old": "Media", "new": "Films"}, follow_redirects=True).text
+        self.assertIn("Caddy rejected the reload", page)
+        self.assertNotIn("unknown directive", page)
+        page = self.client.post("/groups/rename", data={"old": "Media", "new": "Films"}, follow_redirects=True).text
+        self.assertIn("unknown directive", page)
+
+    def test_what_answers_a_reload_is_cut_short(self):
+        self.load.return_value = mock.Mock(status_code=500, json=mock.Mock(side_effect=ValueError), text="x" * 100000)
+        self.assertEqual(len(main.caddy_load(main.pick_host())), main.CADDY_SAID_MAX)
+
+    def test_what_caddy_says_about_a_dns_snippet_is_shown_only_with_the_right_caddy(self):
+        with open(self.caddyfile, "w", encoding="utf-8") as handle:
+            handle.write(f"(dnsx) {{\n\ttls {{\n\t\tdns cloudflare SECRET-TOKEN extra\n\t}}\n}}\n\nimport {self.sites}/*.caddy\n")
+        main.save_hosts([{**self.host, "dns_snippet": "dnsx"}])
+        self.load.return_value = mock.Mock(status_code=400, json=lambda: {"error": "wrong argument count near SECRET-TOKEN"})
+        self.patch(main.httpx, "get", mock.Mock(return_value=mock.Mock(status_code=200, content=b"{}", json=lambda: {})))
+        self.client.post("/settings/users/new", data={"username": "viewer", "password": PASSWORD, "repeat": PASSWORD})
+        viewer = self.guest()
+        viewer.post("/login", data={"username": "viewer", "password": PASSWORD})
+        page = viewer.get("/status").text
+        self.assertIn("Caddy understands the DNS snippet", page)
+        self.assertNotIn("SECRET-TOKEN", page)
+        self.assertIn("SECRET-TOKEN", self.client.get("/status").text)
+
     def test_a_route_file_is_never_the_caddyfile(self):
         self.create(auth_user="bob", auth_password="open sesame")
         self.client.post("/settings/users/new", data={"username": "ops", "password": PASSWORD, "repeat": PASSWORD, "right_caddy": "1"})
         ops = self.guest()
         ops.post("/login", data={"username": "ops", "password": PASSWORD})
         route = os.path.join(self.sites, "pdf.caddy")
-        # Neither in the sites directory that is saved, nor in one typed along with it.
-        for sites in (self.sites, os.path.join(self.dir.name, "elsewhere")):
+        # Neither in the sites directory that is saved, nor in one typed along with it, nor after it was moved away.
+        moved = os.path.join(self.dir.name, "moved")
+        self.host = {**self.host, "sites_dir": moved}
+        main.save_hosts([self.host])
+        for sites in (self.sites, os.path.join(self.dir.name, "elsewhere"), moved):
             data = {**{key: self.host[key] for key in main.HOST_DEFAULTS}, "caddyfile": route, "sites_dir": sites}
             answer = ops.post("/hosts/h1/edit", data=data)
             self.assertEqual(answer.status_code, 400, sites)
-            self.assertIn("cannot be a file in the sites directory", answer.text)
+            self.assertIn("cannot be a route file", answer.text)
         self.assertNotIn("basic_auth", ops.get("/caddyfile").text)
 
     def test_a_short_secret_key_is_named_on_the_status_page(self):

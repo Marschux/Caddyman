@@ -1471,8 +1471,10 @@ def host_problem(host: dict) -> str | None:
         return "Caddyfile and sites directory have to be those of Caddy, not a place in Caddyman's own data or in the log directory."
     # A route file is not the base Caddyfile: shown under /caddyfile, it would hand its logins to the right caddy.
     sites = {Path(item["sites_dir"]).resolve() for item in [host, *load_hosts()] if item.get("sites_dir")}
-    if host.get("storage") != "managed" and any(Path(host["caddyfile"]).resolve().is_relative_to(place) for place in sites):
-        return "The Caddyfile cannot be a file in the sites directory."
+    # By its name too: a sites directory moved away first would otherwise leave its files to pick.
+    caddyfile = Path(host["caddyfile"]).resolve()
+    if host.get("storage") != "managed" and (caddyfile.suffix.lower() == ".caddy" or any(caddyfile.is_relative_to(place) for place in sites)):
+        return "The Caddyfile cannot be a route file: nothing ending in .caddy, nothing in the sites directory."
     # Missing is fine, the status page explains the mount. A device like /dev/zero would be read without end.
     if host.get("storage") != "managed" and Path(host["caddyfile"]).exists() and not Path(host["caddyfile"]).is_file():
         return "The Caddyfile has to be a plain file."
@@ -1494,8 +1496,9 @@ def preflight(host: dict) -> list[dict]:
     """Check what a host needs before routes can be written. Reads only, writes nothing."""
     checks = []
 
-    def add(label: str, ok, detail: str = "", hint: str = "", block: str = "") -> None:
-        checks.append({"label": label, "ok": bool(ok), "detail": detail, "hint": hint, "block": block})
+    def add(label: str, ok, detail: str = "", hint: str = "", block: str = "", right: str = "") -> None:
+        # right: the detail is shown only to accounts with it; the status page is open to every account.
+        checks.append({"label": label, "ok": bool(ok), "detail": detail, "hint": hint, "block": block, "right": right})
 
     caddyfile, sites, snippet = host["caddyfile"], host["sites_dir"], host["tls_snippet"]
     managed = host.get("storage") == "managed"
@@ -1556,9 +1559,10 @@ def preflight(host: dict) -> list[dict]:
             # and a red mark that can be wrong is worse than none.
             if ca_url := "" if managed else acme_ca_url(text, snippet):
                 try:
-                    # Not verified: the certificate comes from the very CA that is being asked.
-                    answer = httpx.get(ca_url, timeout=REACH_TIMEOUT, verify=False)
-                    ca_ok, detail = answer.status_code == 200, f"HTTP {answer.status_code}"
+                    # Not verified: the certificate comes from the very CA that is being asked. Only the
+                    # status is needed, so the body is never read: the address comes from the base file.
+                    with httpx.stream("GET", ca_url, timeout=REACH_TIMEOUT, verify=False) as answer:
+                        ca_ok, detail = answer.status_code == 200, f"HTTP {answer.status_code}"
                 except httpx.HTTPError as error:
                     ca_ok, detail = False, said(error)
                 add(
@@ -1662,6 +1666,8 @@ def preflight(host: dict) -> list[dict]:
             problem,
             "Caddy refused the snippet. \"Module not registered\" means this Caddy was built without the plugin of your "
             "DNS provider; the Caddy settings show the Dockerfile for it.",
+            # Caddy's words can quote the snippet, and with it an API token.
+            right="caddy",
         )
     if host.get("admin_ca"):
         # Remembered on first use, so it is shown: the codes are the ones the Root CA page gives.
@@ -2454,6 +2460,9 @@ def caddy_body(host: dict) -> bytes:
     return b"\n".join([base, *routes])
 
 
+CADDY_SAID_MAX = 4000
+
+
 def caddy_load(host: dict) -> str | None:
     """Push the configuration as it is on disk. Returns Caddy's error, or None on success."""
     try:
@@ -2478,10 +2487,11 @@ def caddy_load(host: dict) -> str | None:
         return None
     if response.status_code == 401:
         return "The admin API refused the login. Check username and password of this host."
+    # Kept short: it goes into the audit log, mails and pages, and whoever answers at the address may say anything.
     try:
-        return response.json()["error"]
+        return str(response.json()["error"])[:CADDY_SAID_MAX]
     except (ValueError, KeyError, TypeError):
-        return response.text or f"HTTP {response.status_code}"
+        return (response.text or f"HTTP {response.status_code}")[:CADDY_SAID_MAX]
 
 
 def audit(host: dict, route: str, action: str, error: str | None) -> None:
@@ -2584,6 +2594,10 @@ def apply_route(
         if error:
             alert("alert_reload", f"Caddy rejected a change to {label}",
                   f"{CURRENT_USER.get()} tried to {action} {label}. Caddy did not take it, and the change was undone.\n\n{error}", right="routes")
+        # Caddy's words can quote route files: like on Changes, only for who may open those.
+        actor = find_user(load_users(), CURRENT_USER.get())
+        if error and actor and "routes" not in actor["permissions"]:
+            return "what Caddy said is on Changes for accounts with the right Routes"
         return error
 
 
@@ -3446,10 +3460,12 @@ async def host_save(request: Request, host_id: str | None = None):
             asked = {**host, "admin_user": ""}
         if admin_ca := remember_admin_ca(asked, previous):
             host["admin_ca"] = admin_ca
-    # A kept password stays with the CA it was typed for. Only one fetched over a connection checked
-    # against the remembered CA may follow it; any other change needs the password typed again.
-    attested = previous and not pasted_ca
-    if existing and not password and host.get("admin_password_enc") and not attested and host.get("admin_ca", "") != existing.get("admin_ca", ""):
+    # A kept password stays with the CAs it was typed for: without the password typed again, no
+    # certificate may join them, however it came in (pasted, or fetched along with the right one).
+    def certificates(text: str) -> set[str]:
+        return {re.sub(r"\s", "", pem) for pem in PEM_RE.findall(text or "")}
+
+    if existing and not password and host.get("admin_password_enc") and not certificates(host.get("admin_ca", "")) <= certificates(existing.get("admin_ca", "")):
         context = {**host, "id": host_id, "form_base": base, "form_ca": pasted_ca, "form_reach": reach}
         return page(request, "host_form.html", status_code=400, error="Type the admin API password to trust another CA for it.", host=context)
     # Before the host is rewritten without them: keep the root CA switches an older version stored in it.
@@ -3483,13 +3499,15 @@ async def host_save(request: Request, host_id: str | None = None):
 
 @app.post("/hosts/{host_id}/delete")
 def host_delete(host_id: str):
-    hosts = load_hosts()
-    change_hosts(lambda now: [item for item in now if item["id"] != host_id])
-    for item in hosts:
-        if item["id"] == host_id and item.get("storage") == "managed":
-            # Its base Caddyfile and routes live here and nowhere else Caddyman would look again:
-            # the next Caddy gets a new id. The question before disconnecting says so.
-            shutil.rmtree(managed_dir(item["id"]), ignore_errors=True)
+    # Under the lock of the route files: a save at the same moment does not write into what is removed.
+    with WRITE_LOCK:
+        gone = []
+        change_hosts(lambda now: gone.extend(item for item in now if item["id"] == host_id) or [item for item in now if item["id"] != host_id])
+        for item in gone:
+            if item.get("storage") == "managed":
+                # Its base Caddyfile and routes live here and nowhere else Caddyman would look again:
+                # the next Caddy gets a new id. The question before disconnecting says so.
+                shutil.rmtree(managed_dir(item["id"]), ignore_errors=True)
     return RedirectResponse("/hosts/new", status_code=303)
 
 
@@ -4205,7 +4223,9 @@ def kept_preflight(host: dict) -> list[dict]:
 
 @app.get("/status")
 def status(request: Request):
-    hosts = [{**host, "checks": kept_preflight(host)} for host in load_hosts()]
+    rights = request.state.me["permissions"]
+    hidden = lambda check: {**check, "detail": "Shown to accounts with the right Settings: Caddy."} if check.get("right") and check["detail"] and check["right"] not in rights else check  # noqa: E731
+    hosts = [{**host, "checks": [hidden(check) for check in kept_preflight(host)]} for host in load_hosts()]
     way = arrived(request)
     has_route, address = own_route_address(hosts[0]) if hosts else (False, "")
     if hosts and way != "plain":

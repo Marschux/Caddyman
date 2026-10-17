@@ -188,7 +188,8 @@ The `handle_path` block serves the log to the Logs page and can be left out.
 - **The right "Settings: Caddy" is control over Caddy.** With "Network only" it edits the base
   Caddyfile that Caddy runs, so give it only to accounts you would trust with Caddy itself.
   With "Shared files" it can point the base Caddyfile at any plain file the container can read
-  and show it. Disconnect also needs the right "Routes".
+  and show it. With "Network only" it also chooses the admin API address, and every reload sends
+  all route files there. Disconnect also needs the right "Routes".
 
 Left out on purpose: load balancing, free-form headers, metrics and an undo history. For
 history, put the sites directory under Git.
