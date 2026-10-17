@@ -1545,6 +1545,48 @@ class TestManaged(AppTest):
         with mock.patch.object(main, "remember_admin_ca", return_value=lab):
             self.assertEqual(self.client.post(f"/hosts/{host['id']}/edit", data=self.form(admin_password="")).status_code, 303)
 
+    def test_a_ca_in_the_old_armour_is_neither_taken_nor_trusted(self):
+        from cryptography.hazmat.primitives.serialization import Encoding
+
+        lab = make_certificate("Lab CA").public_bytes(Encoding.PEM).decode().strip()
+        eve_ca = make_certificate("Eve CA").public_bytes(Encoding.PEM).decode().strip()
+        old_armour = eve_ca.replace("BEGIN CERTIFICATE", "BEGIN X509 CERTIFICATE").replace("END CERTIFICATE", "END X509 CERTIFICATE")
+        _, host = self.add_host(admin_ca=lab)
+        answer = self.client.post(f"/hosts/{host['id']}/edit", data=self.form(admin_password="", admin_ca=old_armour))
+        self.assertEqual(answer.status_code, 400)
+        self.assertEqual(main.load_hosts()[0]["admin_ca"], lab)
+        # Whatever was stored before: only certificates under the usual armour are loaded.
+        loaded = lambda pem: main.trust_context(pem).cert_store_stats()["x509"]  # noqa: E731
+        self.assertEqual(main.pem_only(lab + "\n" + old_armour), lab)
+        self.assertEqual(loaded(lab + "\n" + old_armour), loaded(lab))
+        self.assertEqual(loaded(old_armour), loaded(""))
+        self.assertFalse(main.signs_admin_site(host, old_armour))
+
+    def test_a_ca_emptied_with_the_password_kept_needs_the_password(self):
+        from cryptography.hazmat.primitives.serialization import Encoding
+
+        lab = make_certificate("Lab CA").public_bytes(Encoding.PEM).decode().strip()
+        _, host = self.add_host(admin_ca=lab)
+        # Nothing fetched: the field emptied would leave the kept login to the public CAs.
+        with mock.patch.object(main, "remember_admin_ca", return_value=""):
+            self.assertEqual(self.client.post(f"/hosts/{host['id']}/edit", data=self.form(admin_password="")).status_code, 400)
+            self.assertEqual(main.load_hosts()[0]["admin_ca"], lab)
+            self.assertEqual(self.client.post(f"/hosts/{host['id']}/edit", data=self.form()).status_code, 303)
+        self.assertNotIn("admin_ca", main.load_hosts()[0])
+
+    def test_the_base_caddyfile_of_this_layout_is_written_under_the_lock_of_disconnect(self):
+        write = main.write_private
+        held = []
+
+        def watched(path, text):
+            if path.name == "Caddyfile":
+                held.append(main.WRITE_LOCK.locked())
+            return write(path, text)
+
+        with mock.patch.object(main, "write_private", watched):
+            self.add_host()
+        self.assertEqual(held, [True])
+
     def test_unknown_ca_is_explained_on_the_status_page(self):
         _, host = self.add_host()
         refused = main.httpx.ConnectError("[SSL: CERTIFICATE_VERIFY_FAILED] certificate verify failed")
@@ -3170,6 +3212,9 @@ class TestHardening(RouteTest):
             self.assertEqual(answer.status_code, 400, sites)
             self.assertIn("cannot be a route file", answer.text)
         self.assertNotIn("basic_auth", ops.get("/caddyfile").text)
+        # A draft left behind by a crash is a route file as well.
+        self.assertIn("cannot be a route file", main.host_problem({**self.host, "caddyfile": os.path.join(self.dir.name, ".pdf.caddy.1a2b3c4d.tmp")}))
+        self.assertIsNone(main.host_problem({**self.host, "caddyfile": self.caddyfile}))
 
     def test_a_short_secret_key_is_named_on_the_status_page(self):
         labels = lambda: [check["label"] for check in main.preflight(self.host)]  # noqa: E731

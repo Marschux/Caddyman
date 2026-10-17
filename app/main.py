@@ -894,10 +894,18 @@ def mail_problem(mail: dict) -> str | None:
     return None
 
 
+def pem_only(text: str) -> str:
+    """The certificates of a PEM text and nothing else. What every check sees is exactly what OpenSSL
+    loads: it also reads armour like "X509 CERTIFICATE", which the checks would not count."""
+    return "\n".join(PEM_RE.findall(text or ""))
+
+
 def ca_problem(pem: str) -> str | None:
     """What is wrong with a CA certificate somebody pasted into a form."""
     try:
-        ssl.create_default_context().load_verify_locations(cadata=pem)
+        if not pem_only(pem):
+            raise ValueError
+        ssl.create_default_context().load_verify_locations(cadata=pem_only(pem))
     except (ssl.SSLError, ValueError):
         return "The CA certificate has to be a certificate as PEM text, from BEGIN CERTIFICATE to END CERTIFICATE."
     return None
@@ -1385,7 +1393,8 @@ def admin_auth(host: dict) -> tuple[str, str] | None:
 @lru_cache(maxsize=4)
 def trust_context(pem: str) -> ssl.SSLContext:
     context = httpx.create_ssl_context()  # the public CAs
-    context.load_verify_locations(cadata=pem)
+    if pem_only(pem):
+        context.load_verify_locations(cadata=pem_only(pem))
     return context
 
 
@@ -1421,7 +1430,9 @@ def remember_admin_ca(host: dict, previous: str = "") -> str:
 def signs_admin_site(host: dict, pem: str) -> bool:
     """Whether the certificate of the admin site checks out against these CAs alone. Asked without the login."""
     try:
-        httpx.get(host["admin_url"], verify=ssl.create_default_context(cadata=pem), timeout=REACH_TIMEOUT)
+        if not pem_only(pem):
+            return False
+        httpx.get(host["admin_url"], verify=ssl.create_default_context(cadata=pem_only(pem)), timeout=REACH_TIMEOUT)
         return True
     except (httpx.HTTPError, ssl.SSLError):
         return False
@@ -1473,7 +1484,9 @@ def host_problem(host: dict) -> str | None:
     sites = {Path(item["sites_dir"]).resolve() for item in [host, *load_hosts()] if item.get("sites_dir")}
     # By its name too: a sites directory moved away first would otherwise leave its files to pick.
     caddyfile = Path(host["caddyfile"]).resolve()
-    if host.get("storage") != "managed" and (caddyfile.suffix.lower() == ".caddy" or any(caddyfile.is_relative_to(place) for place in sites)):
+    # Also a draft write_whole left behind (.name.caddy.1a2b3c4d.tmp).
+    named_route = re.search(r"\.caddy(\.|$)", caddyfile.name.lower())
+    if host.get("storage") != "managed" and (named_route or any(caddyfile.is_relative_to(place) for place in sites)):
         return "The Caddyfile cannot be a route file: nothing ending in .caddy, nothing in the sites directory."
     # Missing is fine, the status page explains the mount. A device like /dev/zero would be read without end.
     if host.get("storage") != "managed" and Path(host["caddyfile"]).exists() and not Path(host["caddyfile"]).is_file():
@@ -1770,7 +1783,7 @@ async def host_from_form(request: Request) -> dict:
     host["form_base"] = str(form.get("base_caddyfile", "")).replace("\r\n", "\n").strip()
     # Only the certificates are kept; text around them is dropped. Something that holds none stays, to be refused.
     pasted = str(form.get("admin_ca", "")).strip()
-    host["form_ca"] = "\n".join(PEM_RE.findall(pasted)) or pasted
+    host["form_ca"] = pem_only(pasted) or pasted
     host["form_reach"] = str(form.get("reach", "")).strip()
     return host
 
@@ -3465,7 +3478,9 @@ async def host_save(request: Request, host_id: str | None = None):
     def certificates(text: str) -> set[str]:
         return {re.sub(r"\s", "", pem) for pem in PEM_RE.findall(text or "")}
 
-    if existing and not password and host.get("admin_password_enc") and not certificates(host.get("admin_ca", "")) <= certificates(existing.get("admin_ca", "")):
+    # Emptied counts as a change too: the kept login would then go to anyone with a public certificate for the name.
+    new, old = certificates(host.get("admin_ca", "")), certificates(existing.get("admin_ca", "") if existing else "")
+    if existing and not password and host.get("admin_password_enc") and (not new <= old or (old and not new)):
         context = {**host, "id": host_id, "form_base": base, "form_ca": pasted_ca, "form_reach": reach}
         return page(request, "host_form.html", status_code=400, error="Type the admin API password to trust another CA for it.", host=context)
     # Before the host is rewritten without them: keep the root CA switches an older version stored in it.
@@ -3479,14 +3494,16 @@ async def host_save(request: Request, host_id: str | None = None):
             raise Conflict
         return [host]
 
-    try:
-        change_hosts(put)
-    except Conflict:
-        return redirect("/hosts", "warn", "The Caddy settings were changed in the meantime. Nothing was saved, try again.")
-    if host["storage"] == "managed":
-        # The one base Caddyfile this tool writes: its own copy, which Caddy never reads from disk.
-        Path(host["sites_dir"]).mkdir(parents=True, exist_ok=True)
-        write_private(Path(host["caddyfile"]), base + "\n")
+    # Under the lock of the route files, like Disconnect: a host deleted in between does not get its directory back.
+    with WRITE_LOCK:
+        try:
+            change_hosts(put)
+        except Conflict:
+            return redirect("/hosts", "warn", "The Caddy settings were changed in the meantime. Nothing was saved, try again.")
+        if host["storage"] == "managed":
+            # The one base Caddyfile this tool writes: its own copy, which Caddy never reads from disk.
+            Path(host["sites_dir"]).mkdir(parents=True, exist_ok=True)
+            write_private(Path(host["caddyfile"]), base + "\n")
     if existing and reach and reach != caddyman_upstream(host):
         kind, message = move_caddyman_upstream(host, reach)
         if kind != "ok":
