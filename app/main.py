@@ -42,6 +42,7 @@ from fastapi import FastAPI, Form, Request
 from fastapi.responses import RedirectResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
+from starlette.concurrency import run_in_threadpool
 from itsdangerous import BadSignature, URLSafeTimedSerializer
 
 VERSION = "0.27.32"
@@ -1247,7 +1248,11 @@ def user_edit(request: Request, name: str):
 @app.post("/settings/users/new")
 @app.post("/settings/users/{name:path}/edit")
 async def user_save(request: Request, name: str | None = None):
-    form = await request.form()
+    # Only the form is read in the event loop: the lock and the mail would hold up every other request.
+    return await run_in_threadpool(save_user, request, await request.form(), name)
+
+
+def save_user(request: Request, form, name: str | None):
     with USERS_LOCK:
         users = load_users()
         existing = find_user(users, name) if name is not None else None
@@ -1772,9 +1777,8 @@ def preflight(host: dict) -> list[dict]:
     return checks
 
 
-async def host_from_form(request: Request) -> dict:
+def host_from_form(form) -> dict:
     """The host as entered. The keys starting with 'form_' never reach hosts.json."""
-    form = await request.form()
     host = {key: str(form.get(key, "")).strip() for key in (*HOST_DEFAULTS, "storage", "admin_user")}
     host["admin_url"] = host["admin_url"].rstrip("/")
     host["sites_dir"] = host["sites_dir"].rstrip("/") or "/"
@@ -3029,8 +3033,13 @@ def own_route_address(host: dict) -> tuple[bool, str]:
 
 @app.post("/routes/new")
 async def route_create(request: Request):
+    # The reload waits for the lock and for Caddy; in the event loop that would hold up every request.
+    return await run_in_threadpool(create_route, request, await request.form())
+
+
+def create_route(request: Request, form):
     current = the_host()
-    route, error = route_from_form(await request.form(), current)
+    route, error = route_from_form(form, current)
     if error:
         return route_form_page(request, current, route, error)
     path = route_path(current, route_file_name(route, current))
@@ -3089,10 +3098,13 @@ def route_edit(request: Request, name: str, raw: bool = False):
 
 @app.post("/routes/{name}/edit")
 async def route_update(request: Request, name: str):
+    return await run_in_threadpool(update_route, request, await request.form(), name)
+
+
+def update_route(request: Request, form, name: str):
     current, path = existing_route(name)
     if path is None:
         return redirect("/", "error", "This route does not exist.")
-    form = await request.form()
     mtime = int(form["mtime"]) if is_number(str(form.get("mtime", ""))) else 0
     raw = form.get("mode") == "raw"
     route, new_path = None, path
@@ -3427,8 +3439,12 @@ def host_edit(request: Request, host_id: str):
 @app.post("/hosts/new")
 @app.post("/hosts/{host_id}/edit")
 async def host_save(request: Request, host_id: str | None = None):
+    return await run_in_threadpool(save_host, request, await request.form(), host_id)
+
+
+def save_host(request: Request, form, host_id: str | None):
     hosts = load_hosts()
-    host = await host_from_form(request)
+    host = host_from_form(form)
     existing = next((item for item in hosts if item["id"] == host_id), None)
     # There is no field for it any more. One set before stays, for the names of the route files.
     host["domain_suffix"] = existing.get("domain_suffix", "") if existing else ""
@@ -3883,17 +3899,21 @@ def backup_download():
 
 @app.post("/backup/import")
 async def backup_restore(request: Request):
-    current = pick_host()
-
-    def refuse(error: str, status_code: int = 400):
-        return page(request, "backup.html", status_code=status_code, host=current, error=error)
-
     # The context manager closes the uploaded temp file again.
     async with request.form() as form:
         confirmed = "payload" in form
         payload = str(form.get("payload", ""))
         upload = form.get("archive")
         uploaded = await upload.read(BACKUP_MAX_BYTES + 1) if hasattr(upload, "read") else b""
+    return await run_in_threadpool(import_backup, request, confirmed, payload, uploaded)
+
+
+def import_backup(request: Request, confirmed: bool, payload: str, uploaded: bytes):
+    current = pick_host()
+
+    def refuse(error: str, status_code: int = 400):
+        return page(request, "backup.html", status_code=status_code, host=current, error=error)
+
     try:
         data = base64.b64decode(payload, validate=True) if confirmed else uploaded
         backup = read_backup(data)
