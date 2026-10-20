@@ -1455,6 +1455,9 @@ class TestManaged(AppTest):
         older = {**host, "admin_ca": host["admin_ca"].replace("CERTIFICATE", "X509 CERTIFICATE")}
         check = next(check for check in main.preflight(older) if check["label"] == "CA of the admin API is remembered")
         self.assertFalse(check["ok"])
+        # Certificates are kept as written out anew: other line breaks give the same text, a broken block none.
+        self.assertEqual(main.pem_only("text before\n" + pem.replace("\n", "\r\n")), pem.strip())
+        self.assertEqual(main.pem_only("-----BEGIN CERTIFICATE-----\nAAAA\n-----END CERTIFICATE-----"), "")
         # From then on the login only goes to a server that shows this CA, also when the open
         # page fetches the root certificate.
         main.ROOT_CA_CACHE.clear()

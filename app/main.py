@@ -37,6 +37,7 @@ import httpx
 import segno
 from cryptography import x509
 from cryptography.fernet import Fernet, InvalidToken
+from cryptography.hazmat.primitives.serialization import Encoding
 from cryptography.x509.oid import NameOID
 from fastapi import FastAPI, Form, Request
 from fastapi.responses import RedirectResponse, Response, StreamingResponse
@@ -895,10 +896,22 @@ def mail_problem(mail: dict) -> str | None:
     return None
 
 
+def pem_blocks(text: str) -> list[str]:
+    """Each certificate of a PEM text, parsed and written out again; a block that does not parse is left out."""
+    blocks = []
+    for block in PEM_RE.findall(text or ""):
+        try:
+            blocks.append(x509.load_pem_x509_certificate(block.encode()).public_bytes(Encoding.PEM).decode())
+        except ValueError:
+            pass
+    return blocks
+
+
 def pem_only(text: str) -> str:
     """The certificates of a PEM text and nothing else. What every check sees is exactly what OpenSSL
-    loads: it also reads armour like "X509 CERTIFICATE", which the checks would not count."""
-    return "\n".join(PEM_RE.findall(text or ""))
+    loads: it also reads armour like "X509 CERTIFICATE", which the checks would not count. Written
+    out anew, so nothing between the armour lines but the certificate itself is kept."""
+    return "\n".join(block.rstrip("\n") for block in pem_blocks(text))
 
 
 def ca_problem(pem: str) -> str | None:
@@ -1426,7 +1439,7 @@ def remember_admin_ca(host: dict, previous: str = "") -> str:
             fingerprints(pem)
             # Fetched unchecked, so kept only if the admin site's own certificate goes back to it.
             if signs_admin_site(host, pem):
-                found.append(pem)
+                found.append(pem_only(pem))
         except ValueError:
             pass
     return "".join(found) or previous
@@ -3496,7 +3509,7 @@ def save_host(request: Request, form, host_id: str | None):
     # A kept password stays with the CAs it was typed for: without the password typed again, no
     # certificate may join them, however it came in (pasted, or fetched along with the right one).
     def certificates(text: str) -> set[str]:
-        return {re.sub(r"\s", "", pem) for pem in PEM_RE.findall(text or "")}
+        return set(pem_blocks(text))
 
     # Emptied counts as a change too: the kept login would then go to anyone with a public certificate for the name.
     new, old = certificates(host.get("admin_ca", "")), certificates(existing.get("admin_ca", "") if existing else "")
@@ -3828,7 +3841,7 @@ def read_backup(data: bytes) -> dict:
         if host_problem(host) is None:
             host_id = str(item.get("id", ""))
             host_id = host_id if re.fullmatch(r"[0-9a-f]{8}", host_id) else secrets.token_hex(4)
-            admin_ca = "\n".join(PEM_RE.findall(str(item.get("admin_ca", ""))))
+            admin_ca = pem_only(str(item.get("admin_ca", "")))
             # Held to what the settings form takes: text that only looks like a certificate
             # would later break every page that builds a TLS context from it.
             if not admin_ca or ca_problem(admin_ca):
