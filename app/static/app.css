@@ -403,11 +403,20 @@ table.even tbody tr:not(.group) > td { height: 80px; }
 table.routes { table-layout: fixed; }
 /* Type, access, options, TLS and buttons have a size of their own; the target gets what the host leaves. */
 table.routes col:nth-child(1) { width: 15%; }
-table.routes col:nth-child(2) { width: 125px; }
-table.routes col:nth-child(4) { width: 145px; }
-table.routes col:nth-child(5) { width: 270px; }
-table.routes col:nth-child(6) { width: 170px; }
-table.routes col:nth-child(7) { width: 280px; }
+/* Sized so the target keeps about 170 px on a 1280 px screen. */
+table.routes col:nth-child(2) { width: 110px; }
+table.routes col:nth-child(4) { width: 115px; }
+table.routes col:nth-child(5) { width: 250px; }
+table.routes col:nth-child(6) { width: 150px; }
+table.routes col:nth-child(7) { width: 250px; }
+/* The three filters go onto a second line before they are cut off. */
+table.routes th.actions { white-space: normal; }
+table.routes th.actions label.check { margin: 2px 0; }
+/* From here the page has its full width: room for the type in one line and the filters side by side. */
+@media (min-width: 1440px) {
+	table.routes col:nth-child(2) { width: 125px; }
+	table.routes col:nth-child(7) { width: 290px; }
+}
 /* Certificate and TLS mode one above the other. */
 table.routes td.tls > * { display: block; width: fit-content; margin: 0; }
 table.routes td.tls > * + * { margin-top: 6px; }
