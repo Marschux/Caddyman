@@ -1,5 +1,17 @@
 # Changelog
 
+## 2026-10-20 02:51
+- chore: version 1.0.0
+- fix: the route list keeps room for the target on a 1280 px screen, the filters wrap instead of being cut off; new screenshot
+- fix: a remembered admin CA that holds no loadable certificate trusts nobody, remembered CAs are stored one per line, the status page shows the check codes of what is trusted, and a broken value in the browser storage no longer stops the route list
+- fix: the route list shows what its checks found before at once and looks again in the background; it only waits for a check it has never run
+- docs: the README names the route list with its groups and filters
+- feat: the filter Only problems is called Problems, and the last column of the route list is wide enough for three filters
+- feat: a third filter in the route list, To do, shows files to adopt, routes switched off and TLS snippets the settings do not name; Only problems keeps what does not work
+- feat: one arrow above the route list folds or opens every group, next to the number of routes shown
+- feat: the groups in the route list show how many routes they hold and fold away with a click
+
+
 ## 2026-10-20 02:09
 - chore: version 0.27.42
 - test: example addresses in the tests come from 10.0.0.0/8
