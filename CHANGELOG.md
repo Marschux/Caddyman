@@ -1,5 +1,20 @@
 # Changelog
 
+## 2026-10-20 02:09
+- chore: version 0.27.42
+- test: example addresses in the tests come from 10.0.0.0/8
+- fix: CA certificates are parsed and written out anew before they are kept, compared or trusted
+- fix: the status page says when the remembered CA of the admin API holds no certificate it can load
+- fix: saving a route, the Caddy settings, an import or an account no longer holds up other requests while it waits for the lock, Caddy or the mail server
+- fix: a CA is read the same way everywhere, only certificates under the usual armour, a kept login keeps its CA unless the password is typed, drafts of route files are no Caddyfile, and the managed base is written under the lock of disconnect
+- fix: a kept admin login trusts no added certificate without the password, a .caddy file is never the base Caddyfile, Caddy's words stay with the rights that may read them, the ACME check reads no body, disconnect runs under the lock of the route files
+- fix: disconnecting the Caddy needs the right Routes as well, and the README says what Settings: Caddy can read
+- fix: a file in the sites directory that is not plain stops neither the route list, a save nor the backup, and the one host is looked at again under the lock when it is saved
+- fix: a kept admin login is never given another CA without the password, and a route file cannot be set as the base Caddyfile
+- fix: route files read through one guarded place, oversized backup members refused, cut log lines never show half a token, maintenance switch stored after the reload, mail and host settings saved under the lock, a foreign draft is left alone
+- fix: settings and error pages saved under one lock, watcher alerts only to who may see them, base Caddyfile read through one guarded place
+
+
 ## 2026-10-16 13:21
 - chore: version 0.27.32
 - refactor: one place for the headers every answer carries, route files read once in the checks, smaller tidy-ups
