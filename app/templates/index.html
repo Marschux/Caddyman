@@ -33,7 +33,7 @@
 		{% for item in routes %}
 		{% set route = item.route %}
 		{% if grouped and loop.changed(item.group) %}
-		<tr class="group"><th colspan="7">{{ item.group or "No group" }}</th></tr>
+		<tr class="group" data-group="{{ item.group }}"><th colspan="7">{{ item.group or "No group" }}</th></tr>
 		{% endif %}
 		{# A problem: the target does not answer, the certificate is not what it should be, a file cannot be adopted,
 		   or its TLS comes from a snippet the settings do not name. #}

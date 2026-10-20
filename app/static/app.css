@@ -366,9 +366,13 @@ th label.check[hidden] { display: none; }
 /* Like "No groups", in a softer red than the error messages. */
 th label.check.problems:hover { border-color: color-mix(in srgb, var(--error) 60%, transparent); }
 th label.check.problems:has(:checked) { color: color-mix(in srgb, var(--error) 65%, var(--ink)); background: var(--error-bg); border-color: color-mix(in srgb, var(--error) 60%, transparent); }
-button.sort { all: unset; cursor: pointer; }
-button.sort:hover { color: var(--ink); }
-button.sort:focus-visible { outline: 2px solid var(--link); outline-offset: 2px; }
+button.sort, button.fold { all: unset; cursor: pointer; }
+button.sort:hover, button.fold:hover { color: var(--ink); }
+button.sort:focus-visible, button.fold:focus-visible { outline: 2px solid var(--link); outline-offset: 2px; }
+/* The name of a group folds its routes away; the number counts the ones that match the search. */
+button.fold::before { content: "\25BE"; display: inline-block; width: 1.2em; }
+button.fold[aria-expanded="false"]::before { content: "\25B8"; }
+button.fold .count { margin-left: 8px; font-weight: 400; }
 th[aria-sort="ascending"] button.sort::after { content: " \2191"; color: var(--product); }
 th[aria-sort="descending"] button.sort::after { content: " \2193"; color: var(--product); }
 form.row input[type="file"] { width: auto; flex: 1; min-width: 220px; }

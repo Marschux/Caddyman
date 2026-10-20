@@ -33,19 +33,28 @@
 		const grouped = !flat();
 		let shown = 0;
 		let group = null;
+		let count = 0;
+		const close = () => group && (group.querySelector(".count").textContent = count);
 		for (const row of [...body.rows]) {
 			if (row === none) continue;
 			if (row.classList.contains("group")) {
+				close();
 				// Stays hidden until one of its routes shows, and all the time in the list without groups.
 				group = grouped ? row : null;
+				count = 0;
 				row.hidden = true;
+				row.querySelector("button").setAttribute("aria-expanded", String(!collapsed.has(row.dataset.group)));
 				continue;
 			}
-			row.hidden = !text.get(row).includes(query) || (problems && !("problem" in row.dataset));
-			if (row.hidden) continue;
+			const match = text.get(row).includes(query) && (!problems || "problem" in row.dataset);
+			// A folded group still shows its name and how many of its routes match.
+			row.hidden = !match || Boolean(group && collapsed.has(group.dataset.group));
+			if (!match) continue;
 			shown += 1;
+			count += 1;
 			if (group) group.hidden = false;
 		}
+		close();
 		none.hidden = shown > 0;
 	}
 
@@ -105,6 +114,26 @@
 			return null;
 		}
 	};
+
+	// Folded groups are kept in this browser too, by name.
+	const SHUT = "caddyman.routes.folded";
+	const collapsed = new Set(store((kept) => JSON.parse(kept.getItem(SHUT) || "[]")) || []);
+	for (const row of groups) {
+		const button = document.createElement("button");
+		button.type = "button";
+		button.className = "fold";
+		button.textContent = row.cells[0].textContent;
+		const count = document.createElement("span");
+		count.className = "count";
+		button.append(count);
+		row.cells[0].replaceChildren(button);
+		button.addEventListener("click", () => {
+			const name = row.dataset.group;
+			if (!collapsed.delete(name)) collapsed.add(name);
+			store((kept) => kept.setItem(SHUT, JSON.stringify([...collapsed])));
+			apply();
+		});
+	}
 
 	filter.addEventListener("input", apply);
 	// The box sits in the last column title, outside the form it belongs to, so it is asked itself.
