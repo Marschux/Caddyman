@@ -366,6 +366,8 @@ th label.check[hidden] { display: none; }
 /* Like "No groups", in a softer red than the error messages. */
 th label.check.problems:hover { border-color: color-mix(in srgb, var(--error) 60%, transparent); }
 th label.check.problems:has(:checked) { color: color-mix(in srgb, var(--error) 65%, var(--ink)); background: var(--error-bg); border-color: color-mix(in srgb, var(--error) 60%, transparent); }
+th label.check.todo:hover { border-color: color-mix(in srgb, var(--warn) 60%, transparent); }
+th label.check.todo:has(:checked) { color: color-mix(in srgb, var(--warn) 65%, var(--ink)); background: var(--warn-bg); border-color: color-mix(in srgb, var(--warn) 60%, transparent); }
 button.sort, button.fold { all: unset; cursor: pointer; }
 button.sort:hover, button.fold:hover { color: var(--ink); }
 button.sort:focus-visible, button.fold:focus-visible { outline: 2px solid var(--link); outline-offset: 2px; }

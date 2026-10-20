@@ -2543,12 +2543,13 @@ class TestEdit(RouteTest):
         self.assertNotIn('<option value="dns"', form)
         self.assertEqual(self.create(host="sn.lab.test", tls="snippet", snippet="stepca").status_code, 303)
         self.assertIn('"tls":"snippet","snippet":"stepca"', self.read("sn.caddy"))
-        # Named in the settings it is fine; once the settings do not name it, one of the problems in the list.
-        self.assertEqual(self.client.get("/").text.count("data-problem"), 0)
+        # Named in the settings it is fine; once the settings do not name it, something to do in the list.
+        self.assertEqual(self.client.get("/").text.count("data-todo"), 0)
         main.save_hosts([{**main.pick_host(), "tls_snippet": ""}])
         listing = self.client.get("/").text
-        # This one, and pdf, which was made with Own ACME CA.
-        self.assertEqual(listing.count("data-problem"), 2)
+        self.assertEqual(listing.count("data-todo"), 1)
+        # A problem is pdf, made with Own ACME CA, which lost its snippet.
+        self.assertEqual(listing.count("data-problem"), 1)
         self.assertIn('<a class="tag error" href="/hosts/h1/edit" title="Certificates as the snippet stepca from the base Caddyfile sets them. It is not set under Settings, Caddy. Click to set it there.">Snippet: stepca</a>', listing)
         self.assertEqual(self.create(host="sn2.lab.test", tls="snippet", snippet="nowhere").status_code, 400)
 
@@ -2567,7 +2568,7 @@ class TestEdit(RouteTest):
         # A name the base Caddyfile does not define stays a foreign line.
         _, reason = main.adopt_route(text.replace("stepca", "nowhere"), self.host)
         self.assertIn("would not write: import nowhere", reason)
-        # The list says so before anybody clicks, offers no Adopt, and counts it as a problem.
+        # The list says so before anybody clicks, offers no Adopt, and counts it as something to do.
         self.put("odd.caddy", text.replace("stepca", "nowhere"))
         self.put("plain.caddy", "plain.lab.test {\n\treverse_proxy 10.0.0.5:9005\n}\n")
         listing = self.client.get("/").text
@@ -2575,7 +2576,9 @@ class TestEdit(RouteTest):
         self.assertIn(">By hand</span>", listing)
         self.assertNotIn("/routes/odd/adopt", listing)
         self.assertIn("/routes/plain/adopt", listing)
-        self.assertEqual(listing.count("data-problem"), 1)
+        # Both are left to do in Caddyman, neither is a problem for Caddy.
+        self.assertEqual(listing.count("data-problem"), 0)
+        self.assertEqual(listing.count("data-todo"), 2)
 
     def test_error_pages_on_a_route(self):
         self.edit(errors="1", allow="private")

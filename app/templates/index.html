@@ -22,9 +22,10 @@
 	<colgroup><col><col><col><col><col><col><col></colgroup>
 	<thead>
 		<tr><th>Host</th><th>Type</th><th>Target</th><th>Access</th><th>Options</th><th>TLS</th>
-			{# "Only problems", and one list without the names of the groups in between (only where there
-			   are groups at all). Shown by routes.js; both belong to the filter form above although they sit here. #}
+			{# "Only problems", "To do", and one list without the names of the groups in between (only where there
+			   are groups at all). Shown by routes.js; they belong to the filter form above although they sit here. #}
 			<th class="actions"><label class="check problems" hidden><input type="checkbox" name="problems" form="route-filter"> Only problems</label>
+				<label class="check todo" hidden><input type="checkbox" name="todo" form="route-filter"> To do</label>
 				{% if routes|selectattr("group")|list %}<label class="check" hidden><input type="checkbox" name="flat" form="route-filter"> No groups</label>{% endif %}</th></tr>
 	</thead>
 	<tbody>
@@ -35,9 +36,10 @@
 		{% if grouped and loop.changed(item.group) %}
 		<tr class="group" data-group="{{ item.group }}"><th colspan="7">{{ item.group or "No group" }}</th></tr>
 		{% endif %}
-		{# A problem: the target does not answer, the certificate is not what it should be, a file cannot be adopted,
-		   or its TLS comes from a snippet the settings do not name. #}
-		<tr data-group="{{ item.group }}"{% if route and route.off %} class="off"{% endif %}{% if item.target_down or item.refused or item.lost or (route and route.tls == "snippet" and route.snippet != host.tls_snippet) or (item.certificate and item.certificate.level in ("warn", "fail")) %} data-problem{% endif %}>
+		{# A problem: the target does not answer, the certificate is not what it should be, or the TLS snippet is gone
+		   from the settings. To do: Caddy runs it fine, but something is left in Caddyman: a file to adopt or that cannot
+		   be, a TLS snippet the settings do not name, a route switched off or in maintenance. #}
+		<tr data-group="{{ item.group }}"{% if route and route.off %} class="off"{% endif %}{% if item.target_down or item.lost or (item.certificate and item.certificate.level in ("warn", "fail")) %} data-problem{% endif %}{% if item.refused or (not route and not item.lost) or (route and (route.off or (route.tls == "snippet" and route.snippet != host.tls_snippet))) %} data-todo{% endif %}>
 			{% if route %}
 			<td class="nowrap">
 				{% set name %}{% if item.site %}<a class="out" href="{{ item.site }}" target="_blank" rel="noopener noreferrer"><strong>{{ route.host }}{{ ":" ~ route.port if route.port }}</strong></a>

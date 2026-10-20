@@ -1,4 +1,4 @@
-// Search, "only problems", "no groups" and sorting for the list of routes. Everything works on the
+// Search, "only problems", "to do", "no groups" and sorting for the list of routes. Everything works on the
 // rows the server sent; the rows of a group stay below its name unless "no groups" is ticked.
 (() => {
 	const filter = document.getElementById("route-filter");
@@ -29,7 +29,8 @@
 
 	function apply() {
 		const query = filter.elements.q.value.trim().toLowerCase();
-		const problems = filter.elements.problems.checked;
+		// Both ticked: a row shows if it is either.
+		const wanted = [filter.elements.problems.checked && "problem", filter.elements.todo.checked && "todo"].filter(Boolean);
 		const grouped = !flat();
 		let shown = 0;
 		let group = null;
@@ -46,7 +47,7 @@
 				row.querySelector("button").setAttribute("aria-expanded", String(!collapsed.has(row.dataset.group)));
 				continue;
 			}
-			const match = text.get(row).includes(query) && (!problems || "problem" in row.dataset);
+			const match = text.get(row).includes(query) && (!wanted.length || wanted.some((key) => key in row.dataset));
 			// A folded group still shows its name and how many of its routes match.
 			row.hidden = !match || Boolean(group && collapsed.has(group.dataset.group));
 			if (!match) continue;
@@ -176,9 +177,10 @@
 		box.closest("label").hidden = false;
 	}
 	// Sits there too, so its input does not reach the form either.
-	const problems = filter.elements.problems;
-	problems.addEventListener("input", apply);
-	problems.closest("label").hidden = false;
+	for (const box of [filter.elements.problems, filter.elements.todo]) {
+		box.addEventListener("input", apply);
+		box.closest("label").hidden = false;
+	}
 	filter.hidden = false;
 	apply();
 })();
