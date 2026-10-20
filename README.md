@@ -10,6 +10,7 @@ A web interface for Caddy routes that works with your own ACME CA, such as
 ![Route list](assets/screenshot.png)
 
 - **Routes:** reverse proxy, redirect or static files, with several hostnames, wildcards and paths to other targets
+- **Route list:** groups that fold away, a search, and filters for problems and for what is left to do
 - **Access per route:** basic auth, allowed networks, or your single sign-on through a `forward_auth` snippet
 - **Error pages:** a page in a design you pick per error, where Caddy would send an empty one
 - **TLS per route:** your own ACME CA, Caddy's default, Let's Encrypt over DNS, Caddy's internal CA, or none
