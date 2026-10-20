@@ -2623,7 +2623,7 @@ def apply_route(
             # If the reload only timed out, Caddy may hold the new config: bring it back in line.
             caddy_load(host)
         # What the route list knew about certificates and targets is from before this change.
-        PROBE_CACHE.clear()
+        outdate_probes()
         audit(host, label, action, error)
         if error:
             alert("alert_reload", f"Caddy rejected a change to {label}",
@@ -2814,6 +2814,12 @@ RUNNING, QUEUED = object(), object()
 CERT_RANK = ("fail", "warn", "unknown", "ok")
 
 
+def outdate_probes() -> None:
+    """After a change: every result counts as old, so the next look starts all checks again without waiting for them."""
+    for key, (_, value) in list(PROBE_CACHE.items()):
+        PROBE_CACHE[key] = (0.0, value)
+
+
 def probes(jobs: dict[tuple, tuple]) -> dict[tuple, object]:
     """Run checks side by side. jobs maps a key to (function, arguments, what counts as good).
 
@@ -2822,15 +2828,20 @@ def probes(jobs: dict[tuple, tuple]) -> dict[tuple, object]:
     now, results, futures = time.monotonic(), {}, {}
     for key, (function, arguments, good) in jobs.items():
         kept = PROBE_CACHE.get(key)
-        if kept and kept[0] > now:
-            results[key] = kept[1]
-            continue
 
         def run(key=key, function=function, arguments=arguments, good=good):
             value = function(*arguments)
             PROBE_CACHE[key] = (time.monotonic() + PROBE_SECONDS[bool(good(value))], value)
             return value
 
+        if kept:
+            # Known before: shown at once. An old result is looked at again in the background and
+            # is there on the next load; the page only waits for a check it has never seen.
+            results[key] = kept[1]
+            if kept[0] <= now:
+                PROBE_CACHE[key] = (now + PROBE_SECONDS[False], kept[1])  # one look at a time
+                PROBES.submit(run)
+            continue
         futures[key] = PROBES.submit(run)
     wait(futures.values(), timeout=PROBE_BUDGET)
     for key, future in futures.items():

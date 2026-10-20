@@ -811,10 +811,20 @@ class TestRoutes(RouteTest):
         kept = {key[0]: until - main.time.monotonic() for key, (until, _) in main.PROBE_CACHE.items()}
         self.assertGreater(kept["target"], 50)
         self.assertLess(kept["certificate"], 20)  # the handshake failed in this test
-        # Every change to the routes forgets all of it.
+        # Every change to the routes makes all of it old: the next look asks again, waiting only for
+        # the new route and leaving the old results to the background, shown meanwhile.
         self.create(host="wiki.lab.test", upstream="10.0.0.7:3000")
         main.target_reachable.reset_mock()
+        hanging = main.threading.Event()
+        self.addCleanup(hanging.set)
+        main.target_reachable.side_effect = lambda upstream: upstream != "10.0.0.5:9005" or hanging.wait(5)
+        started = main.time.monotonic()
         self.client.get("/")
+        self.assertLess(main.time.monotonic() - started, 2)
+        hanging.set()
+        deadline = main.time.monotonic() + 5
+        while asked() != (2, first[1] + 2) and main.time.monotonic() < deadline:
+            main.time.sleep(0.01)
         self.assertEqual(asked(), (2, first[1] + 2))
 
     def test_list_does_not_wait_for_a_check_that_hangs(self):
