@@ -1451,6 +1451,10 @@ class TestManaged(AppTest):
         self.add_route()
         self.assertIs(self.post.call_args.kwargs["verify"], main.admin_verify(host))
         self.assertIn("CA of the admin API is remembered", [check["label"] for check in main.preflight(host)])
+        # One stored by an older version in another armour is not loaded: the status page says so.
+        older = {**host, "admin_ca": host["admin_ca"].replace("CERTIFICATE", "X509 CERTIFICATE")}
+        check = next(check for check in main.preflight(older) if check["label"] == "CA of the admin API is remembered")
+        self.assertFalse(check["ok"])
         # From then on the login only goes to a server that shows this CA, also when the open
         # page fetches the root certificate.
         main.ROOT_CA_CACHE.clear()

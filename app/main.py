@@ -1690,7 +1690,11 @@ def preflight(host: dict) -> list[dict]:
     if host.get("admin_ca"):
         # Remembered on first use, so it is shown: the codes are the ones the Root CA page gives.
         origin = "entered in the settings" if host.get("admin_ca_pasted") else "fetched when the settings were saved"
-        add("CA of the admin API is remembered", True, f"check code {check_codes(host['admin_ca'])}, {origin}")
+        usable = bool(pem_only(host["admin_ca"]))
+        detail = f"check code {check_codes(host['admin_ca'])}, {origin}" if usable else "it holds no BEGIN CERTIFICATE block"
+        # Stored by an older version in another armour: it is not loaded, and only the public CAs count.
+        hint = "Paste the CA again under Settings, Caddy, or save there with the admin API password."
+        add("CA of the admin API is remembered", usable, detail, "" if usable else hint)
     if admin_ok:
         # The quick way in, 'admin :2019', works but leaves Caddy open to every container on its network.
         add(
