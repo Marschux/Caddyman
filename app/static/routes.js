@@ -56,6 +56,11 @@
 		}
 		close();
 		none.hidden = shown > 0;
+		total.textContent = shown;
+		if (all) {
+			all.hidden = !grouped;
+			all.setAttribute("aria-expanded", String(groups.some((row) => !collapsed.has(row.dataset.group))));
+		}
 	}
 
 	function arrange() {
@@ -118,6 +123,26 @@
 	// Folded groups are kept in this browser too, by name.
 	const SHUT = "caddyman.routes.folded";
 	const collapsed = new Set(store((kept) => JSON.parse(kept.getItem(SHUT) || "[]")) || []);
+	const keep = () => store((kept) => kept.setItem(SHUT, JSON.stringify([...collapsed])));
+	// Above the list: the number of routes shown, and one arrow that folds every group or opens them all again.
+	const first = table.tHead.rows[0].cells[0];
+	const total = document.createElement("span");
+	total.className = "count";
+	first.append(total);
+	let all = null;
+	if (groups.length) {
+		all = document.createElement("button");
+		all.type = "button";
+		all.className = "fold";
+		all.setAttribute("aria-label", "Fold or open all groups");
+		first.prepend(all);
+		all.addEventListener("click", () => {
+			const open = groups.some((row) => !collapsed.has(row.dataset.group));
+			for (const row of groups) open ? collapsed.add(row.dataset.group) : collapsed.delete(row.dataset.group);
+			keep();
+			apply();
+		});
+	}
 	for (const row of groups) {
 		const button = document.createElement("button");
 		button.type = "button";
@@ -130,7 +155,7 @@
 		button.addEventListener("click", () => {
 			const name = row.dataset.group;
 			if (!collapsed.delete(name)) collapsed.add(name);
-			store((kept) => kept.setItem(SHUT, JSON.stringify([...collapsed])));
+			keep();
 			apply();
 		});
 	}

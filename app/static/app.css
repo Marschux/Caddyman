@@ -372,7 +372,7 @@ button.sort:focus-visible, button.fold:focus-visible { outline: 2px solid var(--
 /* The name of a group folds its routes away; the number counts the ones that match the search. */
 button.fold::before { content: "\25BE"; display: inline-block; width: 1.2em; }
 button.fold[aria-expanded="false"]::before { content: "\25B8"; }
-button.fold .count { margin-left: 8px; font-weight: 400; }
+button.fold .count, th > .count { margin-left: 8px; font-weight: 400; }
 th[aria-sort="ascending"] button.sort::after { content: " \2191"; color: var(--product); }
 th[aria-sort="descending"] button.sort::after { content: " \2193"; color: var(--product); }
 form.row input[type="file"] { width: auto; flex: 1; min-width: 220px; }
