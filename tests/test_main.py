@@ -1434,10 +1434,10 @@ class TestManaged(AppTest):
             self.assertNotIn("example", text)
         # Saving the suggestion under Settings, Caddy is what takes it over: with the right for that.
         host_id = main.pick_host()["id"]
-        suggested = self.client.get(f"/hosts/{host_id}/edit", headers={"host": "192.168.2.71"}).text
-        self.assertIn('value="192.168.2.71:5052"', suggested)
-        self.client.post(f"/hosts/{host_id}/edit", data=self.form(admin_password="", reach="192.168.2.71:5052"), headers={"host": "192.168.2.71"})
-        self.assertIn("reverse_proxy 192.168.2.71:5052", (sites / route).read_text(encoding="utf-8"))
+        suggested = self.client.get(f"/hosts/{host_id}/edit", headers={"host": "10.0.0.71"}).text
+        self.assertIn('value="10.0.0.71:5052"', suggested)
+        self.client.post(f"/hosts/{host_id}/edit", data=self.form(admin_password="", reach="10.0.0.71:5052"), headers={"host": "10.0.0.71"})
+        self.assertIn("reverse_proxy 10.0.0.71:5052", (sites / route).read_text(encoding="utf-8"))
 
     def test_ca_of_an_https_admin_api_is_remembered(self):
         from cryptography.hazmat.primitives.serialization import Encoding
@@ -2415,21 +2415,21 @@ class TestEdit(RouteTest):
         self.assertEqual(self.read("hand.caddy"), "hand.lab.test {\n\trespond 200\n}\n")
 
     def test_allowed_networks_wrap_the_route(self):
-        self.edit(allow="192.168.2.5/24, private  10.0.0.9", auth_user="max", auth_password="open sesame")
+        self.edit(allow="10.0.1.5/24, private  10.0.0.9", auth_user="max", auth_password="open sesame")
         text = self.read("pdf.caddy")
         route = main.read_route(main.Path(self.sites) / "pdf.caddy", self.host)
-        self.assertEqual(route["allow"], "192.168.2.0/24 private 10.0.0.9")
+        self.assertEqual(route["allow"], "10.0.1.0/24 private 10.0.0.9")
         # The refusal comes first, before the login: outside of a route block Caddy would sort it behind.
         self.assertIn(
-            "\timport stepca\n\t@outside not client_ip 192.168.2.0/24 private_ranges 10.0.0.9\n\troute {\n"
+            "\timport stepca\n\t@outside not client_ip 10.0.1.0/24 private_ranges 10.0.0.9\n\troute {\n"
             "\t\trespond @outside 403\n\t\tbasic_auth {\n\t\t\tmax " + route["auth_hash"] + "\n\t\t}\n"
             "\t\treverse_proxy 10.0.0.5:9005\n\t}\n}\n",
             text,
         )
         # The list shows them in a column of their own, folded away behind their count.
-        self.assertIn('<summary title="192.168.2.0/24, private, 10.0.0.9">3 networks</summary>', self.client.get("/").text)
+        self.assertIn('<summary title="10.0.1.0/24, private, 10.0.0.9">3 networks</summary>', self.client.get("/").text)
         form = self.client.get("/routes/pdf/edit").text
-        for network in ("192.168.2.0/24", "private", "10.0.0.9"):
+        for network in ("10.0.1.0/24", "private", "10.0.0.9"):
             self.assertIn(f'<input name="allow" value="{network}"', form)
         taken, reason = main.adopt_route(text, self.host)
         self.assertEqual(taken and taken["allow"], route["allow"], reason)
