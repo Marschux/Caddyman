@@ -22,9 +22,9 @@
 	<colgroup><col><col><col><col><col><col><col></colgroup>
 	<thead>
 		<tr><th>Host</th><th>Type</th><th>Target</th><th>Access</th><th>Options</th><th>TLS</th>
-			{# "Only problems", "To do", and one list without the names of the groups in between (only where there
+			{# "Problems", "To do", and one list without the names of the groups in between (only where there
 			   are groups at all). Shown by routes.js; they belong to the filter form above although they sit here. #}
-			<th class="actions"><label class="check problems" hidden><input type="checkbox" name="problems" form="route-filter"> Only problems</label>
+			<th class="actions"><label class="check problems" hidden><input type="checkbox" name="problems" form="route-filter"> Problems</label>
 				<label class="check todo" hidden><input type="checkbox" name="todo" form="route-filter"> To do</label>
 				{% if routes|selectattr("group")|list %}<label class="check" hidden><input type="checkbox" name="flat" form="route-filter"> No groups</label>{% endif %}</th></tr>
 	</thead>

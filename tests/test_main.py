@@ -794,7 +794,7 @@ class TestRoutes(RouteTest):
         main.PROBE_CACHE.clear()
         page = self.client.get("/").text
         self.assertEqual(page.count("Not reachable"), 1)  # reverse proxies only
-        # What "Only problems" in routes.js goes by.
+        # What "Problems" in routes.js goes by.
         self.assertEqual(page.count(" data-problem>"), 1)
         self.assertIn('src="/static/routes.js"', page)
 

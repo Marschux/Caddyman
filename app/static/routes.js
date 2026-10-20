@@ -1,4 +1,4 @@
-// Search, "only problems", "to do", "no groups" and sorting for the list of routes. Everything works on the
+// Search, "problems", "to do", "no groups" and sorting for the list of routes. Everything works on the
 // rows the server sent; the rows of a group stay below its name unless "no groups" is ticked.
 (() => {
 	const filter = document.getElementById("route-filter");
