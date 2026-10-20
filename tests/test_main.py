@@ -1576,7 +1576,9 @@ class TestManaged(AppTest):
         loaded = lambda pem: main.trust_context(pem).cert_store_stats()["x509"]  # noqa: E731
         self.assertEqual(main.pem_only(lab + "\n" + old_armour), lab)
         self.assertEqual(loaded(lab + "\n" + old_armour), loaded(lab))
-        self.assertEqual(loaded(old_armour), loaded(""))
+        # One stored with nothing loadable trusts nobody, not the public CAs: the kept login stays home.
+        self.assertEqual(loaded(old_armour), 0)
+        self.assertGreater(loaded(""), 0)
         self.assertFalse(main.signs_admin_site(host, old_armour))
 
     def test_a_ca_emptied_with_the_password_kept_needs_the_password(self):

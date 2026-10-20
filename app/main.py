@@ -1410,6 +1410,10 @@ def admin_auth(host: dict) -> tuple[str, str] | None:
 
 @lru_cache(maxsize=4)
 def trust_context(pem: str) -> ssl.SSLContext:
+    if pem and not pem_only(pem):
+        # A remembered CA that no longer reads as a certificate trusts nobody, not the public CAs:
+        # the kept login is not sent to whoever has a public certificate for the name. The status page says so.
+        return ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
     context = httpx.create_ssl_context()  # the public CAs
     if pem_only(pem):
         context.load_verify_locations(cadata=pem_only(pem))
@@ -1442,7 +1446,7 @@ def remember_admin_ca(host: dict, previous: str = "") -> str:
                 found.append(pem_only(pem))
         except ValueError:
             pass
-    return "".join(found) or previous
+    return "\n".join(found) or previous
 
 
 def signs_admin_site(host: dict, pem: str) -> bool:
@@ -1704,8 +1708,9 @@ def preflight(host: dict) -> list[dict]:
         # Remembered on first use, so it is shown: the codes are the ones the Root CA page gives.
         origin = "entered in the settings" if host.get("admin_ca_pasted") else "fetched when the settings were saved"
         usable = bool(pem_only(host["admin_ca"]))
-        detail = f"check code {check_codes(host['admin_ca'])}, {origin}" if usable else "it holds no BEGIN CERTIFICATE block"
-        # Stored by an older version in another armour: it is not loaded, and only the public CAs count.
+        # The codes of what is trusted, not of blocks that are no longer loaded.
+        detail = f"check code {check_codes(pem_only(host['admin_ca']))}, {origin}" if usable else "it holds no BEGIN CERTIFICATE block"
+        # Stored by an older version in another armour: nothing is trusted, so the admin API cannot be reached.
         hint = "Paste the CA again under Settings, Caddy, or save there with the admin API password."
         add("CA of the admin API is remembered", usable, detail, "" if usable else hint)
     if admin_ok:

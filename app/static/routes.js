@@ -123,7 +123,9 @@
 
 	// Folded groups are kept in this browser too, by name.
 	const SHUT = "caddyman.routes.folded";
-	const collapsed = new Set(store((kept) => JSON.parse(kept.getItem(SHUT) || "[]")) || []);
+	// Anything but a list in the storage counts as nothing folded.
+	const folded = store((kept) => JSON.parse(kept.getItem(SHUT) || "[]"));
+	const collapsed = new Set(Array.isArray(folded) ? folded.map(String) : []);
 	const keep = () => store((kept) => kept.setItem(SHUT, JSON.stringify([...collapsed])));
 	// Above the list: the number of routes shown, and one arrow that folds every group or opens them all again.
 	const first = table.tHead.rows[0].cells[0];
