@@ -541,15 +541,15 @@ details.stats > summary:hover { color: var(--ink); }
 .spans button { width: auto; margin: 0; padding: 4px 12px; color: var(--ink-muted); background: none; border: 1px solid var(--hairline-strong); border-radius: 8px; font-size: 12px; font-weight: 600; }
 .spans button:hover { color: var(--ink); background: var(--surface-3); border-color: var(--product); }
 .spans button[aria-pressed="true"] { color: var(--product); background: var(--product-bg); border-color: var(--product); }
-.tiles { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 12px; }
+.tiles { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 10px; }
 @media (max-width: 1000px) { .tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
-button.tile { display: flex; flex-direction: column; align-items: stretch; gap: 2px; width: auto; margin: 0; padding: 16px; text-align: left; color: var(--ink-muted); background: var(--surface-1); border: 1px solid var(--hairline); border-radius: 12px; font-weight: 500; }
+button.tile { display: flex; flex-direction: column; align-items: stretch; gap: 0; width: auto; margin: 0; padding: 10px 12px; text-align: left; color: var(--ink-muted); background: var(--surface-1); border: 1px solid var(--hairline); border-radius: 12px; font-weight: 500; }
 button.tile:hover { background: var(--surface-2); border-color: var(--hairline-strong); }
 button.tile[aria-expanded="true"] { border-color: var(--product); }
 .tile .label { color: var(--ink-subtle); font-size: 12px; font-weight: 600; letter-spacing: 0.6px; text-transform: uppercase; }
-.tile .value { color: var(--ink); font-size: 26px; font-weight: 600; line-height: 1.25; letter-spacing: -0.4px; }
+.tile .value { color: var(--ink); font-size: 20px; font-weight: 600; line-height: 1.25; letter-spacing: -0.4px; }
 .tile .sub { font-size: 12px; }
-.bars { display: flex; align-items: stretch; gap: 1px; height: 28px; margin-top: 8px; }
+.bars { display: flex; align-items: stretch; gap: 1px; height: 20px; margin-top: 6px; }
 /* The span is the full height and carries the tooltip; the i inside is the bar that shows. */
 .bars > span { flex: 1; display: flex; align-items: flex-end; }
 .bars i { width: 100%; min-height: 1px; background: var(--product); border-radius: 1px; }

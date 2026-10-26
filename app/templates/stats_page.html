@@ -2,6 +2,9 @@
 {% block title %}Stats · Caddyman{% endblock %}
 {% block content %}
 {% set s = stats %}
+{% set here = "/stats" ~ ("/" ~ section if section) %}
+{# Time range and route go along to every other page of the tab. #}
+{% set query = "span=" ~ span ~ ("&route=" ~ s.only|urlencode if s.only else "") %}
 {# A large curve: the highest bar at the top, start, middle and end of the time below it. #}
 {% macro chart(title, value, sub, rows, peak, kind="") %}
 <section class="chart">
@@ -16,11 +19,16 @@
 <section><h3>{{ title }}</h3>
 	{% if rows %}<table class="top"><tbody>{{ caller() }}</tbody></table>{% else %}<p class="empty">{{ empty }}</p>{% endif %}</section>
 {% endmacro %}
-{% macro link(name, host) %}<a href="/stats?span={{ span }}&amp;route={{ name|urlencode }}">{{ host }}</a>{% endmacro %}
+{# A route named in a list narrows this page to it. #}
+{% macro link(name, host, to=here) %}<a href="{{ to }}?span={{ span }}&amp;route={{ name|urlencode }}">{{ host }}</a>{% endmacro %}
 {% set by_host = {} %}{% for name, host in s.routes %}{% set _ = by_host.update({host: name}) %}{% endfor %}
+{% macro path_row(host, path, value) %}<tr><td><span class="on"><code>{{ path }}</code>{% if not s.only %}{{ link(by_host[host], host) }}{% endif %}</span></td><td class="num">{{ value }}</td></tr>{% endmacro %}
 <h1>Stats</h1>
+<aside class="side">
+	{% for key, name in sections.items() %}<a href="/stats{{ '/' ~ key if key }}?{{ query }}"{% if key == section %} aria-current="page"{% endif %}>{{ name }}</a>{% endfor %}
+</aside>
 <div class="toolbar">
-	<form method="get" action="/stats" class="row filters" id="stats-filter">
+	<form method="get" action="{{ here }}" class="row filters" id="stats-filter">
 		<input type="hidden" name="span" value="{{ span }}">
 		<select name="route" aria-label="Route">
 			<option value="">All routes with an access log ({{ s.logged }})</option>
@@ -29,12 +37,13 @@
 		<noscript><button type="submit" class="secondary">Show</button></noscript>
 	</form>
 	<div class="spans" role="group" aria-label="Time range">
-		{% for name in spans %}<a class="button" href="/stats?span={{ name }}{{ '&route=' ~ s.only|urlencode if s.only }}"{% if name == span %} aria-current="true"{% endif %}>{{ name }}</a>{% endfor %}
+		{% for name in spans %}<a class="button" href="{{ here }}?span={{ name }}{{ '&route=' ~ s.only|urlencode if s.only }}"{% if name == span %} aria-current="true"{% endif %}>{{ name }}</a>{% endfor %}
 	</div>
 </div>
 {% if s.without_log %}<small class="stats-note">{{ s.without_log }} route{{ "s" if s.without_log != 1 }} without an access log {{ "are" if s.without_log != 1 else "is" }} not counted. Switch it on in the form of a route.</small>{% endif %}
 {# Swapped every minute by stats_page.js. #}
 <div id="stats-page" class="stats">
+	{% if section == "" %}
 	<div class="charts">
 		{{ chart("Requests", s.requests, s.label, s.request_bars, s.peaks.requests) }}
 		{{ chart("Errors", s.errors, s.errors_detail, s.error_bars, s.peaks.errors, "errors") }}
@@ -46,26 +55,36 @@
 	</div>
 	<p class="legend"><span class="in">In</span> is what clients sent, <span class="out">out</span> what Caddy answered.</p>
 
-	{% if not s.only %}
-	<h2 class="spaced">Routes</h2>
-	{# Sorted by a click on a column title (stats_page.js), by the number behind each cell. #}
-	<table class="even sortable">
+	{% elif section == "routes" %}
+	{# Busiest first; a click on a column title sorts by it (stats_page.js), by the number behind each cell. #}
+	<table class="even sortable" id="routes">
 		<thead><tr><th>Route</th><th class="num">Requests</th><th class="num">Errors</th><th class="num">In</th><th class="num">Out</th><th class="num">Median</th><th class="num">p95</th><th class="num">Visitors</th></tr></thead>
 		<tbody>
-			{% for row in s.table %}<tr><td data-sort="{{ row.host }}">{{ link(row.name, row.host) }}</td>{% for shown, number in row.cells %}<td class="num" data-sort="{{ number }}">{{ shown }}</td>{% endfor %}</tr>
+			{% for row in s.table if not s.only or row.name == s.only %}<tr><td data-sort="{{ row.host }}">{{ link(row.name, row.host, "/stats") }}</td>{% for shown, number in row.cells %}<td class="num" data-sort="{{ number }}">{{ shown }}</td>{% endfor %}</tr>
 			{% else %}<tr><td colspan="8" class="empty">No route has an access log yet.</td></tr>{% endfor %}
 		</tbody>
 	</table>
-	{% endif %}
 
+	{% elif section == "paths" %}
 	<div class="lists">
-		{% call list("Most requested paths", s.busy_paths) %}{% for host, path, value in s.busy_paths %}<tr><td><span class="on"><code>{{ path }}</code>{% if not s.only %}{{ link(by_host[host], host) }}{% endif %}</span></td><td class="num">{{ value }}</td></tr>{% endfor %}{% endcall %}
-		{% call list("Failing paths", s.failed) %}{% for host, path, value in s.failed %}<tr><td><span class="on"><code>{{ path }}</code>{% if not s.only %}{{ link(by_host[host], host) }}{% endif %}</span></td><td class="num">{{ value }}</td></tr>{% endfor %}{% endcall %}
-		{% call list("Slowest paths (average)", s.slow_paths) %}{% for host, path, value in s.slow_paths %}<tr><td><span class="on"><code>{{ path }}</code>{% if not s.only %}{{ link(by_host[host], host) }}{% endif %}</span></td><td class="num">{{ value }}</td></tr>{% endfor %}{% endcall %}
+		{% call list("Most requested paths", s.busy_paths) %}{% for host, path, value in s.busy_paths %}{{ path_row(host, path, value) }}{% endfor %}{% endcall %}
+		{% call list("Slowest paths (average)", s.slow_paths) %}{% for host, path, value in s.slow_paths %}{{ path_row(host, path, value) }}{% endfor %}{% endcall %}
+	</div>
+
+	{% elif section == "errors" %}
+	<div class="charts">{{ chart("Errors", s.errors, s.errors_detail, s.error_bars, s.peaks.errors, "errors") }}</div>
+	<div class="lists">
+		{% call list("Failing paths", s.failed) %}{% for host, path, value in s.failed %}{{ path_row(host, path, value) }}{% endfor %}{% endcall %}
 		{% call list("Status codes", s.all_codes) %}{% for code, value in s.all_codes %}<tr><td><code>{{ code }}</code></td><td class="num">{{ value }}</td></tr>{% endfor %}{% endcall %}
+	</div>
+
+	{% elif section == "visitors" %}
+	<div class="charts">{{ chart("Visitors", s.visitors, s.visitors_detail, s.visitor_bars, s.peaks.visitors, "visitors") }}</div>
+	<div class="lists">
 		{% call list("Addresses", s.ips) %}{% for address, value in s.ips %}<tr><td><code>{{ address }}</code></td><td class="num">{{ value }}</td></tr>{% endfor %}{% endcall %}
 		{% call list("User agents", s.agents) %}{% for agent, value in s.agents %}<tr><td>{{ agent or "(none)" }}</td><td class="num">{{ value }}</td></tr>{% endfor %}{% endcall %}
 	</div>
+	{% endif %}
 </div>
 {% endblock %}
 {% block scripts %}<script src="/static/stats_page.js" defer></script>{% endblock %}

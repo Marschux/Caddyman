@@ -4624,7 +4624,8 @@ def stats_view(host: dict, span: str, only: str = "", top: int = STATS_TOP) -> d
         "label": label,
         "only": only,
         "routes": sorted(hosts.items(), key=lambda pair: pair[1]),
-        "table": [table_row(name) for name in sorted(hosts, key=hosts.get)],
+        # Busiest first, like the list under the tile; the same number of requests goes by name.
+        "table": [table_row(name) for name in sorted(hosts, key=lambda name: (-per_route.get(name, {}).get("requests", 0), hosts[name]))],
         # The axis of the large curves: the highest bar, and the time at the start, middle and end.
         "axis": [when(index) for index in (0, bars_count // 2, bars_count - 1)],
         "peaks": {
@@ -4651,12 +4652,20 @@ def stats_tiles(request: Request, span: str = "24h"):
 STATS_PAGE_TOP = 25
 
 
+# The pages of the Stats tab, in the list at its left edge. "" is the overview with the curves.
+STATS_SECTIONS = {"": "Overview", "routes": "Routes", "paths": "Paths", "errors": "Errors", "visitors": "Visitors"}
+
+
 @app.get("/stats")
-def stats_page(request: Request, span: str = "24h", route: str = ""):
-    """Everything in detail: large curves, a table of every route with a log, and long lists. route narrows it to one."""
+@app.get("/stats/{section}")
+def stats_page(request: Request, section: str = "", span: str = "24h", route: str = ""):
+    """Everything in detail, one page per part. route narrows all of it to one route."""
+    if section not in STATS_SECTIONS:
+        return Response(status_code=404)
     current = the_host()
     span = span if span in STATS_RANGES else "24h"
-    return page(request, "stats_page.html", stats=stats_view(current, span, route, STATS_PAGE_TOP), span=span, spans=list(STATS_RANGES))
+    view = stats_view(current, span, route, STATS_PAGE_TOP)
+    return page(request, "stats_page.html", stats=view, span=span, spans=list(STATS_RANGES), section=section, sections=STATS_SECTIONS)
 
 
 # The status page is open to every account, and its checks ask Caddy, the CA and the admin API

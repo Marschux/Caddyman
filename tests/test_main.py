@@ -3502,27 +3502,35 @@ class TestStats(RouteTest):
         self.write("access-gone.log", [self.request()] * 5)
         self.assertIn('<span class="value">5</span>', self.stats("7d"))
 
-    def test_the_stats_page_shows_every_route_and_narrows_to_one(self):
+    def test_the_stats_tab_has_a_page_per_part_and_narrows_to_one_route(self):
         self.create(host="git.lab.test", upstream="10.0.0.8:3000", log="1")
         self.write("access-pdf.log", [self.request("/a"), self.request("/b", status=500)])
         self.write("access-git.log", [self.request("/c", ip="10.0.0.1")])
-        page = self.client.get("/stats").text
-        self.assertIn('href="/stats" aria-current="page">Stats</a>', page)
-        self.assertIn('<td data-sort="git.lab.test"><a href="/stats?span=24h&amp;route=git">git.lab.test</a></td>', page)
-        self.assertIn('<td class="num" data-sort="50.0">50.0 %</td>', page)
-        self.assertIn("<code>/c</code>", page)
-        self.assertIn("1 route without an access log is not counted.", page)
-        # One route: its numbers only, and no table of all of them.
-        one = self.client.get("/stats", params={"route": "git", "span": "7d"}).text
+        overview = self.client.get("/stats").text
+        self.assertIn('href="/stats" aria-current="page">Stats</a>', overview)
+        self.assertIn('<a href="/stats?span=24h" aria-current="page">Overview</a>', overview)
+        self.assertIn("1 route without an access log is not counted.", overview)
+        # The table of the routes: busiest first, a link that narrows the overview to the route.
+        routes = self.client.get("/stats/routes").text
+        self.assertIn('<td data-sort="git.lab.test"><a href="/stats?span=24h&amp;route=git">git.lab.test</a></td>', routes)
+        self.assertIn('<td class="num" data-sort="50.0">50.0 %</td>', routes)
+        self.assertLess(routes.index('route=pdf">'), routes.index('route=git">'))
+        self.assertIn("<code>/c</code>", self.client.get("/stats/paths").text)
+        self.assertIn("<code>500</code>", self.client.get("/stats/errors").text)
+        self.assertIn("<code>10.0.0.1</code>", self.client.get("/stats/visitors").text)
+        self.assertEqual(self.client.get("/stats/nothing").status_code, 404)
+        # One route: its numbers only, and time range and route go along in the list at the side.
+        one = self.client.get("/stats/paths", params={"route": "git", "span": "7d"}).text
         self.assertIn('<option value="git" selected>git.lab.test</option>', one)
+        self.assertIn('<a href="/stats/errors?span=7d&amp;route=git">Errors</a>', one)
         self.assertNotIn("<code>/a</code>", one)
-        self.assertNotIn("sortable", one)
         # A name that is no route with a log counts as all of them.
-        self.assertIn("<code>/a</code>", self.client.get("/stats", params={"route": "../wiki"}).text)
+        self.assertIn("<code>/a</code>", self.client.get("/stats/paths", params={"route": "../wiki"}).text)
         # The tiles lead here.
         tiles = self.stats()
         self.assertIn('<a href="/stats?span=24h">Details</a>', tiles)
-        self.assertEqual(tiles.count('>All in Stats</a>'), 5)
+        self.assertIn('<a class="all" href="/stats/routes?span=24h">All routes</a>', tiles)
+        self.assertIn('<a class="all" href="/stats/visitors?span=24h">All visitors</a>', tiles)
 
     def test_statistics_take_their_own_right(self):
         self.client.post("/settings/users/new", data={"username": "viewer", "password": PASSWORD, "repeat": PASSWORD, "right_logs": "1"})
