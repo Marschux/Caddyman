@@ -1,0 +1,51 @@
+{# The tiles above the route list. Fetched by stats.js and put into the page; no page of its own. #}
+{% set s = stats %}
+<div class="stats-head">
+	<small>{% if s.logged %}{{ s.logged }} route{{ "s" if s.logged != 1 }} with an access log{% else %}No route has an access log yet{% endif %}{% if s.without_log %}, {{ s.without_log }} without{% endif %}.</small>
+	<div class="spans" role="group" aria-label="Time range">
+		{% for name in spans %}<button type="button" data-span="{{ name }}" aria-pressed="{{ 'true' if name == span else 'false' }}">{{ name }}</button>{% endfor %}
+	</div>
+</div>
+<div class="tiles">
+	<button type="button" class="tile" data-panel="requests" aria-expanded="false">
+		<span class="label">Requests</span><span class="value">{{ s.requests }}</span><span class="sub">{{ {"24h": "last 24 hours", "7d": "last 7 days"}[span] }}</span>
+		<span class="bars">{% for height, title in s.request_bars %}<span{% if not height %} class="none"{% endif %} style="height: {{ height }}%" title="{{ title }}"></span>{% endfor %}</span>
+	</button>
+	<button type="button" class="tile" data-panel="errors" aria-expanded="false">
+		<span class="label">Errors</span><span class="value">{{ s.errors }}</span><span class="sub">{{ s.errors_detail }}</span>
+		<span class="bars errors">{% for height, title in s.error_bars %}<span{% if not height %} class="none"{% endif %} style="height: {{ height }}%" title="{{ title }}"></span>{% endfor %}</span>
+	</button>
+	<button type="button" class="tile" data-panel="traffic" aria-expanded="false">
+		<span class="label">Traffic</span><span class="value">{{ s.traffic }}</span><span class="sub">{{ s.traffic_detail }}</span>
+	</button>
+	<button type="button" class="tile" data-panel="time" aria-expanded="false">
+		<span class="label">Response time</span><span class="value">{{ s.median }}</span><span class="sub">median, p95 {{ s.p95 }}</span>
+	</button>
+	<button type="button" class="tile" data-panel="visitors" aria-expanded="false">
+		<span class="label">Visitors</span><span class="value">{{ s.visitors }}</span><span class="sub">{{ s.visitors_detail }}</span>
+	</button>
+</div>
+{# A route in a list is a button: it puts its name into the search of the list below. #}
+{% macro route(name) %}<button type="button" class="link" data-route="{{ name }}">{{ name }}</button>{% endmacro %}
+{% macro top(title, rows, empty="Nothing in this time.") %}
+<div><h3>{{ title }}</h3>
+	{% if rows %}<table class="top"><tbody>{{ caller() }}</tbody></table>{% else %}<p class="empty">{{ empty }}</p>{% endif %}</div>
+{% endmacro %}
+<div class="panel" data-panel="requests" hidden>
+	{% call top("Routes", s.by_requests) %}{% for name, value in s.by_requests %}<tr><td>{{ route(name) }}</td><td class="num">{{ value }}</td></tr>{% endfor %}{% endcall %}
+</div>
+<div class="panel" data-panel="errors" hidden>
+	{% call top("Status codes", s.codes) %}{% for code, value in s.codes %}<tr><td><code>{{ code }}</code></td><td class="num">{{ value }}</td></tr>{% endfor %}{% endcall %}
+	{% call top("Failing paths", s.failed) %}{% for name, path, value in s.failed %}<tr><td><code>{{ path }}</code><small>{{ route(name) }}</small></td><td class="num">{{ value }}</td></tr>{% endfor %}{% endcall %}
+</div>
+<div class="panel" data-panel="traffic" hidden>
+	{% call top("Routes", s.by_bytes) %}{% for name, value in s.by_bytes %}<tr><td>{{ route(name) }}</td><td class="num">{{ value }}</td></tr>{% endfor %}{% endcall %}
+</div>
+<div class="panel" data-panel="time" hidden>
+	{% call top("Slowest routes (p95)", s.slow_routes) %}{% for name, value in s.slow_routes %}<tr><td>{{ route(name) }}</td><td class="num">{{ value }}</td></tr>{% endfor %}{% endcall %}
+	{% call top("Slowest paths (average)", s.slow_paths) %}{% for name, path, value in s.slow_paths %}<tr><td><code>{{ path }}</code><small>{{ route(name) }}</small></td><td class="num">{{ value }}</td></tr>{% endfor %}{% endcall %}
+</div>
+<div class="panel" data-panel="visitors" hidden>
+	{% call top("Addresses", s.ips) %}{% for address, value in s.ips %}<tr><td><code>{{ address }}</code></td><td class="num">{{ value }}</td></tr>{% endfor %}{% endcall %}
+	{% call top("User agents", s.agents) %}{% for agent, value in s.agents %}<tr><td>{{ agent or "(none)" }}</td><td class="num">{{ value }}</td></tr>{% endfor %}{% endcall %}
+</div>

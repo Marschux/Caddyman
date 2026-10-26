@@ -23,6 +23,8 @@ import threading
 import time
 import zipfile
 import zlib
+from bisect import bisect_left
+from collections import Counter
 from concurrent.futures import ThreadPoolExecutor, wait
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
@@ -205,6 +207,7 @@ PERMISSIONS = {
     "ca": "Root CA page",
     "backup": "Backup and import",
     "logs": "Logs",
+    "stats": "Statistics",
     "caddy": "Settings: Caddy",
     "general": "Settings: General",
     "smtp": "Settings: SMTP",
@@ -212,7 +215,8 @@ PERMISSIONS = {
     "users": "Manage users",
 }
 # Rights that were split up: an account from before keeps what it could do (15.10.2026).
-RIGHTS_VERSION = 3
+# Version 4 brought the statistics, which whoever could read the logs gets (26.10.2026).
+RIGHTS_VERSION = 4
 SPLIT_RIGHTS = {"routes": ("groups", "errors"), "settings": ("caddy", "general", "smtp", "alerts")}
 USERS_LOCK = threading.Lock()
 EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\Z")
@@ -239,9 +243,14 @@ def split_rights(user: dict) -> dict:
     if version >= RIGHTS_VERSION or not isinstance(user.get("permissions"), list):
         return user
     had = user["permissions"]
-    finer = [right for right in had if right in PERMISSIONS] + [new for old, news in SPLIT_RIGHTS.items() if old in had for new in news]
+    finer = [right for right in had if right in PERMISSIONS]
+    # Once only: an account saved since may have been given less on purpose.
+    if version < 3:
+        finer += [new for old, news in SPLIT_RIGHTS.items() if old in had for new in news]
     if version == 2 and {"caddy", "general", "smtp"} <= set(had):
         finer.append("alerts")
+    if "logs" in had:
+        finer.append("stats")
     return {**user, "permissions": [right for right in PERMISSIONS if right in finer], "rights": RIGHTS_VERSION}
 
 
@@ -530,6 +539,7 @@ AREAS = (
     ("/error-pages", "errors"),
     ("/backup", "backup"),
     ("/logs", "logs"),
+    ("/stats", "stats"),
     ("/caddyfile", "caddy"),
     ("/ca", "ca"),
 )
@@ -4219,8 +4229,11 @@ def logs_page(request: Request, file: str = "", level: str = "", q: str = "", qu
     return page(request, "logs.html", host=current, shown=LOG_SHOWN, **snippets, **context)
 
 
-def open_log(host: dict, wanted: str):
-    """The name and an open binary handle of a whole log, unpacked, or None. Only names from the listing."""
+def open_log(host: dict, wanted: str, listed: list[str] | None = None):
+    """The name and an open binary handle of a whole log, unpacked, or None. Only names from the listing.
+
+    listed is a listing fetched just before, so a caller opening many files asks for it once.
+    """
     try:
         if host.get("storage") != "managed":
             path = next((path for path in local_log_files() if path.name == wanted), None)
@@ -4232,7 +4245,7 @@ def open_log(host: dict, wanted: str):
                 packed.myfileobj = handle  # closed along with it, as a file gzip opens itself
                 return path.name, packed
             return path.name, handle
-        if wanted not in remote_log_names(host):
+        if wanted not in (remote_log_names(host) if listed is None else listed):
             return None
         # Up to the limit for a packed file; Caddy rolls its logs far below it.
         response = admin_get(host, f"{LOG_REMOTE_DIR}/{quote(wanted)}", headers={"Range": f"bytes=0-{LOG_REMOTE_PACKED_MAX - 1}"})
@@ -4276,6 +4289,271 @@ def logs_download(file: str = ""):
     # Escaped: the name comes from a directory, or from Caddy's listing, and may hold a quote.
     filename = quote(name.removesuffix(".gz"))
     return StreamingResponse(lines(), media_type="text/plain; charset=utf-8", headers={"Content-Disposition": f"attachment; filename*=UTF-8''{filename}"})
+
+
+# Statistics above the route list (26.10.2026): only from the access logs of the routes, nothing is
+# stored. Every log file is summed up per hour and the sums are kept in memory. A rotated file never
+# changes and is read once; the current one is read on from where the last look stopped.
+STATS_RANGES = {"24h": 24, "7d": 168}
+STATS_KEEP_HOURS = max(STATS_RANGES.values())
+STATS_TOP = 5
+# How often the files are looked at again, however many browsers ask.
+STATS_SECONDS = 30
+# Upper edges of the steps response times are counted in: from 1 ms, half again each step, up to about two minutes.
+STATS_STEPS = tuple(0.001 * 1.5**step for step in range(30))
+# Different paths, addresses and user agents kept per hour and file. A scan of thousands of paths
+# would otherwise fill the memory; what comes after the limit is still counted in the totals.
+STATS_KEYS = 2000
+# access-<route>.log, and what Caddy makes of it when rolling: access-<route>-2026-10-26T01-46-00.000.log.gz
+STATS_FILE_RE = re.compile(r"access-(.+?)(?:-(\d{4}-\d\d-\d\dT\d\d-\d\d-\d\d)\.\d+)?\.log(?:\.gz)?\Z")
+STATS_FILES: dict[str, dict] = {}  # log name -> {"route": name, "hours": {hour: sums}, "offset": bytes read}
+STATS_STATE = {"until": 0.0, "host": ""}
+STATS_LOCK = threading.Lock()
+
+
+def stats_sums() -> dict:
+    return {"requests": 0, "bytes": 0, "codes": Counter(), "steps": [0] * len(STATS_STEPS), "ips": Counter(), "agents": Counter(), "failed": Counter(), "paths": {}}
+
+
+def tally(counter: dict, key) -> None:
+    if key in counter or len(counter) < STATS_KEYS:
+        counter[key] = counter.get(key, 0) + 1
+
+
+def count_request(hours: dict, line: bytes, oldest: float) -> None:
+    """One line of an access log into the sums of its hour. Anything that is not a request is left out."""
+    try:
+        entry = json.loads(line)
+        stamp, asked = entry["ts"], entry["request"]
+    except (ValueError, KeyError, TypeError, RecursionError):
+        return
+    if not isinstance(asked, dict) or not isinstance(stamp, (int, float)) or not oldest <= stamp < 1e11:
+        return
+
+    def number(value) -> float:
+        return value if isinstance(value, (int, float)) and not isinstance(value, bool) and 0 <= value < 1e15 else 0
+
+    sums = hours.setdefault(int(stamp // 3600), stats_sums())
+    status, took = int(number(entry.get("status"))), float(number(entry.get("duration")))
+    # Without the query: it may carry a token, and every value would count as a path of its own.
+    path = str(asked.get("uri", "")).split("?", 1)[0][:200] or "/"
+    headers = asked.get("headers") if isinstance(asked.get("headers"), dict) else {}
+    agent = headers.get("User-Agent")
+    agent = str(agent[0] if isinstance(agent, list) and agent else agent or "")[:150]
+    sums["requests"] += 1
+    sums["bytes"] += int(number(entry.get("size")))
+    sums["codes"][status] += 1
+    sums["steps"][min(bisect_left(STATS_STEPS, took), len(STATS_STEPS) - 1)] += 1
+    tally(sums["ips"], str(asked.get("client_ip") or asked.get("remote_ip") or "")[:64])
+    tally(sums["agents"], agent)
+    if status >= 400:
+        tally(sums["failed"], path)
+    if path in sums["paths"] or len(sums["paths"]) < STATS_KEYS:
+        timed = sums["paths"].setdefault(path, [0, 0.0])
+        timed[0], timed[1] = timed[0] + 1, timed[1] + took
+
+
+def read_on(host: dict, name: str, offset: int) -> tuple[bytes, int] | None:
+    """What the current log holds from byte offset on, and where that is: 0 when the file is shorter
+    than before, as after rolling. None when it could not be read. name comes from the listing."""
+    if host.get("storage") != "managed":
+        try:
+            with open_plain(LOG_DIR / name, single_link=True) as handle:
+                size = handle.seek(0, os.SEEK_END)
+                offset = offset if offset <= size else 0
+                handle.seek(offset)
+                return handle.read(LOG_UNPACK_MAX), offset
+        except OSError:
+            return None
+    try:
+        response = admin_get(host, f"{LOG_REMOTE_DIR}/{quote(name)}", headers={"Range": f"bytes={offset}-{offset + LOG_UNPACK_MAX - 1}"})
+    except httpx.HTTPError:
+        return None
+    if response.status_code == 416:
+        # Nothing behind the offset: either nothing new, or a file that started over. "bytes */<size>" tells which.
+        size = re.match(r"bytes \*/(\d+)", str(response.headers.get("content-range", "")))
+        if size and int(size.group(1)) == offset:
+            return b"", offset
+        return read_on(host, name, 0) if offset else None
+    if response.status_code in (200, 206):
+        # A server that ignores the range sends everything, from 0.
+        return response.content[:LOG_UNPACK_MAX], offset if response.status_code == 206 else 0
+    return None
+
+
+def read_rolled(host: dict, name: str, listed: list[str], oldest: float) -> dict | None:
+    """The sums of a rotated log, read whole. None when it could not be read, so the next look tries again."""
+    opened = open_log(host, name, listed)
+    if opened is None:
+        return None
+    hours: dict = {}
+    read = 0
+    with opened[1] as handle:
+        try:
+            for line in iter(lambda: handle.readline(LOG_TAIL_BYTES), b""):
+                read += len(line)
+                if read > LOG_UNPACK_MAX:
+                    break
+                count_request(hours, line, oldest)
+        except (OSError, EOFError, zlib.error):
+            pass
+    return hours
+
+
+def refresh_stats(host: dict, routes: set[str]) -> None:
+    """Brings the sums of the access logs of these routes up to date. Call under STATS_LOCK."""
+    now = time.time()
+    if STATS_STATE["host"] != host["id"]:
+        STATS_FILES.clear()
+    elif STATS_STATE["until"] > now and STATS_STATE.get("routes") == routes:
+        return
+    oldest = (int(now // 3600) - STATS_KEEP_HOURS + 1) * 3600
+    listed = remote_log_names(host) if host.get("storage") == "managed" else [path.name for path in local_log_files()]
+    files = {name: found for name in listed if (found := STATS_FILE_RE.match(name)) and found.group(1) in routes}
+    for name in [name for name in STATS_FILES if name not in files]:
+        del STATS_FILES[name]
+    # A newly rotated file holds what the current one held: that one is read again from its start.
+    for name, found in files.items():
+        if found.group(2) and name not in STATS_FILES:
+            STATS_FILES.pop(f"{ACCESS_LOG_PREFIX}{found.group(1)}.log", None)
+    for name, found in files.items():
+        kept = STATS_FILES.get(name)
+        if found.group(2):
+            if kept is None:
+                try:
+                    rolled = datetime.strptime(found.group(2), "%Y-%m-%dT%H-%M-%S").replace(tzinfo=timezone.utc).timestamp()
+                except ValueError:
+                    rolled = now
+                # Rolled before the longest range began: everything in it is older.
+                hours = {} if rolled < oldest else read_rolled(host, name, listed, oldest)
+                if hours is not None:
+                    STATS_FILES[name] = {"route": found.group(1), "hours": hours}
+            continue
+        kept = kept or {"route": found.group(1), "hours": {}, "offset": 0}
+        if read := read_on(host, name, kept["offset"]):
+            data, start = read
+            if start < kept["offset"]:
+                kept["hours"] = {}
+            # A line Caddy is still writing waits for the next look.
+            end = data.rfind(b"\n") + 1
+            for line in data[:end].splitlines():
+                count_request(kept["hours"], line, oldest)
+            kept["offset"] = start + end
+        STATS_FILES[name] = kept
+    first = oldest // 3600
+    for kept in STATS_FILES.values():
+        for hour in [hour for hour in kept["hours"] if hour < first]:
+            del kept["hours"][hour]
+    STATS_STATE.update(host=host["id"], until=now + STATS_SECONDS, routes=routes)
+
+
+def human_bytes(amount: float) -> str:
+    for unit in ("B", "KiB", "MiB", "GiB"):
+        if amount < 1024:
+            return f"{amount:.0f} {unit}" if unit == "B" else f"{amount:.1f} {unit}"
+        amount /= 1024
+    return f"{amount:.1f} TiB"
+
+
+def human_seconds(seconds: float | None) -> str:
+    if seconds is None:
+        return "-"
+    return f"{seconds * 1000:.0f} ms" if seconds < 1 else f"{seconds:.1f} s"
+
+
+def step_share(steps: list[int], share: float) -> float | None:
+    """The response time this share of the requests stayed below, rounded up to the step it fell in."""
+    total, seen = sum(steps), 0
+    for step, count in enumerate(steps):
+        seen += count
+        if total and seen >= share * total:
+            return STATS_STEPS[step]
+    return None
+
+
+def stats_view(host: dict, span: str) -> dict:
+    """Everything the tiles show, summed over the routes with an access log, for the last hours of span."""
+    items = [item for item in list_routes(host) if item["route"] and item["route"]["type"] != "error_page"]
+    hosts = {item["name"]: item["route"]["host"] for item in items if item["route"].get("log")}
+    hours = STATS_RANGES[span]
+    last = int(time.time() // 3600)
+    first = last - hours + 1
+    series, failing = [0] * hours, [0] * hours
+    per_route: dict[str, dict] = {}
+    steps = [0] * len(STATS_STEPS)
+    codes, failed, ips, agents = Counter(), Counter(), Counter(), Counter()
+    paths: dict[tuple, list] = {}
+    total_bytes = 0
+    with STATS_LOCK:
+        refresh_stats(host, set(hosts))
+        for kept in STATS_FILES.values():
+            route = kept["route"]
+            mine = per_route.setdefault(route, {"requests": 0, "bytes": 0, "steps": [0] * len(STATS_STEPS)})
+            for hour, sums in kept["hours"].items():
+                if not first <= hour <= last:
+                    continue
+                series[hour - first] += sums["requests"]
+                failing[hour - first] += sum(count for code, count in sums["codes"].items() if code >= 400)
+                mine["requests"] += sums["requests"]
+                mine["bytes"] += sums["bytes"]
+                total_bytes += sums["bytes"]
+                for step, count in enumerate(sums["steps"]):
+                    mine["steps"][step] += count
+                    steps[step] += count
+                codes.update(sums["codes"])
+                ips.update(sums["ips"])
+                agents.update(sums["agents"])
+                failed.update({(route, path): count for path, count in sums["failed"].items()})
+                for path, (count, took) in sums["paths"].items():
+                    timed = paths.setdefault((route, path), [0, 0.0])
+                    timed[0], timed[1] = timed[0] + count, timed[1] + took
+    zone = time_zone()
+
+    def bars(values: list[int], what: str) -> list[tuple[int, str]]:
+        top = max(values) or 1
+        return [(round(100 * value / top), f"{datetime.fromtimestamp((first + index) * 3600, zone).strftime('%a %H:00')}: {value:,} {what}")
+                for index, value in enumerate(values)]
+
+    def route_top(key) -> list[tuple[str, dict]]:
+        ranked = sorted(((route, sums) for route, sums in per_route.items() if sums["requests"]), key=lambda pair: key(pair[1]), reverse=True)
+        return [(hosts.get(route, route), sums) for route, sums in ranked[:STATS_TOP]]
+
+    requests, errors = sum(series), sum(failing)
+    client = sum(count for code, count in codes.items() if 400 <= code < 500)
+    slowest = sorted(paths.items(), key=lambda pair: -pair[1][1] / pair[1][0])[:STATS_TOP]
+    return {
+        "requests": f"{requests:,}",
+        "request_bars": bars(series, "requests"),
+        "by_requests": [(name, f"{sums['requests']:,}") for name, sums in route_top(lambda sums: sums["requests"])],
+        "errors": f"{100 * errors / requests:.1f} %" if requests else "-",
+        "errors_detail": f"{client:,} client, {errors - client:,} server",
+        "error_bars": bars(failing, "errors"),
+        "codes": [(code, f"{count:,}") for code, count in sorted(codes.items(), key=lambda pair: -pair[1]) if code >= 400][:STATS_TOP],
+        "failed": [(hosts.get(route, route), path, f"{count:,}") for (route, path), count in failed.most_common(STATS_TOP)],
+        "traffic": human_bytes(total_bytes),
+        "traffic_detail": f"{human_bytes(total_bytes / requests)} per request" if requests else "-",
+        "by_bytes": [(name, human_bytes(sums["bytes"])) for name, sums in route_top(lambda sums: sums["bytes"])],
+        "median": human_seconds(step_share(steps, 0.5)),
+        "p95": human_seconds(step_share(steps, 0.95)),
+        "slow_routes": [(name, human_seconds(step_share(sums["steps"], 0.95))) for name, sums in route_top(lambda sums: step_share(sums["steps"], 0.95) or 0)],
+        "slow_paths": [(hosts.get(route, route), path, human_seconds(took / count)) for (route, path), (count, took) in slowest],
+        "visitors": f"{len(ips):,}",
+        "visitors_detail": f"{len(agents):,} user agents",
+        "ips": [(address, f"{count:,}") for address, count in ips.most_common(STATS_TOP)],
+        "agents": [(agent, f"{count:,}") for agent, count in agents.most_common(STATS_TOP)],
+        "without_log": sum(1 for item in items if not item["route"].get("log")),
+        "logged": len(hosts),
+    }
+
+
+@app.get("/stats")
+def stats(request: Request, span: str = "24h"):
+    """The tiles above the route list, fetched by stats.js after the page and again every minute."""
+    current = pick_host()
+    if current is None:
+        return Response(status_code=204)
+    span = span if span in STATS_RANGES else "24h"
+    return page(request, "stats.html", stats=stats_view(current, span), span=span, spans=list(STATS_RANGES))
 
 
 # The status page is open to every account, and its checks ask Caddy, the CA and the admin API

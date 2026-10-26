@@ -3,6 +3,13 @@
 {# Without the right to change routes the list is read only; the server refuses the rest anyway. #}
 {% set may_change = "routes" in request.state.me.permissions %}
 <h1>Routes</h1>
+{# Filled by stats.js after the page, from /stats. #}
+{% if "stats" in request.state.me.permissions %}
+<details class="stats" id="stats" open>
+	<summary>Statistics</summary>
+	<div class="stats-body"><p class="empty">Reading the access logs ...</p></div>
+</details>
+{% endif %}
 <div class="toolbar">
 	{# Shown by routes.js, which also makes the column titles sort. #}
 	{% if routes %}
@@ -135,4 +142,4 @@
 </table>
 {% endblock %}
 {# game.js is a hidden extra: it waits for one word in the search. #}
-{% block scripts %}<script src="/static/routes.js" defer></script><script src="/static/game.js" defer></script>{% endblock %}
+{% block scripts %}<script src="/static/routes.js" defer></script><script src="/static/stats.js" defer></script><script src="/static/game.js" defer></script>{% endblock %}

@@ -1174,7 +1174,7 @@ class TestUsers(RouteTest):
         users = main.load_users()
         users.append({**users[0], "username": "old", "permissions": ["routes", "settings", "logs"]})
         main.write_json(main.AUTH_FILE, [{key: value for key, value in user.items() if key != "rights"} for user in users])
-        self.assertEqual(main.find_user(main.load_users(), "old")["permissions"], ["routes", "groups", "errors", "logs", "caddy", "general", "smtp", "alerts"])
+        self.assertEqual(main.find_user(main.load_users(), "old")["permissions"], ["routes", "groups", "errors", "logs", "stats", "caddy", "general", "smtp", "alerts"])
         # Saved with the split before Alerts existed: Alerts comes with the other settings blocks.
         users = [{**user, "rights": 2, "permissions": ["caddy", "general", "smtp"]} if user["username"] == "old" else user for user in main.load_users()]
         main.write_json(main.AUTH_FILE, users)
@@ -3417,6 +3417,89 @@ class TestAlerts(RouteTest):
         main.watch_once()
         self.assertEqual(len(self.sent), 2)  # the certificate and the admin API
         self.assertEqual({to for to, _, _ in self.sent}, {"ada@lab.test"})
+
+
+class TestStats(RouteTest):
+    def setUp(self):
+        super().setUp()
+        main.STATS_FILES.clear()
+        main.STATS_STATE.update(until=0.0, host="")
+        self.logs = os.path.join(self.dir.name, "logs")
+        os.mkdir(self.logs)
+        self.patch(main, "LOG_DIR", main.Path(self.logs))
+        self.create(log="1")
+        self.create(host="wiki.lab.test", upstream="10.0.0.7:3000")
+        self.now = main.time.time()
+
+    def request(self, uri="/", status=200, size=100, duration=0.05, ip="10.0.0.9", agent="curl/8", ago=60):
+        return json.dumps({"level": "info", "ts": self.now - ago, "logger": "http.log.access.log0", "msg": "handled request",
+                           "status": status, "size": size, "duration": duration,
+                           "request": {"method": "GET", "uri": uri, "host": "pdf.lab.test", "remote_ip": ip, "headers": {"User-Agent": [agent]}}})
+
+    def write(self, name, lines, mode="w"):
+        opener = gzip.open if name.endswith(".gz") else open
+        with opener(os.path.join(self.logs, name), mode + "t", encoding="utf-8", newline="\n") as handle:
+            handle.write("".join(line + "\n" for line in lines))
+
+    def stats(self, span="24h"):
+        main.STATS_STATE["until"] = 0.0  # looked at again at once, not after STATS_SECONDS
+        return self.client.get("/stats", params={"span": span}).text
+
+    def test_tiles_sum_up_the_access_logs(self):
+        self.write("access-pdf.log", [
+            self.request(),
+            self.request("/missing?token=secret", status=404, ip="10.0.0.8"),
+            self.request("/api", status=502, size=0, duration=2.5, agent="Firefox"),
+            "not json",
+            '{"level":"info","ts":1,"logger":"http.log.access.log0","msg":"too old","request":{}}',
+        ])
+        page = self.stats()
+        self.assertIn('<span class="value">3</span>', page)
+        self.assertIn("66.7 %", page)
+        self.assertIn("1 client, 1 server", page)
+        self.assertIn('<span class="value">200 B</span>', page)
+        self.assertIn('<span class="value">2</span>', page)  # visitors
+        self.assertIn('data-route="pdf.lab.test"', page)
+        self.assertIn("<code>/missing</code>", page)
+        self.assertNotIn("secret", page)
+        self.assertIn("1 route with an access log, 1 without.", page)
+        # The route list carries the place the tiles go into, and the script that fills it.
+        index = self.client.get("/").text
+        self.assertIn('id="stats"', index)
+        self.assertIn("/static/stats.js", index)
+
+    def test_new_lines_are_read_on_and_rotated_files_once(self):
+        self.write("access-pdf.log", [self.request()])
+        self.assertIn('<span class="value">1</span>', self.stats())
+        # Appended lines are added; a line without its end yet waits.
+        with open(os.path.join(self.logs, "access-pdf.log"), "a", encoding="utf-8", newline="\n") as handle:
+            handle.write(self.request() + "\n" + self.request()[:20])
+        self.assertIn('<span class="value">2</span>', self.stats())
+        # Rolled: the old lines move into a packed file, the current one starts over.
+        self.write("access-pdf-2026-10-26T01-00-00.000.log.gz", [self.request()] * 2)
+        self.write("access-pdf.log", [self.request(ago=30)])
+        self.assertIn('<span class="value">3</span>', self.stats())
+        # Older than the range: counted in 7d, not in 24h. A rolled file from before the longest range is not opened.
+        self.write("access-pdf.log", [self.request(ago=3 * 86400)], mode="a")
+        self.write("access-pdf-2020-01-01T00-00-00.000.log.gz", ["{broken"])
+        self.assertIn('<span class="value">3</span>', self.stats())
+        self.assertIn('<span class="value">4</span>', self.stats("7d"))
+        # A file of a route without a log, or of no route at all, does not count.
+        self.write("access-wiki.log", [self.request()] * 5)
+        self.write("access-gone.log", [self.request()] * 5)
+        self.assertIn('<span class="value">4</span>', self.stats("7d"))
+
+    def test_statistics_take_their_own_right(self):
+        self.client.post("/settings/users/new", data={"username": "viewer", "password": PASSWORD, "repeat": PASSWORD, "right_logs": "1"})
+        viewer = self.guest()
+        viewer.post("/login", data={"username": "viewer", "password": PASSWORD})
+        self.assertEqual(viewer.get("/stats").status_code, 403)
+        self.assertNotIn('id="stats"', viewer.get("/").text)
+        # An account saved before the right existed gets it along with the logs.
+        users = [{**user, "rights": 3} for user in main.load_users()]
+        main.write_json(main.AUTH_FILE, users)
+        self.assertEqual(viewer.get("/stats").status_code, 200)
+        self.assertIn('id="stats"', viewer.get("/").text)
 
 
 if __name__ == "__main__":
