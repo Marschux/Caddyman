@@ -4723,16 +4723,14 @@ STATS_PAGE_TOP = 25
 STATS_SECTIONS = {"": "Overview", "routes": "Routes", "paths": "Paths", "errors": "Errors", "visitors": "Visitors"}
 
 
-def recent_requests(host: dict, routes: set[str], span: str, only: str, failed: bool, path: str) -> list[dict]:
-    """The newest single requests in the range span, from what the files are read for the statistics.
+def recent_requests(host: dict, routes: set[str], only: str, failed: bool, path: str) -> list[dict]:
+    """The newest single requests, from what the files are read for the statistics.
     only, failed and path narrow them to a route, to errors and to one path."""
-    bars, seconds, per_bar, _ = STATS_RANGES[span]
-    since = time.time() - bars * per_bar * seconds
     zone = time_zone()
     with STATS_LOCK:
         refresh_stats(host, routes)
         found = [(kept["route"], *record) for kept in STATS_FILES.values() if not only or kept["route"] == only for record in kept["slots"]["latest"]]
-    found = [record for record in found if record[1] >= since and (not failed or record[4] >= 400) and (not path or record[3] == path)]
+    found = [record for record in found if (not failed or record[4] >= 400) and (not path or record[3] == path)]
     found.sort(key=lambda record: -record[1])
     return [{"route": route, "time": datetime.fromtimestamp(stamp, zone).strftime("%d %b %H:%M:%S"), "method": method, "path": asked,
              "status": status, "took": human_seconds(took), "size": human_bytes(size), "address": address, "agent": agent}
@@ -4752,15 +4750,14 @@ def stats_page(request: Request, section: str = "", span: str = "24h", route: st
 
 
 @app.get("/requests")
-def requests_page(request: Request, span: str = "1h", route: str = "", failed: str = "", path: str = ""):
+def requests_page(request: Request, route: str = "", failed: str = "", path: str = ""):
     """Under System: the single requests of every route with an access log, newest first. Right logs, like the logs themselves."""
     current = the_host()
-    span = span if span in STATS_RANGES else "1h"
     _, hosts = logged_routes(current)
     route = route if route in hosts else ""
-    found = recent_requests(current, set(hosts), span, route, bool(failed), path)
+    found = recent_requests(current, set(hosts), route, bool(failed), path)
     return page(request, "requests.html", requests=found, routes=sorted(hosts.items(), key=lambda pair: pair[1]), only=route,
-                span=span, spans=list(STATS_RANGES), failed=bool(failed), path=path, shown=STATS_REQUESTS_SHOWN)
+                failed=bool(failed), path=path, shown=STATS_REQUESTS_SHOWN)
 
 
 # The status page is open to every account, and its checks ask Caddy, the CA and the admin API

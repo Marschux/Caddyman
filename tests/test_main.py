@@ -3558,7 +3558,7 @@ class TestStats(RouteTest):
         one = self.client.get("/requests", params={"path": "/old"}).text
         self.assertEqual(one.count("GET /old</code>"), 2)
         self.assertNotIn("GET /new", one)
-        self.assertIn('href="/requests?span=24h&amp;route=pdf&amp;path=/old"', self.client.get("/stats/paths").text)
+        self.assertIn('href="/requests?route=pdf&amp;path=/old"', self.client.get("/stats/paths").text)
         self.assertIn('href="/requests" aria-current="page">Requests</a>', page)
 
     def test_statistics_take_their_own_right(self):

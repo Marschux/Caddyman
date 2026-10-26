@@ -61,7 +61,7 @@
 {% set by_host = {} %}{% for name, host in s.routes %}{% set _ = by_host.update({host: name}) %}{% endfor %}
 {# A path leads to its single requests under System, for whoever may read the logs. #}
 {% set may_read = "logs" in request.state.me.permissions %}
-{% macro path_row(host, path, value) %}<tr><td><span class="on">{% if may_read %}<a class="path" href="/requests?span={{ span }}&amp;route={{ (by_host[host] if not s.only else s.only)|urlencode }}&amp;path={{ path|urlencode }}"><code>{{ path }}</code></a>{% else %}<code>{{ path }}</code>{% endif %}{% if not s.only %}{{ link(by_host[host], host) }}{% endif %}</span></td><td class="num">{{ value }}</td></tr>{% endmacro %}
+{% macro path_row(host, path, value) %}<tr><td><span class="on">{% if may_read %}<a class="path" href="/requests?route={{ (by_host[host] if not s.only else s.only)|urlencode }}&amp;path={{ path|urlencode }}"><code>{{ path }}</code></a>{% else %}<code>{{ path }}</code>{% endif %}{% if not s.only %}{{ link(by_host[host], host) }}{% endif %}</span></td><td class="num">{{ value }}</td></tr>{% endmacro %}
 <h1>Stats</h1>
 <aside class="side">
 	{% for key, name in sections.items() %}<a href="/stats{{ '/' ~ key if key }}?{{ query }}"{% if key == section %} aria-current="page"{% endif %}>{{ name }}</a>{% endfor %}
