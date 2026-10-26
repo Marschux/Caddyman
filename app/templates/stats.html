@@ -4,7 +4,8 @@
 {# Every bar takes the full height of the curve, so the tooltip is found above a small one too. #}
 {% macro bars(rows, kind="") %}<span class="bars {{ kind }}">{% for height, title in rows %}<span title="{{ title }}"><i{% if not height %} class="none"{% endif %} style="height: {{ height }}%"></i></span>{% endfor %}</span>{% endmacro %}
 <div class="stats-head">
-	<small>{% if s.logged %}{{ s.logged }} route{{ "s" if s.logged != 1 }} with an access log{% else %}No route has an access log yet{% endif %}{% if s.without_log %}, {{ s.without_log }} without{% endif %}. <a href="/stats?span={{ span }}">Details</a></small>
+	{# Only said when there is nothing to count; the tiles lead to the details. #}
+	{% if not s.logged %}<small>No route has an access log yet. Switch it on in the form of a route.</small>{% endif %}
 	<div class="spans" role="group" aria-label="Time range">
 		{% for name in spans %}<button type="button" data-span="{{ name }}" aria-pressed="{{ 'true' if name == span else 'false' }}">{{ name }}</button>{% endfor %}
 	</div>

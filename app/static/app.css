@@ -537,6 +537,7 @@ details.stats > summary { width: fit-content; color: var(--ink-subtle); font-siz
 details.stats > summary:hover { color: var(--ink); }
 .stats-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; margin: 8px 0 12px; }
 .stats-head small { margin: 0; }
+.stats-head .spans { margin-left: auto; }
 .spans { display: flex; gap: 4px; }
 .spans button { width: auto; margin: 0; padding: 4px 12px; color: var(--ink-muted); background: none; border: 1px solid var(--hairline-strong); border-radius: 8px; font-size: 12px; font-weight: 600; }
 .spans button:hover { color: var(--ink); background: var(--surface-3); border-color: var(--product); }
