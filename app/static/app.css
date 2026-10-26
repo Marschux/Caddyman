@@ -603,3 +603,5 @@ table.sortable th.num button.sort { text-align: right; }
 .pie-box table { flex: 1; min-width: 220px; }
 .dot { display: inline-block; width: 10px; height: 10px; margin-right: 8px; border-radius: 50%; vertical-align: middle; }
 table.top td.share { color: var(--ink-subtle); }
+.chart.agents h3 { margin: 0 0 16px; color: var(--ink-subtle); font-size: 12px; font-weight: 600; letter-spacing: 0.6px; text-transform: uppercase; }
+.chart.agents .pie { width: 150px; height: 150px; }

@@ -3511,6 +3511,7 @@ class TestStats(RouteTest):
         self.assertIn('href="/stats" aria-current="page">Stats</a>', overview)
         self.assertIn('<a href="/stats?span=24h" aria-current="page">Overview</a>', overview)
         self.assertIn("1 route without an access log is not counted.", overview)
+        self.assertIn("conic-gradient(var(--product) 0.00% 100.00%)", overview)
         # The table of the routes: busiest first, a link that narrows the overview to the route.
         routes = self.client.get("/stats/routes").text
         self.assertIn('<td data-sort="git.lab.test"><a href="/stats?span=24h&amp;route=git">git.lab.test</a></td>', routes)
