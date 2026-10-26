@@ -1,5 +1,34 @@
 # Changelog
 
+## 2026-10-26 19:19
+- chore: version 1.3.5
+- docs: README describes the statistics, Requests and the pages of the route list, with a screenshot of the Stats tab
+- feat: response times as one bar per band with count and share; files under /static/ carry the version, so a browser fetches them anew after an update
+- feat: a bar under the requests of every route on the Stats tab, as long as its share of the busiest
+- feat: request methods as a pie on the Stats overview
+- feat: the access logs are read right after the start, so the statistics are ready on the first look
+- fix: statistics hold at most so many names per log file; Requests filters errors and paths from one reading; logs from Caddy elsewhere are read up to their limit; a route named like a rolled file keeps its own log
+- refactor: one way to list and read whole logs; statistics kept until the sums change; Requests keeps only the newest while reading and refreshes on its first page only
+- feat: page numbers to click through the route list and Requests
+- feat: no count of routes with an access log above the tiles, only a hint while there is none
+- feat: route list a page at a time, 25 to 200 per page or all, kept in the browser
+- feat: Requests shows the last 30 days from the access logs, a page at a time, 25 to 200 per page
+- feat: Requests without a time range, the newest first
+- feat: Requests moved under System, with the right to read logs; paths on the Stats tab lead there
+- feat: Requests on the Stats tab: single requests of every route, newest first, with errors only and a filter on one path
+- feat: coarser bars for the last hour (5 minutes) and 7 days (6 hours), starting on round times
+- feat: status codes stacked by class, response times as a histogram and busy hours as a heatmap on the Stats tab
+- feat: the user agent pie on the Stats overview too
+- feat: user agents as a pie chart on the Stats tab
+- feat: the tiles above the route list lead to the Stats tab instead of folding open
+- feat: Stats tab with a list at the side: overview, routes, paths, errors and visitors; the route table busiest first, smaller tiles
+- feat: every list under the tiles links to the Stats tab
+- feat: Stats tab with large curves, a sortable table of every route, longer lists and a filter on one route; the tiles link to it
+- feat: curves for response time and visitors, a tooltip over the whole height of a bar, days as dates in 30d, paths on one line with their route
+- feat: statistics for the last hour, 12 hours and 30 days, and traffic as a curve split into in and out
+- feat: statistics above the route list: requests, errors, traffic, response time and visitors from the access logs of the routes, 24 hours or 7 days, with a right of their own
+
+
 ## 2026-10-20 02:51
 - chore: version 1.0.0
 - fix: the route list keeps room for the target on a 1280 px screen, the filters wrap instead of being cut off; new screenshot
