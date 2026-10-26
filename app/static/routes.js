@@ -1,4 +1,4 @@
-// Search, "problems", "to do", "no groups" and sorting for the list of routes. Everything works on the
+// Search, "problems", "to do", "no groups", sorting and pages for the list of routes. Everything works on the
 // rows the server sent; the rows of a group stay below its name unless "no groups" is ticked.
 (() => {
 	const filter = document.getElementById("route-filter");
@@ -17,6 +17,17 @@
 	none.innerHTML = '<td colspan="7" class="empty">No route matches.</td>';
 	// The column picked by a click on its title, and the direction. Nothing picked: the order of the server.
 	let sorting = null;
+	// The page shown and how many there are; a new search or filter starts at the first.
+	let page = 1;
+	let pages = 1;
+	const pager = document.getElementById("route-pager");
+	pager.addEventListener("click", (event) => {
+		const step = Number(event.target.dataset.step);
+		if (!step) return;
+		page += step;
+		apply();
+		table.scrollIntoView({ block: "start" });
+	});
 
 	function cells(row) {
 		return [...row.cells].slice(0, -1).map((cell) => cell.textContent.replace(/\s+/g, " ").trim());
@@ -35,27 +46,43 @@
 		let shown = 0;
 		let group = null;
 		let count = 0;
+		// What takes a place on a page: a matching route with the name of its group, or a folded group.
+		const lines = [];
 		const close = () => group && (group.querySelector(".count").textContent = count);
 		for (const row of [...body.rows]) {
 			if (row === none) continue;
+			// Everything starts hidden; the page shows its own lines below.
+			row.hidden = true;
 			if (row.classList.contains("group")) {
 				close();
 				// Stays hidden until one of its routes shows, and all the time in the list without groups.
 				group = grouped ? row : null;
 				count = 0;
-				row.hidden = true;
 				row.querySelector("button").setAttribute("aria-expanded", String(!collapsed.has(row.dataset.group)));
 				continue;
 			}
 			const match = text.get(row).includes(query) && (!wanted.length || wanted.some((key) => key in row.dataset));
-			// A folded group still shows its name and how many of its routes match.
-			row.hidden = !match || Boolean(group && collapsed.has(group.dataset.group));
 			if (!match) continue;
 			shown += 1;
 			count += 1;
-			if (group) group.hidden = false;
+			// A folded group still shows its name and how many of its routes match, on one line.
+			if (group && collapsed.has(group.dataset.group)) {
+				if (count === 1) lines.push([group]);
+			} else {
+				lines.push([row, group]);
+			}
 		}
 		close();
+		const size = Number(filter.elements.per.value) || lines.length || 1;
+		pages = Math.max(1, Math.ceil(lines.length / size));
+		page = Math.min(page, pages);
+		for (const line of lines.slice((page - 1) * size, page * size)) {
+			for (const row of line) if (row) row.hidden = false;
+		}
+		pager.hidden = pages === 1;
+		pager.querySelector("small").textContent = `Page ${page} of ${pages}`;
+		pager.querySelector('[data-step="-1"]').hidden = page === 1;
+		pager.querySelector('[data-step="1"]').hidden = page === pages;
 		none.hidden = shown > 0;
 		total.textContent = shown;
 		if (all) {
@@ -163,14 +190,24 @@
 		});
 	}
 
-	filter.addEventListener("input", apply);
+	// The number per page is kept in this browser as well.
+	const PER = "caddyman.routes.per";
+	const per = filter.elements.per;
+	const kept = store((storage) => storage.getItem(PER));
+	if ([...per.options].some((option) => option.value === kept)) per.value = kept;
+	per.addEventListener("input", () => store((storage) => storage.setItem(PER, per.value)));
+	const restart = () => {
+		page = 1;
+		apply();
+	};
+	filter.addEventListener("input", restart);
 	// The box sits in the last column title, outside the form it belongs to, so it is asked itself.
 	const box = filter.elements.flat;
 	if (box) {
 		box.addEventListener("input", () => {
 			store((kept) => (box.checked ? kept.setItem(KEPT, "1") : kept.removeItem(KEPT)));
 			arrange();
-			apply();
+			restart();
 		});
 		if (store((kept) => kept.getItem(KEPT)) === "1") {
 			box.checked = true;
@@ -180,7 +217,7 @@
 	}
 	// Sits there too, so its input does not reach the form either.
 	for (const box of [filter.elements.problems, filter.elements.todo]) {
-		box.addEventListener("input", apply);
+		box.addEventListener("input", restart);
 		box.closest("label").hidden = false;
 	}
 	filter.hidden = false;

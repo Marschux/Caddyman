@@ -640,4 +640,6 @@ table.requests code { overflow-wrap: anywhere; }
 table.sortable td { padding-top: 10px; padding-bottom: 10px; }
 .pager { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 16px; }
 .pager small { margin: 0 auto 0 0; }
-#stats-filter select.per { min-width: 0; }
+.pager button { width: auto; }
+.pager[hidden], .pager [hidden] { display: none; }
+.filters select.per { min-width: 0; }

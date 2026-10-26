@@ -15,6 +15,10 @@
 	{% if routes %}
 	<form class="row filters" id="route-filter" hidden>
 		<input type="search" name="q" placeholder="Search host, target, group ..." aria-label="Search the routes">
+		<select name="per" aria-label="Routes per page" class="per">
+			{% for number in (25, 50, 100, 200) %}<option value="{{ number }}"{% if number == 50 %} selected{% endif %}>{{ number }} per page</option>{% endfor %}
+			<option value="0">All on one page</option>
+		</select>
 	</form>
 	{% endif %}
 	{% if may_change %}
@@ -140,6 +144,12 @@
 		{% endfor %}
 	</tbody>
 </table>
+{# Filled by routes.js; hidden while everything fits on one page. #}
+<div class="pager" id="route-pager" hidden>
+	<small></small>
+	<button type="button" class="secondary" data-step="-1">Previous</button>
+	<button type="button" class="secondary" data-step="1">Next</button>
+</div>
 {% endblock %}
 {# game.js is a hidden extra: it waits for one word in the search. #}
 {% block scripts %}<script src="/static/routes.js" defer></script><script src="/static/stats.js" defer></script><script src="/static/game.js" defer></script>{% endblock %}
