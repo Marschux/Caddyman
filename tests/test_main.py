@@ -3448,7 +3448,7 @@ class TestStats(RouteTest):
     def test_tiles_sum_up_the_access_logs(self):
         self.write("access-pdf.log", [
             self.request(),
-            self.request("/missing?token=secret", status=404, ip="10.0.0.8"),
+            self.request("/missing?token=secret", status=404, ip="10.0.0.8").replace('"size"', '"bytes_read": 1000, "size"'),
             self.request("/api", status=502, size=0, duration=2.5, agent="Firefox"),
             "not json",
             '{"level":"info","ts":1,"logger":"http.log.access.log0","msg":"too old","request":{}}',
@@ -3457,7 +3457,8 @@ class TestStats(RouteTest):
         self.assertIn('<span class="value">3</span>', page)
         self.assertIn("66.7 %", page)
         self.assertIn("1 client, 1 server", page)
-        self.assertIn('<span class="value">200 B</span>', page)
+        self.assertIn('<span class="value">1.2 KiB</span>', page)
+        self.assertIn("in 1000 B</span>, <span class=\"out\">out 200 B", page)
         self.assertIn('<span class="value">2</span>', page)  # visitors
         self.assertIn('data-route="pdf.lab.test"', page)
         self.assertIn("<code>/missing</code>", page)
@@ -3484,10 +3485,18 @@ class TestStats(RouteTest):
         self.write("access-pdf-2020-01-01T00-00-00.000.log.gz", ["{broken"])
         self.assertIn('<span class="value">3</span>', self.stats())
         self.assertIn('<span class="value">4</span>', self.stats("7d"))
+        self.assertIn('<span class="value">4</span>', self.stats("30d"))
+        # Three hours back counts in 12h, not in the last hour, which comes per minute.
+        self.write("access-pdf.log", [self.request(ago=3 * 3600)], mode="a")
+        self.assertIn('<span class="value">4</span>', self.stats("12h"))
+        self.assertIn("last 12 hours", self.stats("12h"))
+        hour = self.stats("1h")
+        self.assertIn('<span class="value">3</span>', hour)
+        self.assertEqual(hour.count('title="'), 180)  # 60 bars each for requests, errors and traffic
         # A file of a route without a log, or of no route at all, does not count.
         self.write("access-wiki.log", [self.request()] * 5)
         self.write("access-gone.log", [self.request()] * 5)
-        self.assertIn('<span class="value">4</span>', self.stats("7d"))
+        self.assertIn('<span class="value">5</span>', self.stats("7d"))
 
     def test_statistics_take_their_own_right(self):
         self.client.post("/settings/users/new", data={"username": "viewer", "password": PASSWORD, "repeat": PASSWORD, "right_logs": "1"})

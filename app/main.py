@@ -4292,10 +4292,17 @@ def logs_download(file: str = ""):
 
 
 # Statistics above the route list (26.10.2026): only from the access logs of the routes, nothing is
-# stored. Every log file is summed up per hour and the sums are kept in memory. A rotated file never
-# changes and is read once; the current one is read on from where the last look stopped.
-STATS_RANGES = {"24h": 24, "7d": 168}
-STATS_KEEP_HOURS = max(STATS_RANGES.values())
+# stored. Every log file is summed up per hour, the last hour also per minute, and the sums are kept in
+# memory. A rotated file never changes and is read once; the current one is read on from where the last look stopped.
+# Per range: how many slots of how many seconds, how many slots make one bar of the curve, and what it is called.
+STATS_RANGES = {
+    "1h": (60, 60, 1, "last hour"),
+    "12h": (12, 3600, 1, "last 12 hours"),
+    "24h": (24, 3600, 1, "last 24 hours"),
+    "7d": (168, 3600, 1, "last 7 days"),
+    "30d": (720, 3600, 24, "last 30 days"),
+}
+STATS_KEEP_HOURS, STATS_KEEP_MINUTES = 720, 60
 STATS_TOP = 5
 # How often the files are looked at again, however many browsers ask.
 STATS_SECONDS = 30
@@ -4306,13 +4313,17 @@ STATS_STEPS = tuple(0.001 * 1.5**step for step in range(30))
 STATS_KEYS = 2000
 # access-<route>.log, and what Caddy makes of it when rolling: access-<route>-2026-10-26T01-46-00.000.log.gz
 STATS_FILE_RE = re.compile(r"access-(.+?)(?:-(\d{4}-\d\d-\d\dT\d\d-\d\d-\d\d)\.\d+)?\.log(?:\.gz)?\Z")
-STATS_FILES: dict[str, dict] = {}  # log name -> {"route": name, "hours": {hour: sums}, "offset": bytes read}
+STATS_FILES: dict[str, dict] = {}  # log name -> {"route": name, "slots": {3600: {hour: sums}, 60: {minute: sums}}, "offset": bytes read}
 STATS_STATE = {"until": 0.0, "host": ""}
 STATS_LOCK = threading.Lock()
 
 
 def stats_sums() -> dict:
-    return {"requests": 0, "bytes": 0, "codes": Counter(), "steps": [0] * len(STATS_STEPS), "ips": Counter(), "agents": Counter(), "failed": Counter(), "paths": {}}
+    return {"requests": 0, "bytes": 0, "bytes_in": 0, "codes": Counter(), "steps": [0] * len(STATS_STEPS), "ips": Counter(), "agents": Counter(), "failed": Counter(), "paths": {}}
+
+
+def stats_slots() -> dict:
+    return {3600: {}, 60: {}}
 
 
 def tally(counter: dict, key) -> None:
@@ -4320,8 +4331,8 @@ def tally(counter: dict, key) -> None:
         counter[key] = counter.get(key, 0) + 1
 
 
-def count_request(hours: dict, line: bytes, oldest: float) -> None:
-    """One line of an access log into the sums of its hour. Anything that is not a request is left out."""
+def count_request(slots: dict, line: bytes, oldest: float, recent: float) -> None:
+    """One line of an access log into the sums of its hour, and of its minute from recent on. Anything that is not a request is left out."""
     try:
         entry = json.loads(line)
         stamp, asked = entry["ts"], entry["request"]
@@ -4333,24 +4344,30 @@ def count_request(hours: dict, line: bytes, oldest: float) -> None:
     def number(value) -> float:
         return value if isinstance(value, (int, float)) and not isinstance(value, bool) and 0 <= value < 1e15 else 0
 
-    sums = hours.setdefault(int(stamp // 3600), stats_sums())
     status, took = int(number(entry.get("status"))), float(number(entry.get("duration")))
     # Without the query: it may carry a token, and every value would count as a path of its own.
     path = str(asked.get("uri", "")).split("?", 1)[0][:200] or "/"
     headers = asked.get("headers") if isinstance(asked.get("headers"), dict) else {}
     agent = headers.get("User-Agent")
     agent = str(agent[0] if isinstance(agent, list) and agent else agent or "")[:150]
-    sums["requests"] += 1
-    sums["bytes"] += int(number(entry.get("size")))
-    sums["codes"][status] += 1
-    sums["steps"][min(bisect_left(STATS_STEPS, took), len(STATS_STEPS) - 1)] += 1
-    tally(sums["ips"], str(asked.get("client_ip") or asked.get("remote_ip") or "")[:64])
-    tally(sums["agents"], agent)
-    if status >= 400:
-        tally(sums["failed"], path)
-    if path in sums["paths"] or len(sums["paths"]) < STATS_KEYS:
-        timed = sums["paths"].setdefault(path, [0, 0.0])
-        timed[0], timed[1] = timed[0] + 1, timed[1] + took
+    address = str(asked.get("client_ip") or asked.get("remote_ip") or "")[:64]
+    # Out is the answer, in is the body of the request.
+    out, into = int(number(entry.get("size"))), int(number(entry.get("bytes_read")))
+    step = min(bisect_left(STATS_STEPS, took), len(STATS_STEPS) - 1)
+    for seconds in (3600, 60) if stamp >= recent else (3600,):
+        sums = slots[seconds].setdefault(int(stamp // seconds), stats_sums())
+        sums["requests"] += 1
+        sums["bytes"] += out
+        sums["bytes_in"] += into
+        sums["codes"][status] += 1
+        sums["steps"][step] += 1
+        tally(sums["ips"], address)
+        tally(sums["agents"], agent)
+        if status >= 400:
+            tally(sums["failed"], path)
+        if path in sums["paths"] or len(sums["paths"]) < STATS_KEYS:
+            timed = sums["paths"].setdefault(path, [0, 0.0])
+            timed[0], timed[1] = timed[0] + 1, timed[1] + took
 
 
 def read_on(host: dict, name: str, offset: int) -> tuple[bytes, int] | None:
@@ -4381,12 +4398,12 @@ def read_on(host: dict, name: str, offset: int) -> tuple[bytes, int] | None:
     return None
 
 
-def read_rolled(host: dict, name: str, listed: list[str], oldest: float) -> dict | None:
+def read_rolled(host: dict, name: str, listed: list[str], oldest: float, recent: float) -> dict | None:
     """The sums of a rotated log, read whole. None when it could not be read, so the next look tries again."""
     opened = open_log(host, name, listed)
     if opened is None:
         return None
-    hours: dict = {}
+    slots = stats_slots()
     read = 0
     with opened[1] as handle:
         try:
@@ -4394,10 +4411,10 @@ def read_rolled(host: dict, name: str, listed: list[str], oldest: float) -> dict
                 read += len(line)
                 if read > LOG_UNPACK_MAX:
                     break
-                count_request(hours, line, oldest)
+                count_request(slots, line, oldest, recent)
         except (OSError, EOFError, zlib.error):
             pass
-    return hours
+    return slots
 
 
 def refresh_stats(host: dict, routes: set[str]) -> None:
@@ -4408,6 +4425,7 @@ def refresh_stats(host: dict, routes: set[str]) -> None:
     elif STATS_STATE["until"] > now and STATS_STATE.get("routes") == routes:
         return
     oldest = (int(now // 3600) - STATS_KEEP_HOURS + 1) * 3600
+    recent = (int(now // 60) - STATS_KEEP_MINUTES + 1) * 60
     listed = remote_log_names(host) if host.get("storage") == "managed" else [path.name for path in local_log_files()]
     files = {name: found for name in listed if (found := STATS_FILE_RE.match(name)) and found.group(1) in routes}
     for name in [name for name in STATS_FILES if name not in files]:
@@ -4425,25 +4443,25 @@ def refresh_stats(host: dict, routes: set[str]) -> None:
                 except ValueError:
                     rolled = now
                 # Rolled before the longest range began: everything in it is older.
-                hours = {} if rolled < oldest else read_rolled(host, name, listed, oldest)
-                if hours is not None:
-                    STATS_FILES[name] = {"route": found.group(1), "hours": hours}
+                slots = stats_slots() if rolled < oldest else read_rolled(host, name, listed, oldest, recent)
+                if slots is not None:
+                    STATS_FILES[name] = {"route": found.group(1), "slots": slots}
             continue
-        kept = kept or {"route": found.group(1), "hours": {}, "offset": 0}
+        kept = kept or {"route": found.group(1), "slots": stats_slots(), "offset": 0}
         if read := read_on(host, name, kept["offset"]):
             data, start = read
             if start < kept["offset"]:
-                kept["hours"] = {}
+                kept["slots"] = stats_slots()
             # A line Caddy is still writing waits for the next look.
             end = data.rfind(b"\n") + 1
             for line in data[:end].splitlines():
-                count_request(kept["hours"], line, oldest)
+                count_request(kept["slots"], line, oldest, recent)
             kept["offset"] = start + end
         STATS_FILES[name] = kept
-    first = oldest // 3600
     for kept in STATS_FILES.values():
-        for hour in [hour for hour in kept["hours"] if hour < first]:
-            del kept["hours"][hour]
+        for seconds, first in ((3600, oldest // 3600), (60, recent // 60)):
+            for slot in [slot for slot in kept["slots"][seconds] if slot < first]:
+                del kept["slots"][seconds][slot]
     STATS_STATE.update(host=host["id"], until=now + STATS_SECONDS, routes=routes)
 
 
@@ -4472,31 +4490,32 @@ def step_share(steps: list[int], share: float) -> float | None:
 
 
 def stats_view(host: dict, span: str) -> dict:
-    """Everything the tiles show, summed over the routes with an access log, for the last hours of span."""
+    """Everything the tiles show, summed over the routes with an access log, for the range span."""
     items = [item for item in list_routes(host) if item["route"] and item["route"]["type"] != "error_page"]
     hosts = {item["name"]: item["route"]["host"] for item in items if item["route"].get("log")}
-    hours = STATS_RANGES[span]
-    last = int(time.time() // 3600)
-    first = last - hours + 1
-    series, failing = [0] * hours, [0] * hours
+    count, seconds, per_bar, label = STATS_RANGES[span]
+    last = int(time.time() // seconds)
+    first = last - count + 1
+    series, failing, sent, received = [0] * count, [0] * count, [0] * count, [0] * count
     per_route: dict[str, dict] = {}
     steps = [0] * len(STATS_STEPS)
     codes, failed, ips, agents = Counter(), Counter(), Counter(), Counter()
     paths: dict[tuple, list] = {}
-    total_bytes = 0
     with STATS_LOCK:
         refresh_stats(host, set(hosts))
         for kept in STATS_FILES.values():
             route = kept["route"]
-            mine = per_route.setdefault(route, {"requests": 0, "bytes": 0, "steps": [0] * len(STATS_STEPS)})
-            for hour, sums in kept["hours"].items():
-                if not first <= hour <= last:
+            mine = per_route.setdefault(route, {"requests": 0, "bytes": 0, "bytes_in": 0, "steps": [0] * len(STATS_STEPS)})
+            for slot, sums in kept["slots"][seconds].items():
+                if not first <= slot <= last:
                     continue
-                series[hour - first] += sums["requests"]
-                failing[hour - first] += sum(count for code, count in sums["codes"].items() if code >= 400)
+                series[slot - first] += sums["requests"]
+                failing[slot - first] += sum(count for code, count in sums["codes"].items() if code >= 400)
+                sent[slot - first] += sums["bytes"]
+                received[slot - first] += sums["bytes_in"]
                 mine["requests"] += sums["requests"]
                 mine["bytes"] += sums["bytes"]
-                total_bytes += sums["bytes"]
+                mine["bytes_in"] += sums["bytes_in"]
                 for step, count in enumerate(sums["steps"]):
                     mine["steps"][step] += count
                     steps[step] += count
@@ -4509,16 +4528,30 @@ def stats_view(host: dict, span: str) -> dict:
                     timed[0], timed[1] = timed[0] + count, timed[1] + took
     zone = time_zone()
 
+    def grouped(values: list[int]) -> list[int]:
+        return [sum(values[index:index + per_bar]) for index in range(0, len(values), per_bar)]
+
+    def when(index: int) -> str:
+        shape = "%H:%M" if seconds == 60 else "%a %H:00" if per_bar == 1 else "%a %d %b, %H:00"
+        return datetime.fromtimestamp((first + index * per_bar) * seconds, zone).strftime(shape)
+
     def bars(values: list[int], what: str) -> list[tuple[int, str]]:
+        values = grouped(values)
         top = max(values) or 1
-        return [(round(100 * value / top), f"{datetime.fromtimestamp((first + index) * 3600, zone).strftime('%a %H:00')}: {value:,} {what}")
-                for index, value in enumerate(values)]
+        return [(round(100 * value / top), f"{when(index)}: {value:,} {what}") for index, value in enumerate(values)]
+
+    def traffic_bars() -> list[tuple[int, int, str]]:
+        """Per bar: its height, the share of it that came in, and its tooltip."""
+        outs, ins = grouped(sent), grouped(received)
+        top = max(map(sum, zip(outs, ins))) or 1
+        return [(round(100 * (out + into) / top), round(100 * into / (out + into)) if out + into else 0, f"{when(index)}: {human_bytes(into)} in, {human_bytes(out)} out")
+                for index, (out, into) in enumerate(zip(outs, ins))]
 
     def route_top(key) -> list[tuple[str, dict]]:
         ranked = sorted(((route, sums) for route, sums in per_route.items() if sums["requests"]), key=lambda pair: key(pair[1]), reverse=True)
         return [(hosts.get(route, route), sums) for route, sums in ranked[:STATS_TOP]]
 
-    requests, errors = sum(series), sum(failing)
+    requests, errors, total_bytes, total_in = sum(series), sum(failing), sum(sent), sum(received)
     client = sum(count for code, count in codes.items() if 400 <= code < 500)
     slowest = sorted(paths.items(), key=lambda pair: -pair[1][1] / pair[1][0])[:STATS_TOP]
     return {
@@ -4530,9 +4563,11 @@ def stats_view(host: dict, span: str) -> dict:
         "error_bars": bars(failing, "errors"),
         "codes": [(code, f"{count:,}") for code, count in sorted(codes.items(), key=lambda pair: -pair[1]) if code >= 400][:STATS_TOP],
         "failed": [(hosts.get(route, route), path, f"{count:,}") for (route, path), count in failed.most_common(STATS_TOP)],
-        "traffic": human_bytes(total_bytes),
-        "traffic_detail": f"{human_bytes(total_bytes / requests)} per request" if requests else "-",
-        "by_bytes": [(name, human_bytes(sums["bytes"])) for name, sums in route_top(lambda sums: sums["bytes"])],
+        "traffic": human_bytes(total_bytes + total_in),
+        "traffic_in": human_bytes(total_in),
+        "traffic_out": human_bytes(total_bytes),
+        "traffic_bars": traffic_bars(),
+        "by_bytes": [(name, human_bytes(sums["bytes_in"]), human_bytes(sums["bytes"])) for name, sums in route_top(lambda sums: sums["bytes"] + sums["bytes_in"])],
         "median": human_seconds(step_share(steps, 0.5)),
         "p95": human_seconds(step_share(steps, 0.95)),
         "slow_routes": [(name, human_seconds(step_share(sums["steps"], 0.95))) for name, sums in route_top(lambda sums: step_share(sums["steps"], 0.95) or 0)],
@@ -4543,6 +4578,7 @@ def stats_view(host: dict, span: str) -> dict:
         "agents": [(agent, f"{count:,}") for agent, count in agents.most_common(STATS_TOP)],
         "without_log": sum(1 for item in items if not item["route"].get("log")),
         "logged": len(hosts),
+        "label": label,
     }
 
 

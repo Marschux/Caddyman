@@ -553,6 +553,11 @@ button.tile[aria-expanded="true"] { border-color: var(--product); }
 .tile .bars span { flex: 1; min-height: 1px; background: var(--product); border-radius: 1px; }
 .tile .bars.errors span { background: var(--error); }
 .tile .bars span.none { background: var(--surface-3); }
+/* Traffic: out in the product colour, what came in at the foot of each bar in blue. */
+.tile .bars.traffic span { display: flex; align-items: flex-end; }
+.tile .bars.traffic i { width: 100%; background: var(--opt-auth); border-radius: 1px; }
+.stats .in { color: var(--opt-auth); }
+.stats .out { color: var(--product); }
 .stats .panel { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 16px 32px; margin-top: 12px; padding: 16px; background: var(--surface-1); border: 1px solid var(--hairline); border-radius: 12px; }
 .stats .panel[hidden] { display: none; }
 .stats .panel h3 { margin: 0 0 8px; color: var(--ink-subtle); font-size: 12px; font-weight: 600; letter-spacing: 0.6px; text-transform: uppercase; }
@@ -563,3 +568,4 @@ table.top tr:last-child td { border-bottom: 0; }
 table.top td.num { padding-left: 16px; text-align: right; white-space: nowrap; color: var(--ink); }
 table.top small { margin-top: 2px; }
 table.top button.link { font-size: 13px; }
+table.top th { padding: 0 0 6px 16px; text-align: right; }
