@@ -597,3 +597,9 @@ table.sortable th.num button.sort { text-align: right; }
 .chart-head h2 { margin: 0; }
 /* Five curves: the last one runs across both columns. */
 .charts .chart:last-child:nth-child(odd) { grid-column: 1 / -1; }
+/* User agents as a pie, its legend beside it. */
+.pie-box { display: flex; flex-wrap: wrap; align-items: center; gap: 24px; }
+.pie { flex: none; width: 180px; height: 180px; border-radius: 50%; }
+.pie-box table { flex: 1; min-width: 220px; }
+.dot { display: inline-block; width: 10px; height: 10px; margin-right: 8px; border-radius: 50%; vertical-align: middle; }
+table.top td.share { color: var(--ink-subtle); }

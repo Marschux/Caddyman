@@ -3518,7 +3518,11 @@ class TestStats(RouteTest):
         self.assertLess(routes.index('route=pdf">'), routes.index('route=git">'))
         self.assertIn("<code>/c</code>", self.client.get("/stats/paths").text)
         self.assertIn("<code>500</code>", self.client.get("/stats/errors").text)
-        self.assertIn("<code>10.0.0.1</code>", self.client.get("/stats/visitors").text)
+        visitors = self.client.get("/stats/visitors").text
+        self.assertIn("<code>10.0.0.1</code>", visitors)
+        # User agents as a pie: one curl for all three requests, the whole circle.
+        self.assertIn("conic-gradient(var(--product) 0.00% 100.00%)", visitors)
+        self.assertIn('<td class="num share">100.0 %</td>', visitors)
         self.assertEqual(self.client.get("/stats/nothing").status_code, 404)
         # One route: its numbers only, and time range and route go along in the list at the side.
         one = self.client.get("/stats/paths", params={"route": "git", "span": "7d"}).text

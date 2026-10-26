@@ -82,7 +82,18 @@
 	<div class="charts">{{ chart("Visitors", s.visitors, s.visitors_detail, s.visitor_bars, s.peaks.visitors, "visitors") }}</div>
 	<div class="lists">
 		{% call list("Addresses", s.ips) %}{% for address, value in s.ips %}<tr><td><code>{{ address }}</code></td><td class="num">{{ value }}</td></tr>{% endfor %}{% endcall %}
-		{% call list("User agents", s.agents) %}{% for agent, value in s.agents %}<tr><td>{{ agent or "(none)" }}</td><td class="num">{{ value }}</td></tr>{% endfor %}{% endcall %}
+		{# A pie drawn by the browser from a conic gradient, the legend beside it. The colours are the tokens of the options. #}
+		{% set colours = ["var(--product)", "var(--opt-auth)", "var(--opt-sso)", "var(--opt-verify)", "var(--opt-hsts)", "var(--opt-log)", "var(--opt-host)"] %}
+		<section><h3>User agents</h3>
+			{% if s.agent_slices %}
+			<div class="pie-box">
+				<div class="pie" role="img" aria-label="Share of the user agents" style="background: conic-gradient({% for name, value, share, start, end in s.agent_slices %}{{ 'var(--surface-3)' if name == 'Other' else colours[loop.index0] }} {{ '%.2f'|format(start) }}% {{ '%.2f'|format(end) }}%{{ ', ' if not loop.last }}{% endfor %})"></div>
+				<table class="top legend-table"><tbody>
+					{% for name, value, share, start, end in s.agent_slices %}<tr><td><span class="dot" style="background: {{ 'var(--surface-3)' if name == 'Other' else colours[loop.index0] }}"></span>{{ name }}</td><td class="num">{{ value }}</td><td class="num share">{{ '%.1f'|format(share) }} %</td></tr>{% endfor %}
+				</tbody></table>
+			</div>
+			{% else %}<p class="empty">Nothing in this time.</p>{% endif %}
+		</section>
 	</div>
 	{% endif %}
 </div>

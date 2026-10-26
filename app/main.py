@@ -4305,6 +4305,8 @@ STATS_RANGES = {
 # A day over 30d: its bars start at midnight, up to a day before the last 720 hours.
 STATS_KEEP_HOURS, STATS_KEEP_MINUTES = 744, 60
 STATS_TOP = 5
+# Slices of a pie chart before the rest is taken together as "Other".
+STATS_SLICES = 7
 # How often the files are looked at again, however many browsers ask.
 STATS_SECONDS = 30
 # Upper edges of the steps response times are counted in: from 1 ms, half again each step, up to about two minutes.
@@ -4570,6 +4572,21 @@ def stats_view(host: dict, span: str, only: str = "", top: int = STATS_TOP) -> d
         ranked = sorted(((route, sums) for route, sums in per_route.items() if sums["requests"]), key=lambda pair: key(pair[1]), reverse=True)
         return [(hosts.get(route, route), sums) for route, sums in ranked[:top]]
 
+    def pie(counts: Counter) -> list[tuple[str, str, float, float, float]]:
+        """The biggest STATS_SLICES of counts and the rest as "Other": name, count, share in %, and where
+        the slice starts and ends on the circle, in %."""
+        total = sum(counts.values())
+        slices = counts.most_common(STATS_SLICES)
+        rest = total - sum(number for _, number in slices)
+        if rest:
+            slices.append(("Other", rest))
+        shown, start = [], 0.0
+        for name, number in slices:
+            share = 100 * number / total
+            shown.append((name or "(none)", f"{number:,}", share, start, start + share))
+            start += share
+        return shown
+
     medians = grouped(slot_steps, lambda lists: step_share([sum(column) for column in zip(*lists)], 0.5) or 0)
     visitors = grouped(slot_ips, lambda sets: len(set().union(*sets)))
     in_bars, out_bars = grouped(received, sum), grouped(sent, sum)
@@ -4619,6 +4636,7 @@ def stats_view(host: dict, span: str, only: str = "", top: int = STATS_TOP) -> d
         "visitor_bars": bars(visitors, lambda value: f"{value:,} addresses"),
         "ips": [(address, f"{number:,}") for address, number in ips.most_common(top)],
         "agents": [(agent, f"{number:,}") for agent, number in agents.most_common(top)],
+        "agent_slices": pie(agents),
         "without_log": sum(1 for item in items if not item["route"].get("log")),
         "logged": len(hosts),
         "label": label,
