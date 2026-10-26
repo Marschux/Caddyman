@@ -3424,6 +3424,7 @@ class TestStats(RouteTest):
         super().setUp()
         main.STATS_FILES.clear()
         main.STATS_STATE.update(until=0.0, host="")
+        main.STATS_VIEWS.clear()
         main.REQUESTS_CACHE.update(key=None, until=0.0, found=[])
         self.logs = os.path.join(self.dir.name, "logs")
         os.mkdir(self.logs)
@@ -3465,7 +3466,8 @@ class TestStats(RouteTest):
         errors = self.client.get("/stats/errors").text
         self.assertIn("<code>/missing</code>", errors)
         self.assertNotIn("secret", errors)
-        self.assertIn("1 route with an access log, 1 without.", page)
+        # Counted, not told: the hint only stands where no route has a log.
+        self.assertNotIn("access log", page)
         # The route list carries the place the tiles go into, and the script that fills it.
         index = self.client.get("/").text
         self.assertIn('id="stats"', index)
@@ -3543,7 +3545,6 @@ class TestStats(RouteTest):
         self.assertIn("<code>/a</code>", self.client.get("/stats/paths", params={"route": "../wiki"}).text)
         # The tiles lead here.
         tiles = self.stats()
-        self.assertIn('<a href="/stats?span=24h">Details</a>', tiles)
         self.assertIn('<a class="tile" href="/stats/routes?span=24h">', tiles)
         self.assertIn('<a class="tile" href="/stats/visitors?span=24h">', tiles)
 
@@ -3559,6 +3560,10 @@ class TestStats(RouteTest):
         one = self.client.get("/requests", params={"path": "/old"}).text
         self.assertEqual(one.count("GET /old</code>"), 2)
         self.assertNotIn("GET /new", one)
+        # Caddy writes & as &; such a path is still found.
+        self.write("access-pdf.log", [self.request("/a&b").replace("&", "\\u0026")], mode="a")
+        main.REQUESTS_CACHE["until"] = 0.0
+        self.assertIn("GET /a&amp;b</code>", self.client.get("/requests", params={"path": "/a&b"}).text)
         self.assertIn('href="/requests?route=pdf&amp;path=/old"', self.client.get("/stats/paths").text)
         self.assertIn('href="/requests" aria-current="page">Requests</a>', page)
         # A page at a time; what fell out of the 30 days is gone, a rotated file counts too.
@@ -3566,7 +3571,7 @@ class TestStats(RouteTest):
         rolled = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H-%M-%S")
         self.write(f"access-pdf-{rolled}.000.log.gz", [self.request(f"/p{number}", ago=3600 + number) for number in range(60)] + [self.request("/ancient", ago=40 * 86400)])
         first = self.client.get("/requests", params={"per": "25"}).text
-        self.assertIn("63 requests in the last 30 days", first)
+        self.assertIn("64 requests in the last 30 days", first)
         self.assertIn("Page 1 of 3.", first)
         self.assertNotIn(">Newer</a>", first)
         self.assertIn('href="/requests?per=25&amp;page=2">Older</a>', first)

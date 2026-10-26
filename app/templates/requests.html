@@ -20,8 +20,9 @@
 		<noscript><button type="submit" class="secondary">Show</button></noscript>
 	</form>
 </div>
-{# Swapped every minute by stats_page.js. #}
-<div id="stats-page" class="stats">
+{# Swapped every minute by stats_page.js, on the first page only: a later one would slide on, and each
+   look reads all the logs again. #}
+<div id="stats-page" class="stats"{% if page_number > 1 %} data-still{% endif %}>
 	{% if path %}<p class="filtered">Only <code>{{ path }}</code>. <a href="/requests?{{ query }}">Show all paths</a></p>{% endif %}
 	{# One line per request, newest first; the user agent is the tooltip of its row. #}
 	<table class="requests">

@@ -31,6 +31,7 @@ from datetime import datetime, timedelta, timezone
 from email.message import EmailMessage
 from functools import lru_cache
 from pathlib import Path
+from sys import intern
 from urllib.parse import quote, urlsplit
 from zoneinfo import ZoneInfo, available_timezones
 
@@ -4329,6 +4330,8 @@ STATS_FILE_RE = re.compile(r"access-(.+?)(?:-(\d{4}-\d\d-\d\dT\d\d-\d\d-\d\d)\.\
 STATS_FILES: dict[str, dict] = {}  # log name -> {"route": name, "slots": {3600: {hour: sums}, 60: {minute: sums}}, "offset": bytes read}
 STATS_STATE = {"until": 0.0, "host": ""}
 STATS_LOCK = threading.Lock()
+# What stats_view made of the sums, per range, route and length; emptied when the sums are read again.
+STATS_VIEWS: dict = {}
 
 
 def stats_sums() -> dict:
@@ -4364,9 +4367,9 @@ def parse_request(line: bytes, oldest: float) -> tuple | None:
     agent = headers.get("User-Agent")
     agent = str(agent[0] if isinstance(agent, list) and agent else agent or "")[:150]
     address = str(asked.get("client_ip") or asked.get("remote_ip") or "")[:64]
-    # Out is the answer, in is the body of the request.
-    return (stamp, str(asked.get("method", ""))[:10], path, int(number(entry.get("status"))), float(number(entry.get("duration"))),
-            int(number(entry.get("size"))), int(number(entry.get("bytes_read"))), address, agent)
+    # Out is the answer, in is the body of the request. The texts come again and again: each is kept once.
+    return (stamp, intern(str(asked.get("method", ""))[:10]), intern(path), int(number(entry.get("status"))), float(number(entry.get("duration"))),
+            int(number(entry.get("size"))), int(number(entry.get("bytes_read"))), intern(address), intern(agent))
 
 
 def count_request(slots: dict, line: bytes, oldest: float, recent: float) -> None:
@@ -4420,22 +4423,47 @@ def read_on(host: dict, name: str, offset: int) -> tuple[bytes, int] | None:
     return None
 
 
-def read_rolled(host: dict, name: str, listed: list[str], oldest: float, recent: float) -> dict | None:
-    """The sums of a rotated log, read whole. None when it could not be read, so the next look tries again."""
+def log_names(host: dict) -> list[str]:
+    """The names in the listing of Caddy's logs, local or from the admin site."""
+    return remote_log_names(host) if host.get("storage") == "managed" else [path.name for path in local_log_files()]
+
+
+def rolled_at(stamp: str) -> float:
+    """When Caddy rolled a log, from the time in its name; now when that cannot be read."""
+    try:
+        return datetime.strptime(stamp, "%Y-%m-%dT%H-%M-%S").replace(tzinfo=timezone.utc).timestamp()
+    except ValueError:
+        return time.time()
+
+
+def log_lines(host: dict, name: str, listed: list[str]):
+    """Every line of a whole log, unpacked, up to LOG_UNPACK_MAX; None when it cannot be opened. name comes from listed."""
     opened = open_log(host, name, listed)
     if opened is None:
         return None
+
+    def lines():
+        read = 0
+        with opened[1] as handle:
+            try:
+                for line in iter(lambda: handle.readline(LOG_TAIL_BYTES), b""):
+                    read += len(line)
+                    if read > LOG_UNPACK_MAX:
+                        return
+                    yield line
+            except (OSError, EOFError, zlib.error):
+                return
+    return lines()
+
+
+def read_rolled(host: dict, name: str, listed: list[str], oldest: float, recent: float) -> dict | None:
+    """The sums of a rotated log, read whole. None when it could not be read, so the next look tries again."""
+    lines = log_lines(host, name, listed)
+    if lines is None:
+        return None
     slots = stats_slots()
-    read = 0
-    with opened[1] as handle:
-        try:
-            for line in iter(lambda: handle.readline(LOG_TAIL_BYTES), b""):
-                read += len(line)
-                if read > LOG_UNPACK_MAX:
-                    break
-                count_request(slots, line, oldest, recent)
-        except (OSError, EOFError, zlib.error):
-            pass
+    for line in lines:
+        count_request(slots, line, oldest, recent)
     return slots
 
 
@@ -4448,7 +4476,7 @@ def refresh_stats(host: dict, routes: set[str]) -> None:
         return
     oldest = (int(now // 3600) - STATS_KEEP_HOURS + 1) * 3600
     recent = (int(now // 60) - STATS_KEEP_MINUTES + 1) * 60
-    listed = remote_log_names(host) if host.get("storage") == "managed" else [path.name for path in local_log_files()]
+    listed = log_names(host)
     files = {name: found for name in listed if (found := STATS_FILE_RE.match(name)) and found.group(1) in routes}
     for name in [name for name in STATS_FILES if name not in files]:
         del STATS_FILES[name]
@@ -4460,12 +4488,8 @@ def refresh_stats(host: dict, routes: set[str]) -> None:
         kept = STATS_FILES.get(name)
         if found.group(2):
             if kept is None:
-                try:
-                    rolled = datetime.strptime(found.group(2), "%Y-%m-%dT%H-%M-%S").replace(tzinfo=timezone.utc).timestamp()
-                except ValueError:
-                    rolled = now
                 # Rolled before the longest range began: everything in it is older.
-                slots = stats_slots() if rolled < oldest else read_rolled(host, name, listed, oldest, recent)
+                slots = stats_slots() if rolled_at(found.group(2)) < oldest else read_rolled(host, name, listed, oldest, recent)
                 if slots is not None:
                     STATS_FILES[name] = {"route": found.group(1), "slots": slots}
             continue
@@ -4519,9 +4543,23 @@ def logged_routes(host: dict) -> tuple[list[dict], dict[str, str]]:
 
 def stats_view(host: dict, span: str, only: str = "", top: int = STATS_TOP) -> dict:
     """Everything the tiles and the Stats page show for the range span: summed over the routes with an
-    access log, or for the one route only names. top is how long the lists are."""
+    access log, or for the one route only names. top is how long the lists are.
+    Kept as long as the sums it comes from, so every browser asking for the same thing gets it at once."""
     items, hosts = logged_routes(host)
     only = only if only in hosts else ""
+    with STATS_LOCK:
+        refresh_stats(host, set(hosts))
+        if STATS_VIEWS.get("until") != STATS_STATE["until"]:
+            STATS_VIEWS.clear()
+            STATS_VIEWS["until"] = STATS_STATE["until"]
+        key = (span, only, top, str(time_zone()), len(items), tuple(sorted(hosts.items())))
+        if key not in STATS_VIEWS:
+            STATS_VIEWS[key] = summed_view(span, only, top, items, hosts)
+        return STATS_VIEWS[key]
+
+
+def summed_view(span: str, only: str, top: int, items: list[dict], hosts: dict[str, str]) -> dict:
+    """stats_view without keeping it. Call under STATS_LOCK, after refresh_stats."""
     bars_count, seconds, per_bar, label = STATS_RANGES[span]
     zone = time_zone()
     last = int(time.time() // seconds)
@@ -4542,46 +4580,44 @@ def stats_view(host: dict, span: str, only: str = "", top: int = STATS_TOP) -> d
     steps = [0] * len(STATS_STEPS)
     codes, failed, ips, agents = Counter(), Counter(), Counter(), Counter()
     paths: dict[tuple, list] = {}
-    with STATS_LOCK:
-        refresh_stats(host, set(hosts))
-        for kept in STATS_FILES.values():
-            route = kept["route"]
-            if only and route != only:
+    for kept in STATS_FILES.values():
+        route = kept["route"]
+        if only and route != only:
+            continue
+        mine = per_route.setdefault(route, {"requests": 0, "errors": 0, "bytes": 0, "bytes_in": 0, "steps": [0] * len(STATS_STEPS), "ips": set()})
+        for hour, sums in kept["slots"][3600].items():
+            if hour >= heat_first:
+                moment = datetime.fromtimestamp(hour * 3600, zone)
+                heat[moment.weekday()][moment.hour] += sums["requests"]
+        for slot, sums in kept["slots"][seconds].items():
+            if not first <= slot <= last:
                 continue
-            mine = per_route.setdefault(route, {"requests": 0, "errors": 0, "bytes": 0, "bytes_in": 0, "steps": [0] * len(STATS_STEPS), "ips": set()})
-            for hour, sums in kept["slots"][3600].items():
-                if hour >= heat_first:
-                    moment = datetime.fromtimestamp(hour * 3600, zone)
-                    heat[moment.weekday()][moment.hour] += sums["requests"]
-            for slot, sums in kept["slots"][seconds].items():
-                if not first <= slot <= last:
-                    continue
-                at = slot - first
-                broken = sum(number for code, number in sums["codes"].items() if code >= 400)
-                for code, number in sums["codes"].items():
-                    if 200 <= code < 600:
-                        slot_classes[at][code // 100 - 2] += number
-                series[at] += sums["requests"]
-                failing[at] += broken
-                mine["errors"] += broken
-                mine["ips"].update(sums["ips"])
-                sent[at] += sums["bytes"]
-                received[at] += sums["bytes_in"]
-                slot_ips[at].update(sums["ips"])
-                mine["requests"] += sums["requests"]
-                mine["bytes"] += sums["bytes"]
-                mine["bytes_in"] += sums["bytes_in"]
-                for step, number in enumerate(sums["steps"]):
-                    mine["steps"][step] += number
-                    slot_steps[at][step] += number
-                    steps[step] += number
-                codes.update(sums["codes"])
-                ips.update(sums["ips"])
-                agents.update(sums["agents"])
-                failed.update({(route, path): number for path, number in sums["failed"].items()})
-                for path, (number, took) in sums["paths"].items():
-                    timed = paths.setdefault((route, path), [0, 0.0])
-                    timed[0], timed[1] = timed[0] + number, timed[1] + took
+            at = slot - first
+            broken = sum(number for code, number in sums["codes"].items() if code >= 400)
+            for code, number in sums["codes"].items():
+                if 200 <= code < 600:
+                    slot_classes[at][code // 100 - 2] += number
+            series[at] += sums["requests"]
+            failing[at] += broken
+            mine["errors"] += broken
+            mine["ips"].update(sums["ips"])
+            sent[at] += sums["bytes"]
+            received[at] += sums["bytes_in"]
+            slot_ips[at].update(sums["ips"])
+            mine["requests"] += sums["requests"]
+            mine["bytes"] += sums["bytes"]
+            mine["bytes_in"] += sums["bytes_in"]
+            for step, number in enumerate(sums["steps"]):
+                mine["steps"][step] += number
+                slot_steps[at][step] += number
+                steps[step] += number
+            codes.update(sums["codes"])
+            ips.update(sums["ips"])
+            agents.update(sums["agents"])
+            failed.update({(route, path): number for path, number in sums["failed"].items()})
+            for path, (number, took) in sums["paths"].items():
+                timed = paths.setdefault((route, path), [0, 0.0])
+                timed[0], timed[1] = timed[0] + number, timed[1] + took
 
     def grouped(values: list, merge) -> list:
         """The slots of one bar taken together."""
@@ -4741,35 +4777,30 @@ def read_requests(host: dict, routes: set[str], only: str, failed: bool, path: s
     with REQUESTS_LOCK:
         if REQUESTS_CACHE["key"] == key and REQUESTS_CACHE["until"] > time.time():
             return REQUESTS_CACHE["found"]
+        # The last reading goes before the next one is made, so the two are never held at once.
+        REQUESTS_CACHE.update(key=None, found=[])
         oldest = time.time() - REQUESTS_DAYS * 86400
-        listed = remote_log_names(host) if host.get("storage") == "managed" else [item.name for item in local_log_files()]
+        # A line without the path in it cannot be a request for it. Only where Caddy writes the path as it
+        # is: its JSON escapes quotes, backslashes, &, < and >.
+        needle = path.encode() if path and not set(path) & set('"\\&<>') and path.isprintable() else b""
+        listed = log_names(host)
         found = []
         for name in listed:
             match = STATS_FILE_RE.match(name)
             if not match or match.group(1) not in routes or (only and match.group(1) != only):
                 continue
-            if match.group(2):
-                try:
-                    rolled = datetime.strptime(match.group(2), "%Y-%m-%dT%H-%M-%S").replace(tzinfo=timezone.utc).timestamp()
-                except ValueError:
-                    rolled = time.time()
-                if rolled < oldest:
-                    continue  # rolled away before the time begins: everything in it is older
-            opened = open_log(host, name, listed)
-            if opened is None:
-                continue
-            read = 0
-            with opened[1] as handle:
-                try:
-                    for line in iter(lambda: handle.readline(LOG_TAIL_BYTES), b""):
-                        read += len(line)
-                        if read > LOG_UNPACK_MAX:
-                            break
-                        record = parse_request(line, oldest)
-                        if record and (not failed or record[3] >= 400) and (not path or record[2] == path):
-                            found.append((match.group(1), *record))
-                except (OSError, EOFError, zlib.error):
-                    pass
+            if match.group(2) and rolled_at(match.group(2)) < oldest:
+                continue  # rolled away before the time begins: everything in it is older
+            for line in log_lines(host, name, listed) or ():
+                if needle not in line:
+                    continue
+                record = parse_request(line, oldest)
+                if record and (not failed or record[3] >= 400) and (not path or record[2] == path):
+                    found.append((match.group(1), *record))
+                    # Only the newest REQUESTS_MAX stay, also while reading: a busy month never sits in memory whole.
+                    if len(found) >= 2 * REQUESTS_MAX:
+                        found.sort(key=lambda record: -record[1])
+                        del found[REQUESTS_MAX:]
         found.sort(key=lambda record: -record[1])
         del found[REQUESTS_MAX:]
         REQUESTS_CACHE.update(key=key, until=time.time() + REQUESTS_SECONDS, found=found)

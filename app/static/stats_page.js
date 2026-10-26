@@ -43,7 +43,7 @@
 	}
 
 	async function refresh() {
-		if (document.hidden) return;
+		if (document.hidden || document.querySelector("#stats-page[data-still]")) return;
 		let fresh;
 		try {
 			const response = await fetch(location.href);
