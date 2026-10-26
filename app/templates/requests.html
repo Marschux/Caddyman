@@ -3,7 +3,8 @@
 {% block content %}
 {% include "system_nav.html" %}
 {% set hosts_of = dict(routes) %}
-{% set query = ("route=" ~ only|urlencode if only else "") ~ ("&failed=1" if failed) %}
+{% set query = "per=" ~ per ~ ("&route=" ~ only|urlencode if only) ~ ("&failed=1" if failed) %}
+{% set here = "/requests?" ~ query ~ ("&path=" ~ path|urlencode if path) %}
 <div class="toolbar">
 	{# Changes show at once (stats_page.js). #}
 	<form method="get" action="/requests" class="row filters" id="stats-filter">
@@ -13,6 +14,9 @@
 		</select>
 		{% if path %}<input type="hidden" name="path" value="{{ path }}">{% endif %}
 		<label class="check"><input type="checkbox" name="failed" value="1"{% if failed %} checked{% endif %}> Errors only</label>
+		<select name="per" aria-label="Requests per page" class="per">
+			{% for number in pers %}<option value="{{ number }}"{% if number == per %} selected{% endif %}>{{ number }} per page</option>{% endfor %}
+		</select>
 		<noscript><button type="submit" class="secondary">Show</button></noscript>
 	</form>
 </div>
@@ -32,7 +36,12 @@
 			{% else %}<tr><td colspan="7" class="empty">{% if routes %}No requests yet.{% else %}No route has an access log yet. Switch it on in the form of a route.{% endif %}</td></tr>{% endfor %}
 		</tbody>
 	</table>
-	{% if requests|length == shown %}<small>The newest {{ shown }}. Narrow it down with the route or Errors only.</small>{% endif %}
+	{# Newer to the left, like the list runs from the top. #}
+	<div class="pager">
+		<small>{{ "{:,}".format(total) }} request{{ "s" if total != 1 }} in the last {{ days }} days, as far as the logs reach. Page {{ page_number }} of {{ pages }}.</small>
+		{% if page_number > 1 %}<a class="button secondary" href="{{ here }}&amp;page={{ page_number - 1 }}">Newer</a>{% endif %}
+		{% if page_number < pages %}<a class="button secondary" href="{{ here }}&amp;page={{ page_number + 1 }}">Older</a>{% endif %}
+	</div>
 </div>
 {% endblock %}
 {% block scripts %}<script src="/static/stats_page.js" defer></script>{% endblock %}

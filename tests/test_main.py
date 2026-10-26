@@ -3424,6 +3424,7 @@ class TestStats(RouteTest):
         super().setUp()
         main.STATS_FILES.clear()
         main.STATS_STATE.update(until=0.0, host="")
+        main.REQUESTS_CACHE.update(key=None, until=0.0, found=[])
         self.logs = os.path.join(self.dir.name, "logs")
         os.mkdir(self.logs)
         self.patch(main, "LOG_DIR", main.Path(self.logs))
@@ -3560,6 +3561,19 @@ class TestStats(RouteTest):
         self.assertNotIn("GET /new", one)
         self.assertIn('href="/requests?route=pdf&amp;path=/old"', self.client.get("/stats/paths").text)
         self.assertIn('href="/requests" aria-current="page">Requests</a>', page)
+        # A page at a time; what fell out of the 30 days is gone, a rotated file counts too.
+        main.REQUESTS_CACHE["until"] = 0.0
+        rolled = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H-%M-%S")
+        self.write(f"access-pdf-{rolled}.000.log.gz", [self.request(f"/p{number}", ago=3600 + number) for number in range(60)] + [self.request("/ancient", ago=40 * 86400)])
+        first = self.client.get("/requests", params={"per": "25"}).text
+        self.assertIn("63 requests in the last 30 days", first)
+        self.assertIn("Page 1 of 3.", first)
+        self.assertNotIn(">Newer</a>", first)
+        self.assertIn('href="/requests?per=25&amp;page=2">Older</a>', first)
+        last = self.client.get("/requests", params={"per": "25", "page": "9"}).text
+        self.assertIn("Page 3 of 3.", last)
+        self.assertIn("GET /p59</code>", last)
+        self.assertNotIn("/ancient", last)
 
     def test_statistics_take_their_own_right(self):
         self.client.post("/settings/users/new", data={"username": "viewer", "password": PASSWORD, "repeat": PASSWORD, "right_logs": "1"})

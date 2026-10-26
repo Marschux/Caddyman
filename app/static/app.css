@@ -638,3 +638,6 @@ table.requests code { overflow-wrap: anywhere; }
 .lists a.path:hover { text-decoration: none; }
 .lists a.path code { color: var(--ink); }
 table.sortable td { padding-top: 10px; padding-bottom: 10px; }
+.pager { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 16px; }
+.pager small { margin: 0 auto 0 0; }
+#stats-filter select.per { min-width: 0; }

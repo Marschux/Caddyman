@@ -24,7 +24,7 @@ import time
 import zipfile
 import zlib
 from bisect import bisect_left
-from collections import Counter, deque
+from collections import Counter
 from concurrent.futures import ThreadPoolExecutor, wait
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
@@ -41,7 +41,7 @@ from cryptography import x509
 from cryptography.fernet import Fernet, InvalidToken
 from cryptography.hazmat.primitives.serialization import Encoding
 from cryptography.x509.oid import NameOID
-from fastapi import FastAPI, Form, Request
+from fastapi import FastAPI, Form, Query, Request
 from fastapi.responses import RedirectResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
@@ -4308,8 +4308,11 @@ STATS_KEEP_HOURS, STATS_KEEP_MINUTES = 744, 60
 STATS_TOP = 5
 # Slices of a pie chart before the rest is taken together as "Other".
 STATS_SLICES = 7
-# The last requests of each log file, kept as they are read, for the list under Requests; and how many it shows.
-STATS_RECENT, STATS_REQUESTS_SHOWN = 500, 200
+# Requests under System: how far back, how many per page to pick from, and how long one reading is kept
+# for turning the pages. The newest REQUESTS_MAX are kept of a reading; a busier month shows only those.
+REQUESTS_DAYS, REQUESTS_PER_PAGE, REQUESTS_SECONDS, REQUESTS_MAX = 30, (25, 50, 100, 200), 30, 200_000
+REQUESTS_CACHE: dict = {"key": None, "until": 0.0, "found": []}
+REQUESTS_LOCK = threading.Lock()
 # Where the response time histogram cuts, as steps of STATS_STEPS: 5 ms, 26 ms, 130 ms, 660 ms, 3.3 s.
 STATS_TIME_CUTS = (4, 8, 12, 16, 20)
 # The classes of status codes, bottom to top in their stacked bars.
@@ -4333,8 +4336,7 @@ def stats_sums() -> dict:
 
 
 def stats_slots() -> dict:
-    # "latest": the last requests one by one, as (time, method, path, status, seconds, bytes out, address, user agent).
-    return {3600: {}, 60: {}, "latest": deque(maxlen=STATS_RECENT)}
+    return {3600: {}, 60: {}}
 
 
 def tally(counter: dict, key) -> None:
@@ -4342,20 +4344,20 @@ def tally(counter: dict, key) -> None:
         counter[key] = counter.get(key, 0) + 1
 
 
-def count_request(slots: dict, line: bytes, oldest: float, recent: float) -> None:
-    """One line of an access log into the sums of its hour, and of its minute from recent on. Anything that is not a request is left out."""
+def parse_request(line: bytes, oldest: float) -> tuple | None:
+    """One line of an access log as (time, method, path, status, seconds, bytes out, bytes in, address,
+    user agent), or None for anything older than oldest or that is not a request."""
     try:
         entry = json.loads(line)
         stamp, asked = entry["ts"], entry["request"]
     except (ValueError, KeyError, TypeError, RecursionError):
-        return
+        return None
     if not isinstance(asked, dict) or not isinstance(stamp, (int, float)) or not oldest <= stamp < 1e11:
-        return
+        return None
 
     def number(value) -> float:
         return value if isinstance(value, (int, float)) and not isinstance(value, bool) and 0 <= value < 1e15 else 0
 
-    status, took = int(number(entry.get("status"))), float(number(entry.get("duration")))
     # Without the query: it may carry a token, and every value would count as a path of its own.
     path = str(asked.get("uri", "")).split("?", 1)[0][:200] or "/"
     headers = asked.get("headers") if isinstance(asked.get("headers"), dict) else {}
@@ -4363,9 +4365,17 @@ def count_request(slots: dict, line: bytes, oldest: float, recent: float) -> Non
     agent = str(agent[0] if isinstance(agent, list) and agent else agent or "")[:150]
     address = str(asked.get("client_ip") or asked.get("remote_ip") or "")[:64]
     # Out is the answer, in is the body of the request.
-    out, into = int(number(entry.get("size"))), int(number(entry.get("bytes_read")))
+    return (stamp, str(asked.get("method", ""))[:10], path, int(number(entry.get("status"))), float(number(entry.get("duration"))),
+            int(number(entry.get("size"))), int(number(entry.get("bytes_read"))), address, agent)
+
+
+def count_request(slots: dict, line: bytes, oldest: float, recent: float) -> None:
+    """One line of an access log into the sums of its hour, and of its minute from recent on. Anything that is not a request is left out."""
+    found = parse_request(line, oldest)
+    if found is None:
+        return
+    stamp, _, path, status, took, out, into, address, agent = found
     step = min(bisect_left(STATS_STEPS, took), len(STATS_STEPS) - 1)
-    slots["latest"].append((stamp, str(asked.get("method", ""))[:10], path, status, took, out, address, agent))
     for seconds in (3600, 60) if stamp >= recent else (3600,):
         sums = slots[seconds].setdefault(int(stamp // seconds), stats_sums())
         sums["requests"] += 1
@@ -4723,18 +4733,47 @@ STATS_PAGE_TOP = 25
 STATS_SECTIONS = {"": "Overview", "routes": "Routes", "paths": "Paths", "errors": "Errors", "visitors": "Visitors"}
 
 
-def recent_requests(host: dict, routes: set[str], only: str, failed: bool, path: str) -> list[dict]:
-    """The newest single requests, from what the files are read for the statistics.
-    only, failed and path narrow them to a route, to errors and to one path."""
-    zone = time_zone()
-    with STATS_LOCK:
-        refresh_stats(host, routes)
-        found = [(kept["route"], *record) for kept in STATS_FILES.values() if not only or kept["route"] == only for record in kept["slots"]["latest"]]
-    found = [record for record in found if (not failed or record[4] >= 400) and (not path or record[3] == path)]
-    found.sort(key=lambda record: -record[1])
-    return [{"route": route, "time": datetime.fromtimestamp(stamp, zone).strftime("%d %b %H:%M:%S"), "method": method, "path": asked,
-             "status": status, "took": human_seconds(took), "size": human_bytes(size), "address": address, "agent": agent}
-            for route, stamp, method, asked, status, took, size, address, agent in found[:STATS_REQUESTS_SHOWN]]
+def read_requests(host: dict, routes: set[str], only: str, failed: bool, path: str) -> list[tuple]:
+    """Every request of the last REQUESTS_DAYS in the access logs of these routes, newest first, as
+    (route, *parse_request). only, failed and path narrow them to a route, to errors and to one path.
+    Read from the files, current and rotated; kept REQUESTS_SECONDS, so turning the pages reads nothing."""
+    key = (host["id"], frozenset(routes), only, failed, path)
+    with REQUESTS_LOCK:
+        if REQUESTS_CACHE["key"] == key and REQUESTS_CACHE["until"] > time.time():
+            return REQUESTS_CACHE["found"]
+        oldest = time.time() - REQUESTS_DAYS * 86400
+        listed = remote_log_names(host) if host.get("storage") == "managed" else [item.name for item in local_log_files()]
+        found = []
+        for name in listed:
+            match = STATS_FILE_RE.match(name)
+            if not match or match.group(1) not in routes or (only and match.group(1) != only):
+                continue
+            if match.group(2):
+                try:
+                    rolled = datetime.strptime(match.group(2), "%Y-%m-%dT%H-%M-%S").replace(tzinfo=timezone.utc).timestamp()
+                except ValueError:
+                    rolled = time.time()
+                if rolled < oldest:
+                    continue  # rolled away before the time begins: everything in it is older
+            opened = open_log(host, name, listed)
+            if opened is None:
+                continue
+            read = 0
+            with opened[1] as handle:
+                try:
+                    for line in iter(lambda: handle.readline(LOG_TAIL_BYTES), b""):
+                        read += len(line)
+                        if read > LOG_UNPACK_MAX:
+                            break
+                        record = parse_request(line, oldest)
+                        if record and (not failed or record[3] >= 400) and (not path or record[2] == path):
+                            found.append((match.group(1), *record))
+                except (OSError, EOFError, zlib.error):
+                    pass
+        found.sort(key=lambda record: -record[1])
+        del found[REQUESTS_MAX:]
+        REQUESTS_CACHE.update(key=key, until=time.time() + REQUESTS_SECONDS, found=found)
+        return found
 
 
 @app.get("/stats")
@@ -4750,14 +4789,22 @@ def stats_page(request: Request, section: str = "", span: str = "24h", route: st
 
 
 @app.get("/requests")
-def requests_page(request: Request, route: str = "", failed: str = "", path: str = ""):
-    """Under System: the single requests of every route with an access log, newest first. Right logs, like the logs themselves."""
+def requests_page(request: Request, route: str = "", failed: str = "", path: str = "", per: int = 50, page_number: int = Query(1, alias="page")):
+    """Under System: the single requests of every route with an access log, newest first, a page at a time.
+    Right logs, like the logs themselves."""
     current = the_host()
     _, hosts = logged_routes(current)
     route = route if route in hosts else ""
-    found = recent_requests(current, set(hosts), route, bool(failed), path)
-    return page(request, "requests.html", requests=found, routes=sorted(hosts.items(), key=lambda pair: pair[1]), only=route,
-                failed=bool(failed), path=path, shown=STATS_REQUESTS_SHOWN)
+    per = per if per in REQUESTS_PER_PAGE else 50
+    found = read_requests(current, set(hosts), route, bool(failed), path)
+    pages = max(1, -(-len(found) // per))
+    page_number = min(max(1, page_number), pages)
+    zone = time_zone()
+    shown = [{"route": name, "time": datetime.fromtimestamp(stamp, zone).strftime("%d %b %H:%M:%S"), "method": method, "path": asked,
+              "status": status, "took": human_seconds(took), "size": human_bytes(out), "address": address, "agent": agent}
+             for name, stamp, method, asked, status, took, out, _, address, agent in found[(page_number - 1) * per:page_number * per]]
+    return page(request, "requests.html", requests=shown, routes=sorted(hosts.items(), key=lambda pair: pair[1]), only=route,
+                failed=bool(failed), path=path, per=per, pers=REQUESTS_PER_PAGE, page_number=page_number, pages=pages, total=len(found), days=REQUESTS_DAYS)
 
 
 # The status page is open to every account, and its checks ask Caddy, the CA and the admin API
