@@ -49,7 +49,7 @@ from fastapi.templating import Jinja2Templates
 from starlette.concurrency import run_in_threadpool
 from itsdangerous import BadSignature, URLSafeTimedSerializer
 
-VERSION = "1.0.0"
+VERSION = "1.3.5"
 # Shown in the footer. The AGPL asks that everyone using this over a network can get the source,
 # so a modified copy has to point to its own.
 SOURCE_URL = os.getenv("CADDYMAN_SOURCE_URL", "https://github.com/Marschux/Caddyman")
