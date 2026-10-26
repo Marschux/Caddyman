@@ -606,3 +606,4 @@ table.sortable th.num button.sort { text-align: right; }
 .chart-head h2 { margin: 0; }
 /* Five curves: the last one runs across both columns. */
 .charts .chart:last-child:nth-child(odd) { grid-column: 1 / -1; }
+.stats .panel a.all { grid-column: 1 / -1; justify-self: end; font-size: 13px; }

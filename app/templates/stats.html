@@ -41,19 +41,24 @@
 {% endmacro %}
 <div class="panel" data-panel="requests" hidden>
 	{% call top("Routes", s.by_requests) %}{% for name, value in s.by_requests %}<tr><td>{{ route(name) }}</td><td class="num">{{ value }}</td></tr>{% endfor %}{% endcall %}
+	<a class="all" href="/stats?span={{ span }}">All in Stats</a>
 </div>
 <div class="panel" data-panel="errors" hidden>
 	{% call top("Status codes", s.codes) %}{% for code, value in s.codes %}<tr><td><code>{{ code }}</code></td><td class="num">{{ value }}</td></tr>{% endfor %}{% endcall %}
 	{% call top("Failing paths", s.failed) %}{% for name, path, value in s.failed %}<tr><td>{{ path_on(path, name) }}</td><td class="num">{{ value }}</td></tr>{% endfor %}{% endcall %}
+	<a class="all" href="/stats?span={{ span }}">All in Stats</a>
 </div>
 <div class="panel" data-panel="traffic" hidden>
 	{% call top("Routes", s.by_bytes, ("In", "Out")) %}{% for name, inside, out in s.by_bytes %}<tr><td>{{ route(name) }}</td><td class="num"><span class="in">{{ inside }}</span></td><td class="num"><span class="out">{{ out }}</span></td></tr>{% endfor %}{% endcall %}
+	<a class="all" href="/stats?span={{ span }}">All in Stats</a>
 </div>
 <div class="panel" data-panel="time" hidden>
 	{% call top("Slowest routes (p95)", s.slow_routes) %}{% for name, value in s.slow_routes %}<tr><td>{{ route(name) }}</td><td class="num">{{ value }}</td></tr>{% endfor %}{% endcall %}
 	{% call top("Slowest paths (average)", s.slow_paths) %}{% for name, path, value in s.slow_paths %}<tr><td>{{ path_on(path, name) }}</td><td class="num">{{ value }}</td></tr>{% endfor %}{% endcall %}
+	<a class="all" href="/stats?span={{ span }}">All in Stats</a>
 </div>
 <div class="panel" data-panel="visitors" hidden>
 	{% call top("Addresses", s.ips) %}{% for address, value in s.ips %}<tr><td><code>{{ address }}</code></td><td class="num">{{ value }}</td></tr>{% endfor %}{% endcall %}
 	{% call top("User agents", s.agents) %}{% for agent, value in s.agents %}<tr><td>{{ agent or "(none)" }}</td><td class="num">{{ value }}</td></tr>{% endfor %}{% endcall %}
+	<a class="all" href="/stats?span={{ span }}">All in Stats</a>
 </div>

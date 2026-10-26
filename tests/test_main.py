@@ -3520,7 +3520,9 @@ class TestStats(RouteTest):
         # A name that is no route with a log counts as all of them.
         self.assertIn("<code>/a</code>", self.client.get("/stats", params={"route": "../wiki"}).text)
         # The tiles lead here.
-        self.assertIn('<a href="/stats?span=24h">Details</a>', self.stats())
+        tiles = self.stats()
+        self.assertIn('<a href="/stats?span=24h">Details</a>', tiles)
+        self.assertEqual(tiles.count('>All in Stats</a>'), 5)
 
     def test_statistics_take_their_own_right(self):
         self.client.post("/settings/users/new", data={"username": "viewer", "password": PASSWORD, "repeat": PASSWORD, "right_logs": "1"})
