@@ -4351,7 +4351,7 @@ STATS_VIEWS: dict = {}
 
 
 def stats_sums() -> dict:
-    return {"requests": 0, "bytes": 0, "bytes_in": 0, "codes": Counter(), "steps": [0] * len(STATS_STEPS), "ips": Counter(), "agents": Counter(), "failed": Counter(), "paths": {}}
+    return {"requests": 0, "bytes": 0, "bytes_in": 0, "codes": Counter(), "steps": [0] * len(STATS_STEPS), "ips": Counter(), "agents": Counter(), "methods": Counter(), "failed": Counter(), "paths": {}}
 
 
 def stats_slots() -> dict:
@@ -4375,7 +4375,7 @@ def tally(slots: dict, counter: dict, key) -> None:
 
 
 def slot_keys(sums: dict) -> int:
-    return len(sums["ips"]) + len(sums["agents"]) + len(sums["failed"]) + len(sums["paths"])
+    return len(sums["ips"]) + len(sums["agents"]) + len(sums["methods"]) + len(sums["failed"]) + len(sums["paths"])
 
 
 def parse_request(line: bytes, oldest: float) -> tuple | None:
@@ -4408,7 +4408,7 @@ def count_request(slots: dict, line: bytes, oldest: float, recent: float) -> Non
     found = parse_request(line, oldest)
     if found is None:
         return
-    stamp, _, path, status, took, out, into, address, agent = found
+    stamp, method, path, status, took, out, into, address, agent = found
     step = min(bisect_left(STATS_STEPS, took), len(STATS_STEPS) - 1)
     for seconds in (3600, 60) if stamp >= recent else (3600,):
         sums = slots[seconds].setdefault(int(stamp // seconds), stats_sums())
@@ -4419,6 +4419,8 @@ def count_request(slots: dict, line: bytes, oldest: float, recent: float) -> Non
         sums["steps"][step] += 1
         tally(slots, sums["ips"], address)
         tally(slots, sums["agents"], agent)
+        # Visitors may send any word here: it takes room like an agent does.
+        tally(slots, sums["methods"], method)
         if status >= 400:
             tally(slots, sums["failed"], path)
         if room(slots, sums["paths"], path):
@@ -4618,7 +4620,7 @@ def summed_view(span: str, only: str, top: int, items: list[dict], hosts: dict[s
     heat_first = int(time.time() // 3600) - heat_days * 24 + 1
     per_route: dict[str, dict] = {}
     steps = [0] * len(STATS_STEPS)
-    codes, failed, ips, agents = Counter(), Counter(), Counter(), Counter()
+    codes, failed, ips, agents, methods = Counter(), Counter(), Counter(), Counter(), Counter()
     paths: dict[tuple, list] = {}
     for kept in STATS_FILES.values():
         route = kept["route"]
@@ -4654,6 +4656,7 @@ def summed_view(span: str, only: str, top: int, items: list[dict], hosts: dict[s
             codes.update(sums["codes"])
             ips.update(sums["ips"])
             agents.update(sums["agents"])
+            methods.update(sums["methods"])
             failed.update({(route, path): number for path, number in sums["failed"].items()})
             for path, (number, took) in sums["paths"].items():
                 timed = paths.setdefault((route, path), [0, 0.0])
@@ -4772,6 +4775,7 @@ def summed_view(span: str, only: str, top: int, items: list[dict], hosts: dict[s
         "ips": [(address, f"{number:,}") for address, number in ips.most_common(top)],
         "agents": [(agent, f"{number:,}") for agent, number in agents.most_common(top)],
         "agent_slices": pie(agents),
+        "method_slices": pie(methods),
         "without_log": sum(1 for item in items if not item["route"].get("log")),
         "logged": len(hosts),
         "label": label,

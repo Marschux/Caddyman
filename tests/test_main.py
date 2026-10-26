@@ -3553,6 +3553,9 @@ class TestStats(RouteTest):
         self.assertIn('<a href="/stats?span=24h" aria-current="page">Overview</a>', overview)
         self.assertIn("1 route without an access log is not counted.", overview)
         self.assertIn("conic-gradient(var(--product) 0.00% 100.00%)", overview)
+        # The methods as a pie of their own: all three are GET.
+        self.assertIn('aria-label="Share of the methods"', overview)
+        self.assertIn('</span>GET</td><td class="num">3</td>', overview)
         # Status codes stacked: two of three answers 2xx, one 5xx.
         self.assertIn('<b class="c2" style="height: 67%"></b><b class="c3" style="height: 0%"></b><b class="c4" style="height: 0%"></b><b class="c5" style="height: 33%"></b>', overview)
         # All three took 50 ms: the band up to 130 ms.

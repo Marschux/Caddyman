@@ -15,15 +15,15 @@
 	<div class="axis">{% for label in s.axis %}<span>{{ label }}</span>{% endfor %}</div>
 </section>
 {% endmacro %}
-{# User agents as a pie drawn by the browser from a conic gradient, the legend beside it. The colours are the tokens of the options. #}
-{% macro pie() %}
+{# A share as a pie drawn by the browser from a conic gradient, the legend beside it. The colours are the tokens of the options. #}
+{% macro pie(title="User agents", slices=s.agent_slices) %}
 {% set colours = ["var(--product)", "var(--opt-auth)", "var(--opt-sso)", "var(--opt-verify)", "var(--opt-hsts)", "var(--opt-log)", "var(--opt-host)"] %}
-<h3>User agents</h3>
-{% if s.agent_slices %}
+<h3>{{ title }}</h3>
+{% if slices %}
 <div class="pie-box">
-	<div class="pie" role="img" aria-label="Share of the user agents" style="background: conic-gradient({% for name, value, share, start, end in s.agent_slices %}{{ 'var(--surface-3)' if name == 'Other' else colours[loop.index0] }} {{ '%.2f'|format(start) }}% {{ '%.2f'|format(end) }}%{{ ', ' if not loop.last }}{% endfor %})"></div>
+	<div class="pie" role="img" aria-label="Share of the {{ title|lower }}" style="background: conic-gradient({% for name, value, share, start, end in slices %}{{ 'var(--surface-3)' if name == 'Other' else colours[loop.index0] }} {{ '%.2f'|format(start) }}% {{ '%.2f'|format(end) }}%{{ ', ' if not loop.last }}{% endfor %})"></div>
 	<table class="top"><tbody>
-		{% for name, value, share, start, end in s.agent_slices %}<tr><td><span class="dot" style="background: {{ 'var(--surface-3)' if name == 'Other' else colours[loop.index0] }}"></span>{{ name }}</td><td class="num">{{ value }}</td><td class="num share">{{ '%.1f'|format(share) }} %</td></tr>{% endfor %}
+		{% for name, value, share, start, end in slices %}<tr><td><span class="dot" style="background: {{ 'var(--surface-3)' if name == 'Other' else colours[loop.index0] }}"></span>{{ name }}</td><td class="num">{{ value }}</td><td class="num share">{{ '%.1f'|format(share) }} %</td></tr>{% endfor %}
 	</tbody></table>
 </div>
 {% else %}<p class="empty">Nothing in this time.</p>{% endif %}
@@ -94,6 +94,7 @@
 		{{ histogram() }}
 		{{ chart("Visitors", s.visitors, s.visitors_detail, s.visitor_bars, s.peaks.visitors, "visitors") }}
 		<section class="chart agents">{{ pie() }}</section>
+		<section class="chart agents">{{ pie("Methods", s.method_slices) }}</section>
 		{{ heatmap() }}
 	</div>
 	<p class="legend"><span class="in">In</span> is what clients sent, <span class="out">out</span> what Caddy answered. Status codes: <span class="c2">2xx</span>, <span class="c3">3xx</span>, <span class="c4">4xx</span>, <span class="c5">5xx</span>.</p>
