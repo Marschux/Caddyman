@@ -78,7 +78,7 @@ class TestAuth(AppTest):
         self.assertEqual(self.client.get("/healthz").status_code, 200)
         self.assertEqual(self.client.get("/static/app.css").status_code, 200)
         # The icon is linked from every page and has to load before anyone is logged in.
-        self.assertIn('rel="icon" type="image/svg+xml" href="/static/favicon.svg"', self.client.get("/setup").text)
+        self.assertIn(f'rel="icon" type="image/svg+xml" href="/static/favicon.svg?v={main.VERSION}"', self.client.get("/setup").text)
         self.assertEqual(self.client.get("/static/favicon.svg").headers["content-type"], "image/svg+xml")
         # License and source are named on every page, also before login.
         footer = self.client.get("/setup").text.split("<footer>")[1]
@@ -759,7 +759,7 @@ class TestRoutes(RouteTest):
 
     def test_route_list_carries_the_hidden_game(self):
         self.create()
-        self.assertIn('<script src="/static/game.js" defer>', self.client.get("/").text)
+        self.assertIn(f'<script src="/static/game.js?v={main.VERSION}" defer>', self.client.get("/").text)
         self.assertNotIn("game.js", self.client.get("/routes/new").text)
         self.assertEqual(self.client.get("/static/game.js").status_code, 200)
         # The name itself stays an ordinary hostname for the server: the game lives in the browser.
@@ -805,7 +805,7 @@ class TestRoutes(RouteTest):
         self.assertEqual(page.count("Not reachable"), 1)  # reverse proxies only
         # What "Problems" in routes.js goes by.
         self.assertEqual(page.count(" data-problem>"), 1)
-        self.assertIn('src="/static/routes.js"', page)
+        self.assertIn(f'src="/static/routes.js?v={main.VERSION}"', page)
 
     def test_list_keeps_what_it_found_for_a_while(self):
         self.create()
@@ -1305,7 +1305,7 @@ class TestCa(RouteTest):
         self.assertIn('<option value="2" >Certificate 2</option>', first)
         self.assertIn('href="/root-ca.crt?cert=2">Download root-ca-2.crt<', first)
         # Picking another one swaps the page in place, with the plain form as the way without a script.
-        self.assertIn('<script src="/static/ca.js" defer></script>', first)
+        self.assertIn(f'<script src="/static/ca.js?v={main.VERSION}" defer></script>', first)
         self.assertIn('FromBase64String("dGVzdA==")', first)
         self.assertIn('href="/root-ca.crt?cert=1">Download root-ca-1.crt<', first)
         self.assertIn('href="?os=macos&amp;cert=1"', first)
@@ -2044,6 +2044,9 @@ class TestLogs(RouteTest):
         self.assertIn("log caddyman", page)
         self.assertIn("/missing:ro", page)
         self.assertIn("/static/logs.js", page)  # keeps looking, and shows the log once it is there
+        # A new version is a new address for every file under /static/, so no browser keeps the old one.
+        self.assertIn(f'/static/app.css?v={main.VERSION}"', page)
+        self.assertIn(f'/static/logs.js?v={main.VERSION}"', page)
 
     def test_live_view_has_what_the_script_swaps(self):
         page = self.client.get("/logs").text
@@ -3562,7 +3565,7 @@ class TestStats(RouteTest):
         # Status codes stacked: two of three answers 2xx, one 5xx.
         self.assertIn('<b class="c2" style="height: 67%"></b><b class="c3" style="height: 0%"></b><b class="c4" style="height: 0%"></b><b class="c5" style="height: 33%"></b>', overview)
         # All three took 50 ms: the band up to 130 ms.
-        self.assertIn('title="≤ 130 ms: 3 requests, 100.0 %"', overview)
+        self.assertIn('<td class="nowrap">≤ 130 ms</td><td class="bar"><span class="meter"><i style="width: 100.0%"></i></span></td><td class="num">3</td><td class="num share">100.0 %</td>', overview)
         # Busy hours: a cell for each hour of each weekday.
         self.assertEqual(overview.count('class="cell"'), 7 * 24)
         self.assertIn(": 3 requests\" style=\"--share: 100%\"", overview)

@@ -153,4 +153,4 @@
 </div>
 {% endblock %}
 {# game.js is a hidden extra: it waits for one word in the search. #}
-{% block scripts %}<script src="/static/routes.js" defer></script><script src="/static/stats.js" defer></script><script src="/static/game.js" defer></script>{% endblock %}
+{% block scripts %}<script src="/static/routes.js?v={{ static_version }}" defer></script><script src="/static/stats.js?v={{ static_version }}" defer></script><script src="/static/game.js?v={{ static_version }}" defer></script>{% endblock %}

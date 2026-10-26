@@ -34,12 +34,13 @@
 <span class="bars classes">{% for height, parts, title in s.class_bars %}<span title="{{ title }}"><i{% if not height %} class="none"{% endif %} style="height: {{ height }}%">{% for part in parts %}<b class="c{{ loop.index + 1 }}" style="height: {{ part }}%"></b>{% endfor %}</i></span>{% endfor %}</span>
 {% endcall %}
 {% endmacro %}
-{# How long the requests took, in bands, each with its label under it. #}
+{# How long the requests took, one line per band: a bar as long as its share of all, the count and the share. #}
 {% macro histogram() %}
 <section class="chart">
 	<div class="chart-head"><h2>Response times</h2><span class="sub">requests per band</span></div>
-	<div class="plot"><span class="bars histogram">{% for height, name, title in s.time_histogram %}<span title="{{ title }}"><i{% if not height %} class="none"{% endif %} style="height: {{ height }}%"></i></span>{% endfor %}</span></div>
-	<div class="axis bands">{% for height, name, title in s.time_histogram %}<span>{{ name }}</span>{% endfor %}</div>
+	<table class="top bands"><tbody>
+		{% for width, name, count, share in s.time_histogram %}<tr><td class="nowrap">{{ name }}</td><td class="bar"><span class="meter"><i style="width: {{ '%.1f'|format(width) }}%"></i></span></td><td class="num">{{ count }}</td><td class="num share">{{ share }}</td></tr>{% endfor %}
+	</tbody></table>
 </section>
 {% endmacro %}
 {# Requests per weekday and hour; the darker, the more. #}
@@ -131,4 +132,4 @@
 	{% endif %}
 </div>
 {% endblock %}
-{% block scripts %}<script src="/static/stats_page.js" defer></script>{% endblock %}
+{% block scripts %}<script src="/static/stats_page.js?v={{ static_version }}" defer></script>{% endblock %}

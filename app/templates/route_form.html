@@ -193,4 +193,4 @@
 	<button type="submit">{{ "Overwrite and reload Caddy" if conflict else "Save and reload Caddy" }}</button>
 </form>
 {% endblock %}
-{% block scripts %}<script src="/static/form.js" defer></script>{% endblock %}
+{% block scripts %}<script src="/static/form.js?v={{ static_version }}" defer></script>{% endblock %}

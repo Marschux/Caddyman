@@ -186,4 +186,4 @@ sudo update-ca-certificates</pre>
 {% endif %}
 {% endif %}
 {% endblock %}
-{% block scripts %}{% if many %}<script src="/static/ca.js" defer></script>{% endif %}{% endblock %}
+{% block scripts %}{% if many %}<script src="/static/ca.js?v={{ static_version }}" defer></script>{% endif %}{% endblock %}

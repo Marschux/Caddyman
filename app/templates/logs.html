@@ -74,4 +74,4 @@
 {% endif %}
 {% endblock %}
 {# Over the network every look fetches up to half a megabyte, so it looks less often. #}
-{% block scripts %}<script src="/static/logs.js" data-seconds="{{ 20 if host.storage == 'managed' else 5 }}" defer></script>{% endblock %}
+{% block scripts %}<script src="/static/logs.js?v={{ static_version }}" data-seconds="{{ 20 if host.storage == 'managed' else 5 }}" defer></script>{% endblock %}

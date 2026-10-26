@@ -470,6 +470,8 @@ app.mount("/static", StaticFiles(directory=BASE_DIR / "static"), name="static")
 templates = Jinja2Templates(directory=BASE_DIR / "templates")
 templates.env.filters["initials"] = initials
 templates.env.globals["PERMISSIONS"] = PERMISSIONS
+# Behind every link to a file under /static/: a new version is a new address, so no browser keeps the old one.
+templates.env.globals["static_version"] = VERSION
 # Defined below, with the settings it reads.
 templates.env.globals["time_zone"] = lambda: time_zone().key
 # The settings page calls it by name: defined further down, with the rest about Caddy.
@@ -4713,15 +4715,16 @@ def summed_view(span: str, only: str, top: int, items: list[dict], hosts: dict[s
                  f"{when(index)}: " + ", ".join(f"{part:,} {name}" for name, part in zip(STATS_CLASSES, row)))
                 for index, row in enumerate(totals)]
 
-    def time_histogram() -> list[tuple[int, str, str]]:
-        """Requests by how long they took, in the bands STATS_TIME_CUTS makes: height, label and tooltip."""
+    def time_histogram() -> list[tuple[float, str, str, str]]:
+        """Requests by how long they took, in the bands STATS_TIME_CUTS makes: the width of the bar (its share
+        of all), the label, the count and the share as text. Most requests fall in one band: the numbers say the rest."""
         bands, before = [], 0
         for cut in (*STATS_TIME_CUTS, len(STATS_STEPS)):
             bands.append(sum(steps[before:cut + 1] if cut < len(STATS_STEPS) else steps[before:]))
             before = cut + 1
         labels = [f"≤ {human_seconds(STATS_STEPS[cut])}" for cut in STATS_TIME_CUTS] + [f"> {human_seconds(STATS_STEPS[STATS_TIME_CUTS[-1]])}"]
-        top, total = max(bands) or 1, sum(bands) or 1
-        return [(round(100 * band / top), name, f"{name}: {band:,} requests, {100 * band / total:.1f} %") for name, band in zip(labels, bands)]
+        total = sum(bands) or 1
+        return [(100 * band / total, name, f"{band:,}", "< 0.1 %" if 0 < band < total / 1000 else f"{100 * band / total:.1f} %") for name, band in zip(labels, bands)]
 
     heat_top = max(map(max, heat)) or 1
     days = ("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")
