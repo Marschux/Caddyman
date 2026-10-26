@@ -2499,6 +2499,18 @@ def admin_get(host: dict, path: str, **more) -> httpx.Response:
     return httpx.get(f"{host['admin_url']}{path}", timeout=ADMIN_TIMEOUT, auth=admin_auth(host), verify=admin_verify(host), **more)
 
 
+def admin_file(host: dict, path: str, limit: int, **more) -> tuple[httpx.Response, bytes]:
+    """Like admin_get, for a file: the answer and at most limit bytes of its body, also from a
+    server that ignores the range it was asked for."""
+    with httpx.stream("GET", f"{host['admin_url']}{path}", timeout=ADMIN_TIMEOUT, auth=admin_auth(host), verify=admin_verify(host), **more) as response:
+        body = bytearray()
+        for chunk in response.iter_bytes():
+            body += chunk
+            if len(body) >= limit:
+                break
+        return response, bytes(body[:limit])
+
+
 def caddy_body(host: dict) -> bytes:
     """The complete Caddyfile for a host, as text. Never JSON: Caddy adapts it itself."""
     base = read_caddyfile(host)
@@ -4139,12 +4151,11 @@ def read_remote_log(host: dict, name: str, end: int) -> tuple[list[str], int] | 
     else:
         wanted = f"bytes=-{LOG_TAIL_BYTES}"
     try:
-        response = admin_get(host, f"{LOG_REMOTE_DIR}/{quote(name)}", headers={"Range": wanted})
+        response, content = admin_file(host, f"{LOG_REMOTE_DIR}/{quote(name)}", LOG_REMOTE_PACKED_MAX, headers={"Range": wanted})
     except httpx.HTTPError:
         return None
     if response.status_code not in (200, 206):
         return None
-    content = response.content
     if packed:
         try:
             return window_lines(*unpacked_window(io.BytesIO(content), end))
@@ -4250,10 +4261,10 @@ def open_log(host: dict, wanted: str, listed: list[str] | None = None):
         if wanted not in (remote_log_names(host) if listed is None else listed):
             return None
         # Up to the limit for a packed file; Caddy rolls its logs far below it.
-        response = admin_get(host, f"{LOG_REMOTE_DIR}/{quote(wanted)}", headers={"Range": f"bytes=0-{LOG_REMOTE_PACKED_MAX - 1}"})
+        response, content = admin_file(host, f"{LOG_REMOTE_DIR}/{quote(wanted)}", LOG_REMOTE_PACKED_MAX, headers={"Range": f"bytes=0-{LOG_REMOTE_PACKED_MAX - 1}"})
         if response.status_code not in (200, 206):
             return None
-        handle = io.BytesIO(response.content)
+        handle = io.BytesIO(content)
         return wanted, gzip.GzipFile(fileobj=handle) if wanted.endswith(".gz") else handle
     except (OSError, httpx.HTTPError):
         return None
@@ -4325,6 +4336,9 @@ STATS_STEPS = tuple(0.001 * 1.5**step for step in range(30))
 # Different paths, addresses and user agents kept per hour and file. A scan of thousands of paths
 # would otherwise fill the memory; what comes after the limit is still counted in the totals.
 STATS_KEYS = 2000
+# And per log file over all its slots: visitors choose paths and agents, and 744 hours of 2000 each would
+# not fit a small container. About 50 MB at most per file; what comes after is still counted in the totals.
+STATS_FILE_KEYS = 100_000
 # access-<route>.log, and what Caddy makes of it when rolling: access-<route>-2026-10-26T01-46-00.000.log.gz
 STATS_FILE_RE = re.compile(r"access-(.+?)(?:-(\d{4}-\d\d-\d\dT\d\d-\d\d-\d\d)\.\d+)?\.log(?:\.gz)?\Z")
 STATS_FILES: dict[str, dict] = {}  # log name -> {"route": name, "slots": {3600: {hour: sums}, 60: {minute: sums}}, "offset": bytes read}
@@ -4339,12 +4353,27 @@ def stats_sums() -> dict:
 
 
 def stats_slots() -> dict:
-    return {3600: {}, 60: {}}
+    # "keys": how many paths, addresses and agents all slots of the file hold together.
+    return {3600: {}, 60: {}, "keys": 0}
 
 
-def tally(counter: dict, key) -> None:
-    if key in counter or len(counter) < STATS_KEYS:
+def room(slots: dict, counter: dict, key) -> bool:
+    """Whether key may be counted in counter: it is there already, or both limits leave room for one more."""
+    if key in counter:
+        return True
+    if len(counter) >= STATS_KEYS or slots["keys"] >= STATS_FILE_KEYS:
+        return False
+    slots["keys"] += 1
+    return True
+
+
+def tally(slots: dict, counter: dict, key) -> None:
+    if room(slots, counter, key):
         counter[key] = counter.get(key, 0) + 1
+
+
+def slot_keys(sums: dict) -> int:
+    return len(sums["ips"]) + len(sums["agents"]) + len(sums["failed"]) + len(sums["paths"])
 
 
 def parse_request(line: bytes, oldest: float) -> tuple | None:
@@ -4386,13 +4415,22 @@ def count_request(slots: dict, line: bytes, oldest: float, recent: float) -> Non
         sums["bytes_in"] += into
         sums["codes"][status] += 1
         sums["steps"][step] += 1
-        tally(sums["ips"], address)
-        tally(sums["agents"], agent)
+        tally(slots, sums["ips"], address)
+        tally(slots, sums["agents"], agent)
         if status >= 400:
-            tally(sums["failed"], path)
-        if path in sums["paths"] or len(sums["paths"]) < STATS_KEYS:
+            tally(slots, sums["failed"], path)
+        if room(slots, sums["paths"], path):
             timed = sums["paths"].setdefault(path, [0, 0.0])
             timed[0], timed[1] = timed[0] + 1, timed[1] + took
+
+
+def access_log(name: str, routes: set[str]) -> tuple[str, str] | None:
+    """The route of these an access log belongs to, and when it was rolled ("" for the current log).
+    A route may be called like a rolled file of another one: its own current log goes first."""
+    if name.startswith(ACCESS_LOG_PREFIX) and name.endswith(".log") and name[len(ACCESS_LOG_PREFIX):-4] in routes:
+        return name[len(ACCESS_LOG_PREFIX):-4], ""
+    found = STATS_FILE_RE.match(name)
+    return (found.group(1), found.group(2) or "") if found and found.group(1) in routes else None
 
 
 def read_on(host: dict, name: str, offset: int) -> tuple[bytes, int] | None:
@@ -4408,7 +4446,7 @@ def read_on(host: dict, name: str, offset: int) -> tuple[bytes, int] | None:
         except OSError:
             return None
     try:
-        response = admin_get(host, f"{LOG_REMOTE_DIR}/{quote(name)}", headers={"Range": f"bytes={offset}-{offset + LOG_UNPACK_MAX - 1}"})
+        response, content = admin_file(host, f"{LOG_REMOTE_DIR}/{quote(name)}", LOG_UNPACK_MAX, headers={"Range": f"bytes={offset}-{offset + LOG_UNPACK_MAX - 1}"})
     except httpx.HTTPError:
         return None
     if response.status_code == 416:
@@ -4419,7 +4457,7 @@ def read_on(host: dict, name: str, offset: int) -> tuple[bytes, int] | None:
         return read_on(host, name, 0) if offset else None
     if response.status_code in (200, 206):
         # A server that ignores the range sends everything, from 0.
-        return response.content[:LOG_UNPACK_MAX], offset if response.status_code == 206 else 0
+        return content, offset if response.status_code == 206 else 0
     return None
 
 
@@ -4477,23 +4515,23 @@ def refresh_stats(host: dict, routes: set[str]) -> None:
     oldest = (int(now // 3600) - STATS_KEEP_HOURS + 1) * 3600
     recent = (int(now // 60) - STATS_KEEP_MINUTES + 1) * 60
     listed = log_names(host)
-    files = {name: found for name in listed if (found := STATS_FILE_RE.match(name)) and found.group(1) in routes}
+    files = {name: found for name in listed if (found := access_log(name, routes))}
     for name in [name for name in STATS_FILES if name not in files]:
         del STATS_FILES[name]
     # A newly rotated file holds what the current one held: that one is read again from its start.
     for name, found in files.items():
-        if found.group(2) and name not in STATS_FILES:
-            STATS_FILES.pop(f"{ACCESS_LOG_PREFIX}{found.group(1)}.log", None)
+        if found[1] and name not in STATS_FILES:
+            STATS_FILES.pop(f"{ACCESS_LOG_PREFIX}{found[0]}.log", None)
     for name, found in files.items():
         kept = STATS_FILES.get(name)
-        if found.group(2):
+        if found[1]:
             if kept is None:
                 # Rolled before the longest range began: everything in it is older.
-                slots = stats_slots() if rolled_at(found.group(2)) < oldest else read_rolled(host, name, listed, oldest, recent)
+                slots = stats_slots() if rolled_at(found[1]) < oldest else read_rolled(host, name, listed, oldest, recent)
                 if slots is not None:
-                    STATS_FILES[name] = {"route": found.group(1), "slots": slots}
+                    STATS_FILES[name] = {"route": found[0], "slots": slots}
             continue
-        kept = kept or {"route": found.group(1), "slots": stats_slots(), "offset": 0}
+        kept = kept or {"route": found[0], "slots": stats_slots(), "offset": 0}
         if read := read_on(host, name, kept["offset"]):
             data, start = read
             if start < kept["offset"]:
@@ -4507,7 +4545,7 @@ def refresh_stats(host: dict, routes: set[str]) -> None:
     for kept in STATS_FILES.values():
         for seconds, first in ((3600, oldest // 3600), (60, recent // 60)):
             for slot in [slot for slot in kept["slots"][seconds] if slot < first]:
-                del kept["slots"][seconds][slot]
+                kept["slots"]["keys"] -= slot_keys(kept["slots"][seconds].pop(slot))
     STATS_STATE.update(host=host["id"], until=now + STATS_SECONDS, routes=routes)
 
 
@@ -4769,34 +4807,29 @@ STATS_PAGE_TOP = 25
 STATS_SECTIONS = {"": "Overview", "routes": "Routes", "paths": "Paths", "errors": "Errors", "visitors": "Visitors"}
 
 
-def read_requests(host: dict, routes: set[str], only: str, failed: bool, path: str) -> list[tuple]:
+def read_requests(host: dict, routes: set[str], only: str) -> list[tuple]:
     """Every request of the last REQUESTS_DAYS in the access logs of these routes, newest first, as
-    (route, *parse_request). only, failed and path narrow them to a route, to errors and to one path.
-    Read from the files, current and rotated; kept REQUESTS_SECONDS, so turning the pages reads nothing."""
-    key = (host["id"], frozenset(routes), only, failed, path)
+    (route, *parse_request); only narrows them to one route. Read from the files, current and rotated;
+    kept REQUESTS_SECONDS, so turning the pages or filtering them reads nothing. Errors only and a path
+    are filtered from this by the caller: a free text in the key would let every new one read all the logs again."""
+    key = (host["id"], frozenset(routes), only)
     with REQUESTS_LOCK:
         if REQUESTS_CACHE["key"] == key and REQUESTS_CACHE["until"] > time.time():
             return REQUESTS_CACHE["found"]
         # The last reading goes before the next one is made, so the two are never held at once.
         REQUESTS_CACHE.update(key=None, found=[])
         oldest = time.time() - REQUESTS_DAYS * 86400
-        # A line without the path in it cannot be a request for it. Only where Caddy writes the path as it
-        # is: its JSON escapes quotes, backslashes, &, < and >.
-        needle = path.encode() if path and not set(path) & set('"\\&<>') and path.isprintable() else b""
         listed = log_names(host)
         found = []
         for name in listed:
-            match = STATS_FILE_RE.match(name)
-            if not match or match.group(1) not in routes or (only and match.group(1) != only):
+            belongs = access_log(name, routes)
+            if not belongs or (only and belongs[0] != only):
                 continue
-            if match.group(2) and rolled_at(match.group(2)) < oldest:
+            if belongs[1] and rolled_at(belongs[1]) < oldest:
                 continue  # rolled away before the time begins: everything in it is older
             for line in log_lines(host, name, listed) or ():
-                if needle not in line:
-                    continue
-                record = parse_request(line, oldest)
-                if record and (not failed or record[3] >= 400) and (not path or record[2] == path):
-                    found.append((match.group(1), *record))
+                if record := parse_request(line, oldest):
+                    found.append((belongs[0], *record))
                     # Only the newest REQUESTS_MAX stay, also while reading: a busy month never sits in memory whole.
                     if len(found) >= 2 * REQUESTS_MAX:
                         found.sort(key=lambda record: -record[1])
@@ -4827,7 +4860,8 @@ def requests_page(request: Request, route: str = "", failed: str = "", path: str
     _, hosts = logged_routes(current)
     route = route if route in hosts else ""
     per = per if per in REQUESTS_PER_PAGE else 50
-    found = read_requests(current, set(hosts), route, bool(failed), path)
+    found = [record for record in read_requests(current, set(hosts), route)
+             if (not failed or record[4] >= 400) and (not path or record[3] == path)]
     pages = max(1, -(-len(found) // per))
     page_number = min(max(1, page_number), pages)
     zone = time_zone()

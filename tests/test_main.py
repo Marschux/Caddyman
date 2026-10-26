@@ -26,6 +26,15 @@ from fastapi.testclient import TestClient  # noqa: E402
 
 from app import main  # noqa: E402
 
+
+def streamed(get):
+    """An httpx.stream that answers like this mock of httpx.get, with its content in one piece."""
+    def stream(method, url, **kwargs):
+        reply = get(url, **kwargs)
+        reply.iter_bytes = lambda: iter([reply.content])
+        return contextlib.nullcontext(reply)
+    return stream
+
 PASSWORD = "correct horse"
 
 
@@ -1996,6 +2005,7 @@ class TestLogs(RouteTest):
 
         self.remote()
         get = self.patch(main.httpx, "get", mock.Mock(side_effect=answer))
+        self.patch(main.httpx, "stream", streamed(get))
         names, chosen, lines, _ = main.load_log(main.load_hosts()[0], "")
         self.assertEqual((names, chosen, lines), (["caddy.log", "caddy-2026-10-01.log.gz"], "caddy.log", [self.LINES[1]]))
         page = self.client.get("/logs", params={"file": "caddy-2026-10-01.log.gz"}).text
@@ -2047,7 +2057,9 @@ class TestLogs(RouteTest):
         (main.managed_dir("h1") / "sites").mkdir(parents=True, exist_ok=True)
         reply = mock.Mock(status_code=206, headers={"content-range": "bytes 0-99/100"}, content=b"")
         reply.configure_mock(**answer)
-        return self.patch(main.httpx, "get", mock.Mock(return_value=reply))
+        get = self.patch(main.httpx, "get", mock.Mock(return_value=reply))
+        self.patch(main.httpx, "stream", streamed(get))
+        return get
 
     def test_caddy_elsewhere_is_asked_for_the_end_of_its_log(self):
         body = "\n".join(self.LINES).encode()
@@ -2070,8 +2082,24 @@ class TestLogs(RouteTest):
         self.remote(status_code=404)
         page = self.client.get("/logs").text
         self.assertIn("handle_path /caddyman-logs/*", page)
-        self.patch(main.httpx, "get", mock.Mock(side_effect=main.httpx.ConnectError("down")))
+        down = self.patch(main.httpx, "get", mock.Mock(side_effect=main.httpx.ConnectError("down")))
+        self.patch(main.httpx, "stream", streamed(down))
         self.assertIn("handle_path /caddyman-logs/*", self.client.get("/logs").text)
+
+    def test_a_log_from_caddy_elsewhere_is_read_only_up_to_its_limit(self):
+        # A server that ignores the range and sends more is cut off on the way, not after.
+        self.remote()
+        pulled = []
+
+        def chunks():
+            for _ in range(1000):
+                pulled.append(1)
+                yield b"x" * 600
+
+        reply = mock.Mock(status_code=200, headers={}, iter_bytes=chunks)
+        self.patch(main.httpx, "stream", lambda method, url, **kwargs: contextlib.nullcontext(reply))
+        _, body = main.admin_file(main.load_hosts()[0], "/caddyman-logs/caddy.log", 1000)
+        self.assertEqual((len(body), len(pulled)), (1000, 2))
 
     def test_failed_certificate_links_to_its_log(self):
         self.create()
@@ -3547,6 +3575,19 @@ class TestStats(RouteTest):
         tiles = self.stats()
         self.assertIn('<a class="tile" href="/stats/routes?span=24h">', tiles)
         self.assertIn('<a class="tile" href="/stats/visitors?span=24h">', tiles)
+
+    def test_one_file_holds_only_so_many_names_and_a_route_keeps_its_own_log(self):
+        # Visitors choose paths and agents: a file keeps at most so many, every request still counts.
+        self.patch(main, "STATS_FILE_KEYS", 10)
+        self.write("access-pdf.log", [self.request(f"/p{number}", agent=f"Agent {number}") for number in range(50)])
+        self.assertIn('<span class="value">50</span>', self.stats())
+        self.assertLessEqual(main.STATS_FILES["access-pdf.log"]["slots"]["keys"], 10)
+        # A route called like a rolled file of another one keeps its own current log.
+        stamped = "a-2026-10-26T01-46-00.000"
+        self.assertEqual(main.access_log(f"access-{stamped}.log", {"a", stamped}), (stamped, ""))
+        self.assertEqual(main.access_log(f"access-{stamped}-2026-10-27T00-00-00.000.log.gz", {"a", stamped}), (stamped, "2026-10-27T00-00-00"))
+        self.assertEqual(main.access_log(f"access-{stamped}.log.gz", {"a"}), ("a", "2026-10-26T01-46-00"))
+        self.assertIsNone(main.access_log("access-b.log", {"a"}))
 
     def test_requests_one_by_one_newest_first(self):
         self.write("access-pdf.log", [self.request("/old", ago=120), self.request("/new?token=x", status=404, ago=60), self.request("/old", status=502, ago=30)])
