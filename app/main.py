@@ -24,7 +24,7 @@ import time
 import zipfile
 import zlib
 from bisect import bisect_left
-from collections import Counter
+from collections import Counter, deque
 from concurrent.futures import ThreadPoolExecutor, wait
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
@@ -4307,6 +4307,8 @@ STATS_KEEP_HOURS, STATS_KEEP_MINUTES = 744, 60
 STATS_TOP = 5
 # Slices of a pie chart before the rest is taken together as "Other".
 STATS_SLICES = 7
+# The last requests of each log file, kept as they are read, for the list under Requests; and how many it shows.
+STATS_RECENT, STATS_REQUESTS_SHOWN = 500, 200
 # Where the response time histogram cuts, as steps of STATS_STEPS: 5 ms, 26 ms, 130 ms, 660 ms, 3.3 s.
 STATS_TIME_CUTS = (4, 8, 12, 16, 20)
 # The classes of status codes, bottom to top in their stacked bars.
@@ -4330,7 +4332,8 @@ def stats_sums() -> dict:
 
 
 def stats_slots() -> dict:
-    return {3600: {}, 60: {}}
+    # "latest": the last requests one by one, as (time, method, path, status, seconds, bytes out, address, user agent).
+    return {3600: {}, 60: {}, "latest": deque(maxlen=STATS_RECENT)}
 
 
 def tally(counter: dict, key) -> None:
@@ -4361,6 +4364,7 @@ def count_request(slots: dict, line: bytes, oldest: float, recent: float) -> Non
     # Out is the answer, in is the body of the request.
     out, into = int(number(entry.get("size"))), int(number(entry.get("bytes_read")))
     step = min(bisect_left(STATS_STEPS, took), len(STATS_STEPS) - 1)
+    slots["latest"].append((stamp, str(asked.get("method", ""))[:10], path, status, took, out, address, agent))
     for seconds in (3600, 60) if stamp >= recent else (3600,):
         sums = slots[seconds].setdefault(int(stamp // seconds), stats_sums())
         sums["requests"] += 1
@@ -4710,19 +4714,36 @@ STATS_PAGE_TOP = 25
 
 
 # The pages of the Stats tab, in the list at its left edge. "" is the overview with the curves.
-STATS_SECTIONS = {"": "Overview", "routes": "Routes", "paths": "Paths", "errors": "Errors", "visitors": "Visitors"}
+STATS_SECTIONS = {"": "Overview", "routes": "Routes", "paths": "Paths", "errors": "Errors", "visitors": "Visitors", "requests": "Requests"}
+
+
+def recent_requests(span: str, only: str, failed: bool, path: str) -> list[dict]:
+    """The newest single requests in the range span, from what the files were read for the sums.
+    only, failed and path narrow them to a route, to errors and to one path."""
+    bars, seconds, per_bar, _ = STATS_RANGES[span]
+    since = time.time() - bars * per_bar * seconds
+    zone = time_zone()
+    with STATS_LOCK:
+        found = [(kept["route"], *record) for kept in STATS_FILES.values() if not only or kept["route"] == only for record in kept["slots"]["latest"]]
+    found = [record for record in found if record[1] >= since and (not failed or record[4] >= 400) and (not path or record[3] == path)]
+    found.sort(key=lambda record: -record[1])
+    return [{"route": route, "time": datetime.fromtimestamp(stamp, zone).strftime("%d %b %H:%M:%S"), "method": method, "path": asked,
+             "status": status, "took": human_seconds(took), "size": human_bytes(size), "address": address, "agent": agent}
+            for route, stamp, method, asked, status, took, size, address, agent in found[:STATS_REQUESTS_SHOWN]]
 
 
 @app.get("/stats")
 @app.get("/stats/{section}")
-def stats_page(request: Request, section: str = "", span: str = "24h", route: str = ""):
-    """Everything in detail, one page per part. route narrows all of it to one route."""
+def stats_page(request: Request, section: str = "", span: str = "24h", route: str = "", failed: str = "", path: str = ""):
+    """Everything in detail, one page per part. route narrows it to one route; failed and path the list of requests."""
     if section not in STATS_SECTIONS:
         return Response(status_code=404)
     current = the_host()
     span = span if span in STATS_RANGES else "24h"
     view = stats_view(current, span, route, STATS_PAGE_TOP)
-    return page(request, "stats_page.html", stats=view, span=span, spans=list(STATS_RANGES), section=section, sections=STATS_SECTIONS)
+    requests = recent_requests(span, view["only"], bool(failed), path) if section == "requests" else []
+    return page(request, "stats_page.html", stats=view, span=span, spans=list(STATS_RANGES), section=section, sections=STATS_SECTIONS,
+                requests=requests, failed=bool(failed), path=path, shown=STATS_REQUESTS_SHOWN)
 
 
 # The status page is open to every account, and its checks ask Caddy, the CA and the admin API

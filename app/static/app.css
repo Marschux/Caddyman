@@ -625,3 +625,16 @@ table.top td.share { color: var(--ink-subtle); }
 .heatmap .hour, .heatmap .day { color: var(--ink-subtle); font-size: 11px; }
 .heatmap .cell { height: 22px; border-radius: 3px; background: color-mix(in srgb, var(--product) var(--share), var(--surface-2)); }
 .heatmap .cell:hover { outline: 1px solid var(--ink); }
+/* Requests on the Stats tab: one line each, the status in the colour of its class. */
+table.requests td { padding-top: 8px; padding-bottom: 8px; }
+table.requests th.num, table.requests td.num { text-align: right; }
+table.requests code { overflow-wrap: anywhere; }
+.stats span.c2 { color: var(--ok); }
+.stats span.c3 { color: var(--ink-subtle); }
+.stats span.c4 { color: var(--warn); }
+.stats span.c5 { color: var(--error); }
+#stats-filter label.check { margin: 0; white-space: nowrap; }
+.stats .filtered { margin: 0 0 12px; }
+.lists a.path:hover { text-decoration: none; }
+.lists a.path code { color: var(--ink); }
+table.sortable td { padding-top: 10px; padding-bottom: 10px; }

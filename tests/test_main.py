@@ -3546,6 +3546,20 @@ class TestStats(RouteTest):
         self.assertIn('<a class="tile" href="/stats/routes?span=24h">', tiles)
         self.assertIn('<a class="tile" href="/stats/visitors?span=24h">', tiles)
 
+    def test_requests_one_by_one_newest_first(self):
+        self.write("access-pdf.log", [self.request("/old", ago=120), self.request("/new?token=x", status=404, ago=60), self.request("/old", status=502, ago=30)])
+        page = self.client.get("/stats/requests").text
+        self.assertLess(page.index("GET /old</code></td>\n\t\t\t\t<td class=\"num\"><span class=\"c5\">502"), page.index("GET /new</code>"))
+        self.assertNotIn("token", page)
+        self.assertEqual(page.count('<span class="c4">404</span>'), 1)
+        # Errors only, one path, and a path in the lists leads here.
+        failed = self.client.get("/stats/requests", params={"failed": "1"}).text
+        self.assertNotIn('<span class="c2">200</span>', failed)
+        one = self.client.get("/stats/requests", params={"path": "/old"}).text
+        self.assertEqual(one.count("GET /old</code>"), 2)
+        self.assertNotIn("GET /new", one)
+        self.assertIn('href="/stats/requests?span=24h&amp;route=pdf&amp;path=/old"', self.client.get("/stats/paths").text)
+
     def test_statistics_take_their_own_right(self):
         self.client.post("/settings/users/new", data={"username": "viewer", "password": PASSWORD, "repeat": PASSWORD, "right_logs": "1"})
         viewer = self.guest()

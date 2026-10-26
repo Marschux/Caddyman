@@ -2,7 +2,8 @@
 // every minute the page fetches itself and swaps in the new numbers, keeping the sorting.
 (() => {
 	const filter = document.getElementById("stats-filter");
-	if (filter) filter.elements.route.addEventListener("change", () => filter.submit());
+	// Picking a route or ticking "Errors only" shows it at once.
+	if (filter) filter.addEventListener("change", () => filter.submit());
 	// Column and direction picked last; nothing picked: the order of the server.
 	let sorting = null;
 
