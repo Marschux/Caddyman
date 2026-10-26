@@ -59,7 +59,9 @@
 {# A route named in a list narrows this page to it. #}
 {% macro link(name, host, to=here) %}<a href="{{ to }}?span={{ span }}&amp;route={{ name|urlencode }}">{{ host }}</a>{% endmacro %}
 {% set by_host = {} %}{% for name, host in s.routes %}{% set _ = by_host.update({host: name}) %}{% endfor %}
-{% macro path_row(host, path, value) %}<tr><td><span class="on"><a class="path" href="/stats/requests?span={{ span }}&amp;route={{ (by_host[host] if not s.only else s.only)|urlencode }}&amp;path={{ path|urlencode }}"><code>{{ path }}</code></a>{% if not s.only %}{{ link(by_host[host], host) }}{% endif %}</span></td><td class="num">{{ value }}</td></tr>{% endmacro %}
+{# A path leads to its single requests under System, for whoever may read the logs. #}
+{% set may_read = "logs" in request.state.me.permissions %}
+{% macro path_row(host, path, value) %}<tr><td><span class="on">{% if may_read %}<a class="path" href="/requests?span={{ span }}&amp;route={{ (by_host[host] if not s.only else s.only)|urlencode }}&amp;path={{ path|urlencode }}"><code>{{ path }}</code></a>{% else %}<code>{{ path }}</code>{% endif %}{% if not s.only %}{{ link(by_host[host], host) }}{% endif %}</span></td><td class="num">{{ value }}</td></tr>{% endmacro %}
 <h1>Stats</h1>
 <aside class="side">
 	{% for key, name in sections.items() %}<a href="/stats{{ '/' ~ key if key }}?{{ query }}"{% if key == section %} aria-current="page"{% endif %}>{{ name }}</a>{% endfor %}
@@ -71,8 +73,6 @@
 			<option value="">All routes with an access log ({{ s.logged }})</option>
 			{% for name, host in s.routes %}<option value="{{ name }}"{% if name == s.only %} selected{% endif %}>{{ host }}</option>{% endfor %}
 		</select>
-		{% if section == "requests" %}{% if path %}<input type="hidden" name="path" value="{{ path }}">{% endif %}
-		<label class="check"><input type="checkbox" name="failed" value="1"{% if failed %} checked{% endif %}> Errors only</label>{% endif %}
 		<noscript><button type="submit" class="secondary">Show</button></noscript>
 	</form>
 	<div class="spans" role="group" aria-label="Time range">
@@ -127,23 +127,6 @@
 		{% call list("Addresses", s.ips) %}{% for address, value in s.ips %}<tr><td><code>{{ address }}</code></td><td class="num">{{ value }}</td></tr>{% endfor %}{% endcall %}
 		<section>{{ pie() }}</section>
 	</div>
-	{% elif section == "requests" %}
-	{% if path %}<p class="filtered">Only <code>{{ path }}</code>. <a href="/stats/requests?{{ query }}{{ '&failed=1' if failed }}">Show all paths</a></p>{% endif %}
-	{# One line per request, newest first; the user agent is the tooltip of its row. #}
-	{% set hosts_of = dict(s.routes) %}
-	<table class="requests">
-		<thead><tr><th>Time</th><th>Route</th><th>Request</th><th class="num">Status</th><th class="num">Took</th><th class="num">Size</th><th>Address</th></tr></thead>
-		<tbody>
-			{% for item in requests %}<tr title="{{ item.agent or 'No user agent' }}">
-				<td class="nowrap">{{ item.time }}</td>
-				<td>{% if not s.only %}{{ link(item.route, hosts_of.get(item.route, item.route)) }}{% else %}{{ hosts_of.get(item.route, item.route) }}{% endif %}</td>
-				<td><code>{{ item.method }} {{ item.path }}</code></td>
-				<td class="num"><span class="c{{ item.status // 100 }}">{{ item.status }}</span></td>
-				<td class="num">{{ item.took }}</td><td class="num">{{ item.size }}</td><td><code>{{ item.address }}</code></td></tr>
-			{% else %}<tr><td colspan="7" class="empty">No requests in this time.</td></tr>{% endfor %}
-		</tbody>
-	</table>
-	{% if requests|length == shown %}<small>The newest {{ shown }}. Narrow it down with the route, the time or Errors only.</small>{% endif %}
 	{% endif %}
 </div>
 {% endblock %}

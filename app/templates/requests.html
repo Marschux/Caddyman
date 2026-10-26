@@ -1,0 +1,42 @@
+{% extends "base.html" %}
+{% block title %}Requests · Caddyman{% endblock %}
+{% block content %}
+{% include "system_nav.html" %}
+{% set hosts_of = dict(routes) %}
+{% set query = "span=" ~ span ~ ("&route=" ~ only|urlencode if only) ~ ("&failed=1" if failed) %}
+<div class="toolbar">
+	{# Changes show at once (stats_page.js). #}
+	<form method="get" action="/requests" class="row filters" id="stats-filter">
+		<input type="hidden" name="span" value="{{ span }}">
+		<select name="route" aria-label="Route">
+			<option value="">All routes with an access log ({{ routes|length }})</option>
+			{% for name, host in routes %}<option value="{{ name }}"{% if name == only %} selected{% endif %}>{{ host }}</option>{% endfor %}
+		</select>
+		{% if path %}<input type="hidden" name="path" value="{{ path }}">{% endif %}
+		<label class="check"><input type="checkbox" name="failed" value="1"{% if failed %} checked{% endif %}> Errors only</label>
+		<noscript><button type="submit" class="secondary">Show</button></noscript>
+	</form>
+	<div class="spans" role="group" aria-label="Time range">
+		{% for name in spans %}<a class="button" href="/requests?span={{ name }}{{ '&route=' ~ only|urlencode if only }}{{ '&failed=1' if failed }}{{ '&path=' ~ path|urlencode if path }}"{% if name == span %} aria-current="true"{% endif %}>{{ name }}</a>{% endfor %}
+	</div>
+</div>
+{# Swapped every minute by stats_page.js. #}
+<div id="stats-page" class="stats">
+	{% if path %}<p class="filtered">Only <code>{{ path }}</code>. <a href="/requests?{{ query }}">Show all paths</a></p>{% endif %}
+	{# One line per request, newest first; the user agent is the tooltip of its row. #}
+	<table class="requests">
+		<thead><tr><th>Time</th><th>Route</th><th>Request</th><th class="num">Status</th><th class="num">Took</th><th class="num">Size</th><th>Address</th></tr></thead>
+		<tbody>
+			{% for item in requests %}<tr title="{{ item.agent or 'No user agent' }}">
+				<td class="nowrap">{{ item.time }}</td>
+				<td>{% if not only %}<a href="/requests?span={{ span }}&amp;route={{ item.route|urlencode }}{{ '&amp;failed=1' if failed }}">{{ hosts_of.get(item.route, item.route) }}</a>{% else %}{{ hosts_of.get(item.route, item.route) }}{% endif %}</td>
+				<td><code>{{ item.method }} {{ item.path }}</code></td>
+				<td class="num"><span class="c{{ item.status // 100 }}">{{ item.status }}</span></td>
+				<td class="num">{{ item.took }}</td><td class="num">{{ item.size }}</td><td><code>{{ item.address }}</code></td></tr>
+			{% else %}<tr><td colspan="7" class="empty">{% if routes %}No requests in this time.{% else %}No route has an access log yet. Switch it on in the form of a route.{% endif %}</td></tr>{% endfor %}
+		</tbody>
+	</table>
+	{% if requests|length == shown %}<small>The newest {{ shown }}. Narrow it down with the route, the time or Errors only.</small>{% endif %}
+</div>
+{% endblock %}
+{% block scripts %}<script src="/static/stats_page.js" defer></script>{% endblock %}
