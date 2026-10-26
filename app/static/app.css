@@ -643,4 +643,8 @@ table.sortable td { padding-top: 10px; padding-bottom: 10px; }
 .pager small { margin: 0 auto 0 0; }
 .pager button { width: auto; }
 .pager[hidden], .pager [hidden] { display: none; }
+.pager .pages { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; }
+.pager .pages .button, .pager .pages button { min-width: 40px; padding: 10px 12px; text-align: center; }
+.pager .pages [aria-current] { color: var(--product); background: var(--product-bg); border-color: var(--product); }
+.pager .gap { padding: 0 4px; color: var(--ink-subtle); }
 .filters select.per { min-width: 0; }

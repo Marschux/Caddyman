@@ -22,9 +22,9 @@
 	let pages = 1;
 	const pager = document.getElementById("route-pager");
 	pager.addEventListener("click", (event) => {
-		const step = Number(event.target.dataset.step);
-		if (!step) return;
-		page += step;
+		const { step, page: picked } = event.target.dataset;
+		if (!step && !picked) return;
+		page = picked ? Number(picked) : page + Number(step);
 		apply();
 		table.scrollIntoView({ block: "start" });
 	});
@@ -83,6 +83,19 @@
 		pager.querySelector("small").textContent = `Page ${page} of ${pages}`;
 		pager.querySelector('[data-step="-1"]').hidden = page === 1;
 		pager.querySelector('[data-step="1"]').hidden = page === pages;
+		// The first, the last and two either side of this one; a gap stands for what is left out.
+		const numbers = pager.querySelector(".pages");
+		numbers.replaceChildren();
+		let last = 0;
+		for (let number = 1; number <= pages; number += 1) {
+			if (number !== 1 && number !== pages && Math.abs(number - page) > 2) continue;
+			if (number - last > 1) numbers.append(Object.assign(document.createElement("span"), { className: "gap", textContent: "…" }));
+			const button = Object.assign(document.createElement("button"), { type: "button", className: "secondary", textContent: number });
+			button.dataset.page = number;
+			if (number === page) button.setAttribute("aria-current", "page");
+			numbers.append(button);
+			last = number;
+		}
 		none.hidden = shown > 0;
 		total.textContent = shown;
 		if (all) {

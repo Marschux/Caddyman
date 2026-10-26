@@ -40,6 +40,12 @@
 	<div class="pager">
 		<small>{{ "{:,}".format(total) }} request{{ "s" if total != 1 }} in the last {{ days }} days, as far as the logs reach. Page {{ page_number }} of {{ pages }}.</small>
 		{% if page_number > 1 %}<a class="button secondary" href="{{ here }}&amp;page={{ page_number - 1 }}">Newer</a>{% endif %}
+		{# The first, the last and two either side of this one; a gap stands for what is left out. #}
+		{% if pages > 1 %}<span class="pages">{% set seen = namespace(last=0) %}
+			{% for number in range(1, pages + 1) if number in (1, pages) or (number - page_number)|abs <= 2 %}
+			{% if number - seen.last > 1 %}<span class="gap">…</span>{% endif %}{% set seen.last = number %}
+			<a class="button secondary" href="{{ here }}&amp;page={{ number }}"{% if number == page_number %} aria-current="page"{% endif %}>{{ number }}</a>
+			{% endfor %}</span>{% endif %}
 		{% if page_number < pages %}<a class="button secondary" href="{{ here }}&amp;page={{ page_number + 1 }}">Older</a>{% endif %}
 	</div>
 </div>
