@@ -530,7 +530,7 @@ table.log td code { display: block; margin-top: 2px; color: var(--ink-subtle); o
 .live { display: flex; flex-wrap: wrap; gap: 4px 16px; align-items: baseline; }
 .live label.check { margin: 0; color: var(--ink); }
 
-/* Statistics above the route list: one row of tiles, a click on one opens its lists below. */
+/* Statistics above the route list: one row of tiles, each a link to its part of the Stats tab. */
 details.stats { margin: 0 0 24px; padding: 0; background: none; }
 details.stats[open] { padding-bottom: 0; }
 details.stats > summary { width: fit-content; color: var(--ink-subtle); font-size: 12px; font-weight: 600; letter-spacing: 0.6px; text-transform: uppercase; cursor: pointer; }
@@ -543,9 +543,8 @@ details.stats > summary:hover { color: var(--ink); }
 .spans button[aria-pressed="true"] { color: var(--product); background: var(--product-bg); border-color: var(--product); }
 .tiles { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 10px; }
 @media (max-width: 1000px) { .tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
-button.tile { display: flex; flex-direction: column; align-items: stretch; gap: 0; width: auto; margin: 0; padding: 10px 12px; text-align: left; color: var(--ink-muted); background: var(--surface-1); border: 1px solid var(--hairline); border-radius: 12px; font-weight: 500; }
-button.tile:hover { background: var(--surface-2); border-color: var(--hairline-strong); }
-button.tile[aria-expanded="true"] { border-color: var(--product); }
+a.tile { display: flex; flex-direction: column; align-items: stretch; gap: 0; width: auto; margin: 0; padding: 10px 12px; text-align: left; color: var(--ink-muted); background: var(--surface-1); border: 1px solid var(--hairline); border-radius: 12px; font-weight: 500; }
+a.tile:hover { text-decoration: none; background: var(--surface-2); border-color: var(--product); }
 .tile .label { color: var(--ink-subtle); font-size: 12px; font-weight: 600; letter-spacing: 0.6px; text-transform: uppercase; }
 .tile .value { color: var(--ink); font-size: 20px; font-weight: 600; line-height: 1.25; letter-spacing: -0.4px; }
 .tile .sub { font-size: 12px; }
@@ -563,19 +562,11 @@ button.tile[aria-expanded="true"] { border-color: var(--product); }
 .bars.traffic b { width: 100%; background: var(--opt-auth); border-radius: 1px; }
 .stats .in { color: var(--opt-auth); }
 .stats .out { color: var(--product); }
-.stats .panel { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 16px 32px; margin-top: 12px; padding: 16px; background: var(--surface-1); border: 1px solid var(--hairline); border-radius: 12px; }
-.stats .panel[hidden] { display: none; }
-.stats .panel h3 { margin: 0 0 8px; color: var(--ink-subtle); font-size: 12px; font-weight: 600; letter-spacing: 0.6px; text-transform: uppercase; }
-.stats .panel p { margin: 0; }
 table.top { background: none; border: 0; border-radius: 0; }
 table.top td { padding: 6px 0; overflow-wrap: anywhere; }
 table.top tr:last-child td { border-bottom: 0; }
 table.top td.num { padding-left: 16px; text-align: right; white-space: nowrap; color: var(--ink); }
-table.top small { margin-top: 2px; }
-table.top button.link { font-size: 13px; }
-table.top th { padding: 0 0 6px 16px; text-align: right; }
 .stats .on { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 10px; }
-.stats .on button.link { font-size: 12px; }
 
 /* The Stats page: the same curves, large, two to a row, and long lists below. */
 .spans a.button { margin: 0; padding: 4px 12px; color: var(--ink-muted); background: none; border: 1px solid var(--hairline-strong); border-radius: 8px; font-size: 12px; font-weight: 600; }
@@ -606,4 +597,3 @@ table.sortable th.num button.sort { text-align: right; }
 .chart-head h2 { margin: 0; }
 /* Five curves: the last one runs across both columns. */
 .charts .chart:last-child:nth-child(odd) { grid-column: 1 / -1; }
-.stats .panel a.all { grid-column: 1 / -1; justify-self: end; font-size: 13px; }

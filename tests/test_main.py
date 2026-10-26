@@ -3460,9 +3460,10 @@ class TestStats(RouteTest):
         self.assertIn('<span class="value">1.2 KiB</span>', page)
         self.assertIn("in 1000 B</span>, <span class=\"out\">out 200 B", page)
         self.assertIn('<span class="value">2</span>', page)  # visitors
-        self.assertIn('data-route="pdf.lab.test"', page)
-        self.assertIn("<code>/missing</code>", page)
-        self.assertNotIn("secret", page)
+        self.assertIn('<a class="tile" href="/stats/errors?span=24h">', page)
+        errors = self.client.get("/stats/errors").text
+        self.assertIn("<code>/missing</code>", errors)
+        self.assertNotIn("secret", errors)
         self.assertIn("1 route with an access log, 1 without.", page)
         # The route list carries the place the tiles go into, and the script that fills it.
         index = self.client.get("/").text
@@ -3529,8 +3530,8 @@ class TestStats(RouteTest):
         # The tiles lead here.
         tiles = self.stats()
         self.assertIn('<a href="/stats?span=24h">Details</a>', tiles)
-        self.assertIn('<a class="all" href="/stats/routes?span=24h">All routes</a>', tiles)
-        self.assertIn('<a class="all" href="/stats/visitors?span=24h">All visitors</a>', tiles)
+        self.assertIn('<a class="tile" href="/stats/routes?span=24h">', tiles)
+        self.assertIn('<a class="tile" href="/stats/visitors?span=24h">', tiles)
 
     def test_statistics_take_their_own_right(self):
         self.client.post("/settings/users/new", data={"username": "viewer", "password": PASSWORD, "repeat": PASSWORD, "right_logs": "1"})

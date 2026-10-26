@@ -15,13 +15,6 @@
 		}
 	};
 	let span = store((kept) => kept.getItem(SPAN)) || "24h";
-	let open = null;
-
-	function show(name) {
-		open = name;
-		for (const tile of body.querySelectorAll(".tile")) tile.setAttribute("aria-expanded", String(tile.dataset.panel === name));
-		for (const panel of body.querySelectorAll(".panel")) panel.hidden = panel.dataset.panel !== name;
-	}
 
 	async function load() {
 		if (!box.open || document.hidden) return;
@@ -34,26 +27,14 @@
 		} catch {
 			return; // offline for a moment, the next round tries again
 		}
-		show(open);
 	}
 
 	body.addEventListener("click", (event) => {
-		const button = event.target.closest("button");
+		const button = event.target.closest("button[data-span]");
 		if (!button) return;
-		if (button.dataset.span) {
-			span = button.dataset.span;
-			store((kept) => kept.setItem(SPAN, span));
-			load();
-		} else if (button.dataset.panel) {
-			show(open === button.dataset.panel ? null : button.dataset.panel);
-		} else if (button.dataset.route) {
-			// Into the search of the list below, which filters as it is typed in.
-			const search = document.querySelector('#route-filter input[name="q"]');
-			if (!search) return;
-			search.value = button.dataset.route;
-			search.dispatchEvent(new Event("input", { bubbles: true }));
-			search.scrollIntoView({ behavior: "smooth", block: "center" });
-		}
+		span = button.dataset.span;
+		store((kept) => kept.setItem(SPAN, span));
+		load();
 	});
 
 	if (store((kept) => kept.getItem(SHUT)) === "1") box.open = false;
