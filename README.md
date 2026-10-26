@@ -10,24 +10,27 @@ A web interface for Caddy routes that works with your own ACME CA, such as
 ![Route list](assets/screenshot.png)
 
 - **Routes:** reverse proxy, redirect or static files, with several hostnames, wildcards and paths to other targets
-- **Route list:** groups that fold away, a search, and filters for problems and for what is left to do
+- **Route list:** groups that fold away, a search, filters for problems and for what is left to do, and pages of 25 to 200 routes
 - **Access per route:** basic auth, allowed networks, or your single sign-on through a `forward_auth` snippet
 - **Error pages:** a page in a design you pick per error, where Caddy would send an empty one
 - **TLS per route:** your own ACME CA, Caddy's default, Let's Encrypt over DNS, Caddy's internal CA, or none
 - **Certificate check:** shows who issued what each route really serves, and when it expires
 - **Root CA page:** download, check code and import steps for every common system, open without a login at `/trust`
-- **Logs:** Caddy's log, live and filterable
+- **Statistics:** requests, errors, traffic, response times and visitors from the access logs of your routes, as tiles above the route list and in detail on the Stats tab, over the last hour up to 30 days
+- **Logs and requests:** Caddy's log, live and filterable, and every single request of the last 30 days
 - **Backup:** all routes as a ZIP, with a preview before an import writes anything
 
 Caddyman writes one file per route into the directory Caddy already reads, then reloads Caddy.
 There is no database that could drift from those files, your base Caddyfile is never written,
 and a change Caddy rejects is undone on the spot.
 
+![Statistics](assets/stats.png)
+
 ## Requirements
 
 - Docker with Compose 2.24 or newer, on x86-64 or ARM64 (a Raspberry Pi 4 or 5 with a 64-bit system)
 - Caddy 2, tested with 2.11, with the admin API on (the default)
-- About 80 MB of RAM
+- About 80 MB of RAM, more with busy access logs: the statistics are kept in memory
 
 ## Installation
 
@@ -191,8 +194,13 @@ The `handle_path` block serves the log to the Logs page and can be left out.
   With "Shared files" it can point the base Caddyfile at any plain file the container can read
   and show it. With "Network only" it also chooses the admin API address, and every reload sends
   all route files there. Disconnect also needs the right "Routes".
+- **Statistics count only routes with an access log.** Switch it on in the form of a route. They
+  reach back as far as Caddy keeps the logs, three files of 10 MiB per route, and nothing else is
+  stored: after a restart Caddyman reads the logs again in the background.
+- **The right "Statistics" shows addresses and user agents** of the visitors of every route with
+  an access log, not only sums. Single requests are under System, Requests, with the right "Logs".
 
-Left out on purpose: load balancing, free-form headers, metrics and an undo history. For
+Left out on purpose: load balancing, free-form headers, a metrics endpoint for Prometheus and an undo history. For
 history, put the sites directory under Git.
 
 ## Development
