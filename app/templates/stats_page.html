@@ -104,7 +104,7 @@
 	<table class="sortable" id="routes">
 		<thead><tr><th>Route</th><th class="num">Requests</th><th class="num">Errors</th><th class="num">In</th><th class="num">Out</th><th class="num">Median</th><th class="num">p95</th><th class="num">Visitors</th></tr></thead>
 		<tbody>
-			{% for row in s.table if not s.only or row.name == s.only %}<tr><td data-sort="{{ row.host }}">{{ link(row.name, row.host, "/stats") }}</td>{% for shown, number in row.cells %}<td class="num" data-sort="{{ number }}">{{ shown }}</td>{% endfor %}</tr>
+			{% for row in s.table if not s.only or row.name == s.only %}<tr><td data-sort="{{ row.host }}">{{ link(row.name, row.host, "/stats") }}</td>{% for shown, number in row.cells %}<td class="num" data-sort="{{ number }}">{{ shown }}{% if loop.first %}<span class="meter"><i style="width: {{ row.bar }}%"></i></span>{% endif %}</td>{% endfor %}</tr>
 			{% else %}<tr><td colspan="8" class="empty">No route has an access log yet.</td></tr>{% endfor %}
 		</tbody>
 	</table>

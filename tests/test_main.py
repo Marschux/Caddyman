@@ -3553,6 +3553,9 @@ class TestStats(RouteTest):
         self.assertIn('<a href="/stats?span=24h" aria-current="page">Overview</a>', overview)
         self.assertIn("1 route without an access log is not counted.", overview)
         self.assertIn("conic-gradient(var(--product) 0.00% 100.00%)", overview)
+        # Busiest first, each with a bar of its share of the busiest: pdf has two requests, git one.
+        routes = self.client.get("/stats/routes").text
+        self.assertLess(routes.index('<i style="width: 100%">'), routes.index('<i style="width: 50%">'))
         # The methods as a pie of their own: all three are GET.
         self.assertIn('aria-label="Share of the methods"', overview)
         self.assertIn('</span>GET</td><td class="num">3</td>', overview)

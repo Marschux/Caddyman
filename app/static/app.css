@@ -639,6 +639,9 @@ table.requests code { overflow-wrap: anywhere; }
 .lists a.path:hover { text-decoration: none; }
 .lists a.path code { color: var(--ink); }
 table.sortable td { padding-top: 10px; padding-bottom: 10px; }
+/* Under the requests of a route: its share of the busiest one. */
+table.sortable .meter { display: block; min-width: 120px; height: 4px; margin-top: 6px; background: var(--surface-3); border-radius: 2px; }
+table.sortable .meter i { display: block; height: 100%; background: var(--product); border-radius: 2px; }
 .pager { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 16px; }
 .pager small { margin: 0 auto 0 0; }
 .pager button { width: auto; }

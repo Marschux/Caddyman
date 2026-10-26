@@ -4726,12 +4726,15 @@ def summed_view(span: str, only: str, top: int, items: list[dict], hosts: dict[s
     heat_top = max(map(max, heat)) or 1
     days = ("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")
 
+    # The bar under the requests of a route: as long as its share of the busiest one.
+    busiest = max((route["requests"] for route in per_route.values()), default=0) or 1
+
     def table_row(name: str) -> dict:
         """One route in the table of the Stats page: what it shows, and the number it sorts by."""
         sums = per_route.get(name) or {"requests": 0, "errors": 0, "bytes": 0, "bytes_in": 0, "steps": [], "ips": set()}
         median, p95 = step_share(sums["steps"], 0.5), step_share(sums["steps"], 0.95)
         share = 100 * sums["errors"] / sums["requests"] if sums["requests"] else 0
-        return {"name": name, "host": hosts[name], "cells": [
+        return {"name": name, "host": hosts[name], "bar": round(100 * sums["requests"] / busiest), "cells": [
             (f"{sums['requests']:,}", sums["requests"]),
             (f"{share:.1f} %" if sums["requests"] else "-", share),
             (human_bytes(sums["bytes_in"]), sums["bytes_in"]),
