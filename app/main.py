@@ -460,6 +460,8 @@ async def lifespan(app: FastAPI):
         print("CADDYMAN_SECRET_KEY is not set, using a generated key from the data directory.", flush=True)
     reset_https_only()
     start_watcher()
+    # After a restart the access logs are read in the background, not when somebody first looks.
+    threading.Thread(target=warm_stats, daemon=True, name="stats").start()
     yield
 
 
@@ -5070,6 +5072,17 @@ def start_watcher() -> None:
                 print(f"Alert watcher: {error!r}", flush=True)
 
     threading.Thread(target=loop, daemon=True, name="watcher").start()
+
+
+def warm_stats() -> None:
+    """Reads the access logs once and keeps the tiles as they open by default, so the first look after a
+    start finds them ready. Rotated files are not read again afterwards; the current ones from where it stopped."""
+    try:
+        current = pick_host()
+        if current and logged_routes(current)[1]:
+            stats_view(current, "24h")
+    except Exception as error:  # the statistics are read again on the first look anyway
+        print(f"Statistics: {error!r}", flush=True)
 
 
 class TrustCaddy:

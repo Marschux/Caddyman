@@ -3501,6 +3501,15 @@ class TestStats(RouteTest):
         self.assertIn('id="stats"', index)
         self.assertIn("/static/stats.js", index)
 
+    def test_the_logs_are_read_right_after_the_start(self):
+        self.write("access-pdf.log", [self.request()])
+        main.warm_stats()
+        self.assertIn("access-pdf.log", main.STATS_FILES)
+        self.assertEqual(len([key for key in main.STATS_VIEWS if key != "until"]), 1)  # the tiles as they open
+        # Without any host there is nothing to read, and nothing breaks.
+        self.patch(main, "pick_host", lambda: None)
+        main.warm_stats()
+
     def test_new_lines_are_read_on_and_rotated_files_once(self):
         self.write("access-pdf.log", [self.request()])
         self.assertIn('<span class="value">1</span>', self.stats())
