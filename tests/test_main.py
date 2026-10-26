@@ -3443,7 +3443,7 @@ class TestStats(RouteTest):
 
     def stats(self, span="24h"):
         main.STATS_STATE["until"] = 0.0  # looked at again at once, not after STATS_SECONDS
-        return self.client.get("/stats", params={"span": span}).text
+        return self.client.get("/stats/tiles", params={"span": span}).text
 
     def test_tiles_sum_up_the_access_logs(self):
         self.write("access-pdf.log", [
@@ -3502,11 +3502,33 @@ class TestStats(RouteTest):
         self.write("access-gone.log", [self.request()] * 5)
         self.assertIn('<span class="value">5</span>', self.stats("7d"))
 
+    def test_the_stats_page_shows_every_route_and_narrows_to_one(self):
+        self.create(host="git.lab.test", upstream="10.0.0.8:3000", log="1")
+        self.write("access-pdf.log", [self.request("/a"), self.request("/b", status=500)])
+        self.write("access-git.log", [self.request("/c", ip="10.0.0.1")])
+        page = self.client.get("/stats").text
+        self.assertIn('href="/stats" aria-current="page">Stats</a>', page)
+        self.assertIn('<td data-sort="git.lab.test"><a href="/stats?span=24h&amp;route=git">git.lab.test</a></td>', page)
+        self.assertIn('<td class="num" data-sort="50.0">50.0 %</td>', page)
+        self.assertIn("<code>/c</code>", page)
+        self.assertIn("1 route without an access log is not counted.", page)
+        # One route: its numbers only, and no table of all of them.
+        one = self.client.get("/stats", params={"route": "git", "span": "7d"}).text
+        self.assertIn('<option value="git" selected>git.lab.test</option>', one)
+        self.assertNotIn("<code>/a</code>", one)
+        self.assertNotIn("sortable", one)
+        # A name that is no route with a log counts as all of them.
+        self.assertIn("<code>/a</code>", self.client.get("/stats", params={"route": "../wiki"}).text)
+        # The tiles lead here.
+        self.assertIn('<a href="/stats?span=24h">Details</a>', self.stats())
+
     def test_statistics_take_their_own_right(self):
         self.client.post("/settings/users/new", data={"username": "viewer", "password": PASSWORD, "repeat": PASSWORD, "right_logs": "1"})
         viewer = self.guest()
         viewer.post("/login", data={"username": "viewer", "password": PASSWORD})
         self.assertEqual(viewer.get("/stats").status_code, 403)
+        self.assertEqual(viewer.get("/stats/tiles").status_code, 403)
+        self.assertNotIn('href="/stats"', viewer.get("/").text)
         self.assertNotIn('id="stats"', viewer.get("/").text)
         # An account saved before the right existed gets it along with the logs.
         users = [{**user, "rights": 3} for user in main.load_users()]

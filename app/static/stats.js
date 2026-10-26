@@ -26,7 +26,7 @@
 	async function load() {
 		if (!box.open || document.hidden) return;
 		try {
-			const response = await fetch(`/stats?span=${encodeURIComponent(span)}`);
+			const response = await fetch(`/stats/tiles?span=${encodeURIComponent(span)}`);
 			// A redirect means the session ended: let the browser show the login.
 			if (response.redirected) return location.reload();
 			if (!response.ok) return;

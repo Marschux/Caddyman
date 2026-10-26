@@ -21,6 +21,7 @@
 		{# Only what this account may open. The server checks the same again for every request. #}
 		<nav>
 			<a href="/" {% if path == "/" or path.startswith(("/routes", "/groups")) %}aria-current="page"{% endif %}>Routes</a>
+			{% if "stats" in account.permissions %}<a href="/stats" {% if path.startswith("/stats") %}aria-current="page"{% endif %}>Stats</a>{% endif %}
 			{% if "ca" in account.permissions %}<a href="/ca" {% if path.startswith("/ca") %}aria-current="page"{% endif %}>Root CA</a>{% endif %}
 			{% if "errors" in account.permissions %}<a href="/error-pages" {% if path.startswith("/error-pages") %}aria-current="page"{% endif %}>Error pages</a>{% endif %}
 			<a href="/status"{% if path.startswith(("/status", "/changes", "/logs", "/backup")) %}aria-current="page"{% endif %}>System</a>

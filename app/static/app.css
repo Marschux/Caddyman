@@ -549,18 +549,18 @@ button.tile[aria-expanded="true"] { border-color: var(--product); }
 .tile .label { color: var(--ink-subtle); font-size: 12px; font-weight: 600; letter-spacing: 0.6px; text-transform: uppercase; }
 .tile .value { color: var(--ink); font-size: 26px; font-weight: 600; line-height: 1.25; letter-spacing: -0.4px; }
 .tile .sub { font-size: 12px; }
-.tile .bars { display: flex; align-items: stretch; gap: 1px; height: 28px; margin-top: 8px; }
+.bars { display: flex; align-items: stretch; gap: 1px; height: 28px; margin-top: 8px; }
 /* The span is the full height and carries the tooltip; the i inside is the bar that shows. */
-.tile .bars > span { flex: 1; display: flex; align-items: flex-end; }
-.tile .bars i { width: 100%; min-height: 1px; background: var(--product); border-radius: 1px; }
-.tile .bars > span:hover i { filter: brightness(1.3); }
-.tile .bars.errors i { background: var(--error); }
-.tile .bars.time i { background: var(--opt-verify); }
-.tile .bars.visitors i { background: var(--opt-sso); }
-.tile .bars i.none { background: var(--surface-3); }
+.bars > span { flex: 1; display: flex; align-items: flex-end; }
+.bars i { width: 100%; min-height: 1px; background: var(--product); border-radius: 1px; }
+.bars > span:hover i { filter: brightness(1.3); }
+.bars.errors i { background: var(--error); }
+.bars.time i { background: var(--opt-verify); }
+.bars.visitors i { background: var(--opt-sso); }
+.bars i.none { background: var(--surface-3); }
 /* Traffic: out in the product colour, what came in at the foot of each bar in blue. */
-.tile .bars.traffic i { display: flex; align-items: flex-end; }
-.tile .bars.traffic b { width: 100%; background: var(--opt-auth); border-radius: 1px; }
+.bars.traffic i { display: flex; align-items: flex-end; }
+.bars.traffic b { width: 100%; background: var(--opt-auth); border-radius: 1px; }
 .stats .in { color: var(--opt-auth); }
 .stats .out { color: var(--product); }
 .stats .panel { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 16px 32px; margin-top: 12px; padding: 16px; background: var(--surface-1); border: 1px solid var(--hairline); border-radius: 12px; }
@@ -576,3 +576,33 @@ table.top button.link { font-size: 13px; }
 table.top th { padding: 0 0 6px 16px; text-align: right; }
 .stats .on { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 10px; }
 .stats .on button.link { font-size: 12px; }
+
+/* The Stats page: the same curves, large, two to a row, and long lists below. */
+.spans a.button { margin: 0; padding: 4px 12px; color: var(--ink-muted); background: none; border: 1px solid var(--hairline-strong); border-radius: 8px; font-size: 12px; font-weight: 600; }
+.spans a.button:hover { color: var(--ink); background: var(--surface-3); border-color: var(--product); }
+.spans a.button[aria-current] { color: var(--product); background: var(--product-bg); border-color: var(--product); }
+#stats-filter select { width: auto; min-width: 280px; }
+.stats-note { margin: -4px 0 16px; }
+.charts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+@media (max-width: 1000px) { .charts { grid-template-columns: minmax(0, 1fr); } }
+.chart { padding: 16px; background: var(--surface-1); border: 1px solid var(--hairline); border-radius: 12px; }
+.chart-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 12px; margin-bottom: 12px; }
+.chart-head h2 { color: var(--ink-subtle); font-size: 12px; font-weight: 600; letter-spacing: 0.6px; text-transform: uppercase; }
+.chart-head .value { color: var(--ink); font-size: 22px; font-weight: 600; }
+.chart-head .sub { font-size: 12px; }
+.chart .plot { position: relative; padding-top: 18px; border-bottom: 1px solid var(--hairline-strong); }
+.chart .peak { position: absolute; top: 0; left: 0; color: var(--ink-subtle); font-size: 11px; }
+.chart .bars { height: 140px; margin: 0; }
+.chart .axis { display: flex; justify-content: space-between; margin-top: 4px; color: var(--ink-subtle); font-size: 11px; }
+.legend { margin: 8px 0 0; font-size: 12px; }
+h2.spaced { margin: 40px 0 16px; }
+table.sortable th.num, table.sortable td.num { text-align: right; }
+table.sortable th.num button.sort { text-align: right; }
+.lists { display: grid; grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); gap: 24px 32px; margin-top: 40px; }
+.lists h3 { margin: 0 0 8px; color: var(--ink-subtle); font-size: 12px; font-weight: 600; letter-spacing: 0.6px; text-transform: uppercase; }
+.lists .on a { font-size: 12px; }
+.lists .empty { margin: 0; }
+.charts .chart, .lists section { margin: 0; }
+.chart-head h2 { margin: 0; }
+/* Five curves: the last one runs across both columns. */
+.charts .chart:last-child:nth-child(odd) { grid-column: 1 / -1; }

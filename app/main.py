@@ -4490,10 +4490,12 @@ def step_share(steps: list[int], share: float) -> float | None:
     return None
 
 
-def stats_view(host: dict, span: str) -> dict:
-    """Everything the tiles show, summed over the routes with an access log, for the range span."""
+def stats_view(host: dict, span: str, only: str = "", top: int = STATS_TOP) -> dict:
+    """Everything the tiles and the Stats page show for the range span: summed over the routes with an
+    access log, or for the one route only names. top is how long the lists are."""
     items = [item for item in list_routes(host) if item["route"] and item["route"]["type"] != "error_page"]
     hosts = {item["name"]: item["route"]["host"] for item in items if item["route"].get("log")}
+    only = only if only in hosts else ""
     count, seconds, per_bar, label = STATS_RANGES[span]
     zone = time_zone()
     last = int(time.time() // seconds)
@@ -4514,13 +4516,18 @@ def stats_view(host: dict, span: str) -> dict:
         refresh_stats(host, set(hosts))
         for kept in STATS_FILES.values():
             route = kept["route"]
-            mine = per_route.setdefault(route, {"requests": 0, "bytes": 0, "bytes_in": 0, "steps": [0] * len(STATS_STEPS)})
+            if only and route != only:
+                continue
+            mine = per_route.setdefault(route, {"requests": 0, "errors": 0, "bytes": 0, "bytes_in": 0, "steps": [0] * len(STATS_STEPS), "ips": set()})
             for slot, sums in kept["slots"][seconds].items():
                 if not first <= slot <= last:
                     continue
                 at = slot - first
+                broken = sum(number for code, number in sums["codes"].items() if code >= 400)
                 series[at] += sums["requests"]
-                failing[at] += sum(number for code, number in sums["codes"].items() if code >= 400)
+                failing[at] += broken
+                mine["errors"] += broken
+                mine["ips"].update(sums["ips"])
                 sent[at] += sums["bytes"]
                 received[at] += sums["bytes_in"]
                 slot_ips[at].update(sums["ips"])
@@ -4561,13 +4568,31 @@ def stats_view(host: dict, span: str) -> dict:
 
     def route_top(key) -> list[tuple[str, dict]]:
         ranked = sorted(((route, sums) for route, sums in per_route.items() if sums["requests"]), key=lambda pair: key(pair[1]), reverse=True)
-        return [(hosts.get(route, route), sums) for route, sums in ranked[:STATS_TOP]]
+        return [(hosts.get(route, route), sums) for route, sums in ranked[:top]]
 
     medians = grouped(slot_steps, lambda lists: step_share([sum(column) for column in zip(*lists)], 0.5) or 0)
     visitors = grouped(slot_ips, lambda sets: len(set().union(*sets)))
+    in_bars, out_bars = grouped(received, sum), grouped(sent, sum)
+    bars_count = len(medians)
+
+    def table_row(name: str) -> dict:
+        """One route in the table of the Stats page: what it shows, and the number it sorts by."""
+        sums = per_route.get(name) or {"requests": 0, "errors": 0, "bytes": 0, "bytes_in": 0, "steps": [], "ips": set()}
+        median, p95 = step_share(sums["steps"], 0.5), step_share(sums["steps"], 0.95)
+        share = 100 * sums["errors"] / sums["requests"] if sums["requests"] else 0
+        return {"name": name, "host": hosts[name], "cells": [
+            (f"{sums['requests']:,}", sums["requests"]),
+            (f"{share:.1f} %" if sums["requests"] else "-", share),
+            (human_bytes(sums["bytes_in"]), sums["bytes_in"]),
+            (human_bytes(sums["bytes"]), sums["bytes"]),
+            (human_seconds(median), median or 0),
+            (human_seconds(p95), p95 or 0),
+            (f"{len(sums['ips']):,}", len(sums["ips"])),
+        ]}
+
     requests, errors, total_bytes, total_in = sum(series), sum(failing), sum(sent), sum(received)
     client = sum(number for code, number in codes.items() if 400 <= code < 500)
-    slowest = sorted(paths.items(), key=lambda pair: -pair[1][1] / pair[1][0])[:STATS_TOP]
+    slowest = sorted(paths.items(), key=lambda pair: -pair[1][1] / pair[1][0])[:top]
     return {
         "requests": f"{requests:,}",
         "request_bars": bars(grouped(series, sum), lambda value: f"{value:,} requests"),
@@ -4575,8 +4600,10 @@ def stats_view(host: dict, span: str) -> dict:
         "errors": f"{100 * errors / requests:.1f} %" if requests else "-",
         "errors_detail": f"{client:,} client, {errors - client:,} server",
         "error_bars": bars(grouped(failing, sum), lambda value: f"{value:,} errors"),
-        "codes": [(code, f"{number:,}") for code, number in sorted(codes.items(), key=lambda pair: -pair[1]) if code >= 400][:STATS_TOP],
-        "failed": [(hosts.get(route, route), path, f"{number:,}") for (route, path), number in failed.most_common(STATS_TOP)],
+        "codes": [(code, f"{number:,}") for code, number in sorted(codes.items(), key=lambda pair: -pair[1]) if code >= 400][:top],
+        "all_codes": [(code, f"{number:,}") for code, number in sorted(codes.items(), key=lambda pair: -pair[1])][:top],
+        "failed": [(hosts.get(route, route), path, f"{number:,}") for (route, path), number in failed.most_common(top)],
+        "busy_paths": [(hosts.get(route, route), path, f"{number:,}") for (route, path), (number, _) in sorted(paths.items(), key=lambda pair: -pair[1][0])[:top]],
         "traffic": human_bytes(total_bytes + total_in),
         "traffic_in": human_bytes(total_in),
         "traffic_out": human_bytes(total_bytes),
@@ -4590,22 +4617,46 @@ def stats_view(host: dict, span: str) -> dict:
         "visitors": f"{len(ips):,}",
         "visitors_detail": f"{len(agents):,} user agents",
         "visitor_bars": bars(visitors, lambda value: f"{value:,} addresses"),
-        "ips": [(address, f"{number:,}") for address, number in ips.most_common(STATS_TOP)],
-        "agents": [(agent, f"{number:,}") for agent, number in agents.most_common(STATS_TOP)],
+        "ips": [(address, f"{number:,}") for address, number in ips.most_common(top)],
+        "agents": [(agent, f"{number:,}") for agent, number in agents.most_common(top)],
         "without_log": sum(1 for item in items if not item["route"].get("log")),
         "logged": len(hosts),
         "label": label,
+        "only": only,
+        "routes": sorted(hosts.items(), key=lambda pair: pair[1]),
+        "table": [table_row(name) for name in sorted(hosts, key=hosts.get)],
+        # The axis of the large curves: the highest bar, and the time at the start, middle and end.
+        "axis": [when(index) for index in (0, bars_count // 2, bars_count - 1)],
+        "peaks": {
+            "requests": f"{max(grouped(series, sum)):,}",
+            "errors": f"{max(grouped(failing, sum)):,}",
+            "traffic": human_bytes(max(map(sum, zip(in_bars, out_bars)))),
+            "time": human_seconds(max(medians) or None),
+            "visitors": f"{max(visitors):,}",
+        },
     }
 
 
-@app.get("/stats")
-def stats(request: Request, span: str = "24h"):
+@app.get("/stats/tiles")
+def stats_tiles(request: Request, span: str = "24h"):
     """The tiles above the route list, fetched by stats.js after the page and again every minute."""
     current = pick_host()
     if current is None:
         return Response(status_code=204)
     span = span if span in STATS_RANGES else "24h"
     return page(request, "stats.html", stats=stats_view(current, span), span=span, spans=list(STATS_RANGES))
+
+
+# The lists on the Stats page are longer than under the tiles.
+STATS_PAGE_TOP = 25
+
+
+@app.get("/stats")
+def stats_page(request: Request, span: str = "24h", route: str = ""):
+    """Everything in detail: large curves, a table of every route with a log, and long lists. route narrows it to one."""
+    current = the_host()
+    span = span if span in STATS_RANGES else "24h"
+    return page(request, "stats_page.html", stats=stats_view(current, span, route, STATS_PAGE_TOP), span=span, spans=list(STATS_RANGES))
 
 
 # The status page is open to every account, and its checks ask Caddy, the CA and the admin API
