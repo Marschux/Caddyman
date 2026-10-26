@@ -4294,13 +4294,13 @@ def logs_download(file: str = ""):
 # Statistics above the route list (26.10.2026): only from the access logs of the routes, nothing is
 # stored. Every log file is summed up per hour, the last hour also per minute, and the sums are kept in
 # memory. A rotated file never changes and is read once; the current one is read on from where the last look stopped.
-# Per range: how many slots of how many seconds, how many slots make one bar of the curve, and what it is called.
+# Per range: how many bars, slots of how many seconds, how many slots make one bar, and what it is called.
 STATS_RANGES = {
-    "1h": (60, 60, 1, "last hour"),
+    "1h": (12, 60, 5, "last hour"),
     "12h": (12, 3600, 1, "last 12 hours"),
     "24h": (24, 3600, 1, "last 24 hours"),
-    "7d": (168, 3600, 1, "last 7 days"),
-    "30d": (720, 3600, 24, "last 30 days"),
+    "7d": (28, 3600, 6, "last 7 days"),
+    "30d": (30, 3600, 24, "last 30 days"),
 }
 # A day over 30d: its bars start at midnight, up to a day before the last 720 hours.
 STATS_KEEP_HOURS, STATS_KEEP_MINUTES = 744, 60
@@ -4502,15 +4502,14 @@ def stats_view(host: dict, span: str, only: str = "", top: int = STATS_TOP) -> d
     items = [item for item in list_routes(host) if item["route"] and item["route"]["type"] != "error_page"]
     hosts = {item["name"]: item["route"]["host"] for item in items if item["route"].get("log")}
     only = only if only in hosts else ""
-    count, seconds, per_bar, label = STATS_RANGES[span]
+    bars_count, seconds, per_bar, label = STATS_RANGES[span]
     zone = time_zone()
     last = int(time.time() // seconds)
-    first = last - count + 1
-    if per_bar > 1:
-        # A bar per day: from midnight here, so each bar is one date. Today's is still growing.
-        today = datetime.now(zone).replace(hour=0, minute=0, second=0, microsecond=0)
-        first = int((today - timedelta(days=count // per_bar - 1)).timestamp() // seconds)
-        count = last - first + 1
+    # Bars start on round times here: every 5 minutes, at 0, 6, 12 and 18 o'clock, at midnight. The last one is still growing.
+    # Counted back in whole hours: across a change of summer time the older bars start an hour off.
+    now = datetime.fromtimestamp(last * seconds, zone)
+    first = last - (now.minute if seconds == 60 else now.hour) % per_bar - (bars_count - 1) * per_bar
+    count = last - first + 1
     series, failing, sent, received = [0] * count, [0] * count, [0] * count, [0] * count
     slot_steps = [[0] * len(STATS_STEPS) for _ in range(count)]
     slot_ips: list[set] = [set() for _ in range(count)]
@@ -4569,7 +4568,7 @@ def stats_view(host: dict, span: str, only: str = "", top: int = STATS_TOP) -> d
         return [merge(values[index:index + per_bar]) for index in range(0, len(values), per_bar)]
 
     def when(index: int) -> str:
-        shape = "%H:%M" if seconds == 60 else "%a %H:00" if per_bar == 1 else "%a %d %b"
+        shape = "%H:%M" if seconds == 60 else "%a %d %b" if per_bar == 24 else "%a %H:00"
         return datetime.fromtimestamp((first + index * per_bar) * seconds, zone).strftime(shape)
 
     def bars(values: list, told) -> list[tuple[int, str]]:
@@ -4627,7 +4626,6 @@ def stats_view(host: dict, span: str, only: str = "", top: int = STATS_TOP) -> d
 
     heat_top = max(map(max, heat)) or 1
     days = ("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")
-    bars_count = len(medians)
 
     def table_row(name: str) -> dict:
         """One route in the table of the Stats page: what it shows, and the number it sorts by."""

@@ -3497,7 +3497,8 @@ class TestStats(RouteTest):
         self.assertIn("last 12 hours", self.stats("12h"))
         hour = self.stats("1h")
         self.assertIn('<span class="value">3</span>', hour)
-        self.assertEqual(hour.count('title="'), 300)  # 60 bars on each of the five tiles
+        self.assertEqual(hour.count('title="'), 60)  # 12 bars of 5 minutes on each of the five tiles
+        self.assertEqual(self.stats("7d").count('title="'), 140)  # 28 bars of 6 hours
         # A file of a route without a log, or of no route at all, does not count.
         self.write("access-wiki.log", [self.request()] * 5)
         self.write("access-gone.log", [self.request()] * 5)
