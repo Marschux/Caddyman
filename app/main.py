@@ -4307,6 +4307,10 @@ STATS_KEEP_HOURS, STATS_KEEP_MINUTES = 744, 60
 STATS_TOP = 5
 # Slices of a pie chart before the rest is taken together as "Other".
 STATS_SLICES = 7
+# Where the response time histogram cuts, as steps of STATS_STEPS: 5 ms, 26 ms, 130 ms, 660 ms, 3.3 s.
+STATS_TIME_CUTS = (4, 8, 12, 16, 20)
+# The classes of status codes, bottom to top in their stacked bars.
+STATS_CLASSES = ("2xx", "3xx", "4xx", "5xx")
 # How often the files are looked at again, however many browsers ask.
 STATS_SECONDS = 30
 # Upper edges of the steps response times are counted in: from 1 ms, half again each step, up to about two minutes.
@@ -4510,6 +4514,11 @@ def stats_view(host: dict, span: str, only: str = "", top: int = STATS_TOP) -> d
     series, failing, sent, received = [0] * count, [0] * count, [0] * count, [0] * count
     slot_steps = [[0] * len(STATS_STEPS) for _ in range(count)]
     slot_ips: list[set] = [set() for _ in range(count)]
+    slot_classes = [[0] * len(STATS_CLASSES) for _ in range(count)]
+    # Requests per weekday and hour, here: over the last 7 days, or 30 for the longest range.
+    heat = [[0] * 24 for _ in range(7)]
+    heat_days = 30 if span == "30d" else 7
+    heat_first = int(time.time() // 3600) - heat_days * 24 + 1
     per_route: dict[str, dict] = {}
     steps = [0] * len(STATS_STEPS)
     codes, failed, ips, agents = Counter(), Counter(), Counter(), Counter()
@@ -4521,11 +4530,18 @@ def stats_view(host: dict, span: str, only: str = "", top: int = STATS_TOP) -> d
             if only and route != only:
                 continue
             mine = per_route.setdefault(route, {"requests": 0, "errors": 0, "bytes": 0, "bytes_in": 0, "steps": [0] * len(STATS_STEPS), "ips": set()})
+            for hour, sums in kept["slots"][3600].items():
+                if hour >= heat_first:
+                    moment = datetime.fromtimestamp(hour * 3600, zone)
+                    heat[moment.weekday()][moment.hour] += sums["requests"]
             for slot, sums in kept["slots"][seconds].items():
                 if not first <= slot <= last:
                     continue
                 at = slot - first
                 broken = sum(number for code, number in sums["codes"].items() if code >= 400)
+                for code, number in sums["codes"].items():
+                    if 200 <= code < 600:
+                        slot_classes[at][code // 100 - 2] += number
                 series[at] += sums["requests"]
                 failing[at] += broken
                 mine["errors"] += broken
@@ -4590,6 +4606,27 @@ def stats_view(host: dict, span: str, only: str = "", top: int = STATS_TOP) -> d
     medians = grouped(slot_steps, lambda lists: step_share([sum(column) for column in zip(*lists)], 0.5) or 0)
     visitors = grouped(slot_ips, lambda sets: len(set().union(*sets)))
     in_bars, out_bars = grouped(received, sum), grouped(sent, sum)
+
+    def class_bars() -> list[tuple[int, list[int], str]]:
+        """Per bar: its height, the share of each class of status codes in it, bottom up, and its tooltip."""
+        totals = grouped(slot_classes, lambda rows: [sum(column) for column in zip(*rows)])
+        top = max(map(sum, totals)) or 1
+        return [(round(100 * sum(row) / top), [round(100 * part / sum(row)) if sum(row) else 0 for part in row],
+                 f"{when(index)}: " + ", ".join(f"{part:,} {name}" for name, part in zip(STATS_CLASSES, row)))
+                for index, row in enumerate(totals)]
+
+    def time_histogram() -> list[tuple[int, str, str]]:
+        """Requests by how long they took, in the bands STATS_TIME_CUTS makes: height, label and tooltip."""
+        bands, before = [], 0
+        for cut in (*STATS_TIME_CUTS, len(STATS_STEPS)):
+            bands.append(sum(steps[before:cut + 1] if cut < len(STATS_STEPS) else steps[before:]))
+            before = cut + 1
+        labels = [f"≤ {human_seconds(STATS_STEPS[cut])}" for cut in STATS_TIME_CUTS] + [f"> {human_seconds(STATS_STEPS[STATS_TIME_CUTS[-1]])}"]
+        top, total = max(bands) or 1, sum(bands) or 1
+        return [(round(100 * band / top), name, f"{name}: {band:,} requests, {100 * band / total:.1f} %") for name, band in zip(labels, bands)]
+
+    heat_top = max(map(max, heat)) or 1
+    days = ("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")
     bars_count = len(medians)
 
     def table_row(name: str) -> dict:
@@ -4628,6 +4665,10 @@ def stats_view(host: dict, span: str, only: str = "", top: int = STATS_TOP) -> d
         "by_bytes": [(name, human_bytes(sums["bytes_in"]), human_bytes(sums["bytes"])) for name, sums in route_top(lambda sums: sums["bytes"] + sums["bytes_in"])],
         "median": human_seconds(step_share(steps, 0.5)),
         "p95": human_seconds(step_share(steps, 0.95)),
+        "class_bars": class_bars(),
+        "time_histogram": time_histogram(),
+        "heat": [(day, [(round(100 * value / heat_top), f"{day} {hour:02d}:00: {value:,} requests") for hour, value in enumerate(row)]) for day, row in zip(days, heat)],
+        "heat_label": f"last {heat_days} days",
         "time_bars": bars(medians, lambda value: f"median {human_seconds(value)}" if value else "no requests"),
         "slow_routes": [(name, human_seconds(step_share(sums["steps"], 0.95))) for name, sums in route_top(lambda sums: step_share(sums["steps"], 0.95) or 0)],
         "slow_paths": [(hosts.get(route, route), path, human_seconds(took / number)) for (route, path), (number, took) in slowest],

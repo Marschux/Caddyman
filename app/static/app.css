@@ -605,3 +605,23 @@ table.sortable th.num button.sort { text-align: right; }
 table.top td.share { color: var(--ink-subtle); }
 .chart.agents h3 { margin: 0 0 16px; color: var(--ink-subtle); font-size: 12px; font-weight: 600; letter-spacing: 0.6px; text-transform: uppercase; }
 .chart.agents .pie { width: 150px; height: 150px; }
+/* Status codes stacked: 2xx at the foot. */
+.bars.classes i { display: flex; flex-direction: column-reverse; background: none; }
+.bars.classes b { width: 100%; }
+.bars.classes .c2 { background: var(--ok); }
+.bars.classes .c3 { background: var(--ink-subtle); }
+.bars.classes .c4 { background: var(--warn); }
+.bars.classes .c5 { background: var(--error); }
+.stats .legend .c2 { color: var(--ok); }
+.stats .legend .c3 { color: var(--ink-subtle); }
+.stats .legend .c4 { color: var(--warn); }
+.stats .legend .c5 { color: var(--error); }
+.chart .bars.histogram { gap: 12px; }
+.bars.histogram i { background: var(--opt-verify); }
+.axis.bands span { flex: 1; text-align: center; }
+.axis.bands { gap: 12px; }
+/* Busy hours: a cell per weekday and hour, the product colour as strong as its share of the busiest hour. */
+.heatmap { display: grid; grid-template-columns: 40px repeat(24, minmax(0, 1fr)); gap: 3px; }
+.heatmap .hour, .heatmap .day { color: var(--ink-subtle); font-size: 11px; }
+.heatmap .cell { height: 22px; border-radius: 3px; background: color-mix(in srgb, var(--product) var(--share), var(--surface-2)); }
+.heatmap .cell:hover { outline: 1px solid var(--ink); }

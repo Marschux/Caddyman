@@ -3512,6 +3512,13 @@ class TestStats(RouteTest):
         self.assertIn('<a href="/stats?span=24h" aria-current="page">Overview</a>', overview)
         self.assertIn("1 route without an access log is not counted.", overview)
         self.assertIn("conic-gradient(var(--product) 0.00% 100.00%)", overview)
+        # Status codes stacked: two of three answers 2xx, one 5xx.
+        self.assertIn('<b class="c2" style="height: 67%"></b><b class="c3" style="height: 0%"></b><b class="c4" style="height: 0%"></b><b class="c5" style="height: 33%"></b>', overview)
+        # All three took 50 ms: the band up to 130 ms.
+        self.assertIn('title="≤ 130 ms: 3 requests, 100.0 %"', overview)
+        # Busy hours: a cell for each hour of each weekday.
+        self.assertEqual(overview.count('class="cell"'), 7 * 24)
+        self.assertIn(": 3 requests\" style=\"--share: 100%\"", overview)
         # The table of the routes: busiest first, a link that narrows the overview to the route.
         routes = self.client.get("/stats/routes").text
         self.assertIn('<td data-sort="git.lab.test"><a href="/stats?span=24h&amp;route=git">git.lab.test</a></td>', routes)
