@@ -3485,14 +3485,18 @@ class TestStats(RouteTest):
         self.write("access-pdf-2020-01-01T00-00-00.000.log.gz", ["{broken"])
         self.assertIn('<span class="value">3</span>', self.stats())
         self.assertIn('<span class="value">4</span>', self.stats("7d"))
-        self.assertIn('<span class="value">4</span>', self.stats("30d"))
+        month = self.stats("30d")
+        self.assertIn('<span class="value">4</span>', month)
+        # A bar per day, named by its date alone.
+        self.assertEqual(month.count('title="'), 150)
+        self.assertRegex(month, r'title="\w{3} \d\d \w{3}: 3 requests"')  # today; the fourth is three days back
         # Three hours back counts in 12h, not in the last hour, which comes per minute.
         self.write("access-pdf.log", [self.request(ago=3 * 3600)], mode="a")
         self.assertIn('<span class="value">4</span>', self.stats("12h"))
         self.assertIn("last 12 hours", self.stats("12h"))
         hour = self.stats("1h")
         self.assertIn('<span class="value">3</span>', hour)
-        self.assertEqual(hour.count('title="'), 180)  # 60 bars each for requests, errors and traffic
+        self.assertEqual(hour.count('title="'), 300)  # 60 bars on each of the five tiles
         # A file of a route without a log, or of no route at all, does not count.
         self.write("access-wiki.log", [self.request()] * 5)
         self.write("access-gone.log", [self.request()] * 5)

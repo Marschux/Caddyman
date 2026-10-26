@@ -4302,7 +4302,8 @@ STATS_RANGES = {
     "7d": (168, 3600, 1, "last 7 days"),
     "30d": (720, 3600, 24, "last 30 days"),
 }
-STATS_KEEP_HOURS, STATS_KEEP_MINUTES = 720, 60
+# A day over 30d: its bars start at midnight, up to a day before the last 720 hours.
+STATS_KEEP_HOURS, STATS_KEEP_MINUTES = 744, 60
 STATS_TOP = 5
 # How often the files are looked at again, however many browsers ask.
 STATS_SECONDS = 30
@@ -4494,9 +4495,17 @@ def stats_view(host: dict, span: str) -> dict:
     items = [item for item in list_routes(host) if item["route"] and item["route"]["type"] != "error_page"]
     hosts = {item["name"]: item["route"]["host"] for item in items if item["route"].get("log")}
     count, seconds, per_bar, label = STATS_RANGES[span]
+    zone = time_zone()
     last = int(time.time() // seconds)
     first = last - count + 1
+    if per_bar > 1:
+        # A bar per day: from midnight here, so each bar is one date. Today's is still growing.
+        today = datetime.now(zone).replace(hour=0, minute=0, second=0, microsecond=0)
+        first = int((today - timedelta(days=count // per_bar - 1)).timestamp() // seconds)
+        count = last - first + 1
     series, failing, sent, received = [0] * count, [0] * count, [0] * count, [0] * count
+    slot_steps = [[0] * len(STATS_STEPS) for _ in range(count)]
+    slot_ips: list[set] = [set() for _ in range(count)]
     per_route: dict[str, dict] = {}
     steps = [0] * len(STATS_STEPS)
     codes, failed, ips, agents = Counter(), Counter(), Counter(), Counter()
@@ -4509,40 +4518,43 @@ def stats_view(host: dict, span: str) -> dict:
             for slot, sums in kept["slots"][seconds].items():
                 if not first <= slot <= last:
                     continue
-                series[slot - first] += sums["requests"]
-                failing[slot - first] += sum(count for code, count in sums["codes"].items() if code >= 400)
-                sent[slot - first] += sums["bytes"]
-                received[slot - first] += sums["bytes_in"]
+                at = slot - first
+                series[at] += sums["requests"]
+                failing[at] += sum(number for code, number in sums["codes"].items() if code >= 400)
+                sent[at] += sums["bytes"]
+                received[at] += sums["bytes_in"]
+                slot_ips[at].update(sums["ips"])
                 mine["requests"] += sums["requests"]
                 mine["bytes"] += sums["bytes"]
                 mine["bytes_in"] += sums["bytes_in"]
-                for step, count in enumerate(sums["steps"]):
-                    mine["steps"][step] += count
-                    steps[step] += count
+                for step, number in enumerate(sums["steps"]):
+                    mine["steps"][step] += number
+                    slot_steps[at][step] += number
+                    steps[step] += number
                 codes.update(sums["codes"])
                 ips.update(sums["ips"])
                 agents.update(sums["agents"])
-                failed.update({(route, path): count for path, count in sums["failed"].items()})
-                for path, (count, took) in sums["paths"].items():
+                failed.update({(route, path): number for path, number in sums["failed"].items()})
+                for path, (number, took) in sums["paths"].items():
                     timed = paths.setdefault((route, path), [0, 0.0])
-                    timed[0], timed[1] = timed[0] + count, timed[1] + took
-    zone = time_zone()
+                    timed[0], timed[1] = timed[0] + number, timed[1] + took
 
-    def grouped(values: list[int]) -> list[int]:
-        return [sum(values[index:index + per_bar]) for index in range(0, len(values), per_bar)]
+    def grouped(values: list, merge) -> list:
+        """The slots of one bar taken together."""
+        return [merge(values[index:index + per_bar]) for index in range(0, len(values), per_bar)]
 
     def when(index: int) -> str:
-        shape = "%H:%M" if seconds == 60 else "%a %H:00" if per_bar == 1 else "%a %d %b, %H:00"
+        shape = "%H:%M" if seconds == 60 else "%a %H:00" if per_bar == 1 else "%a %d %b"
         return datetime.fromtimestamp((first + index * per_bar) * seconds, zone).strftime(shape)
 
-    def bars(values: list[int], what: str) -> list[tuple[int, str]]:
-        values = grouped(values)
+    def bars(values: list, told) -> list[tuple[int, str]]:
+        """Per bar: its height and its tooltip, which told words from the value."""
         top = max(values) or 1
-        return [(round(100 * value / top), f"{when(index)}: {value:,} {what}") for index, value in enumerate(values)]
+        return [(round(100 * value / top), f"{when(index)}: {told(value)}") for index, value in enumerate(values)]
 
     def traffic_bars() -> list[tuple[int, int, str]]:
         """Per bar: its height, the share of it that came in, and its tooltip."""
-        outs, ins = grouped(sent), grouped(received)
+        outs, ins = grouped(sent, sum), grouped(received, sum)
         top = max(map(sum, zip(outs, ins))) or 1
         return [(round(100 * (out + into) / top), round(100 * into / (out + into)) if out + into else 0, f"{when(index)}: {human_bytes(into)} in, {human_bytes(out)} out")
                 for index, (out, into) in enumerate(zip(outs, ins))]
@@ -4551,18 +4563,20 @@ def stats_view(host: dict, span: str) -> dict:
         ranked = sorted(((route, sums) for route, sums in per_route.items() if sums["requests"]), key=lambda pair: key(pair[1]), reverse=True)
         return [(hosts.get(route, route), sums) for route, sums in ranked[:STATS_TOP]]
 
+    medians = grouped(slot_steps, lambda lists: step_share([sum(column) for column in zip(*lists)], 0.5) or 0)
+    visitors = grouped(slot_ips, lambda sets: len(set().union(*sets)))
     requests, errors, total_bytes, total_in = sum(series), sum(failing), sum(sent), sum(received)
-    client = sum(count for code, count in codes.items() if 400 <= code < 500)
+    client = sum(number for code, number in codes.items() if 400 <= code < 500)
     slowest = sorted(paths.items(), key=lambda pair: -pair[1][1] / pair[1][0])[:STATS_TOP]
     return {
         "requests": f"{requests:,}",
-        "request_bars": bars(series, "requests"),
+        "request_bars": bars(grouped(series, sum), lambda value: f"{value:,} requests"),
         "by_requests": [(name, f"{sums['requests']:,}") for name, sums in route_top(lambda sums: sums["requests"])],
         "errors": f"{100 * errors / requests:.1f} %" if requests else "-",
         "errors_detail": f"{client:,} client, {errors - client:,} server",
-        "error_bars": bars(failing, "errors"),
-        "codes": [(code, f"{count:,}") for code, count in sorted(codes.items(), key=lambda pair: -pair[1]) if code >= 400][:STATS_TOP],
-        "failed": [(hosts.get(route, route), path, f"{count:,}") for (route, path), count in failed.most_common(STATS_TOP)],
+        "error_bars": bars(grouped(failing, sum), lambda value: f"{value:,} errors"),
+        "codes": [(code, f"{number:,}") for code, number in sorted(codes.items(), key=lambda pair: -pair[1]) if code >= 400][:STATS_TOP],
+        "failed": [(hosts.get(route, route), path, f"{number:,}") for (route, path), number in failed.most_common(STATS_TOP)],
         "traffic": human_bytes(total_bytes + total_in),
         "traffic_in": human_bytes(total_in),
         "traffic_out": human_bytes(total_bytes),
@@ -4570,12 +4584,14 @@ def stats_view(host: dict, span: str) -> dict:
         "by_bytes": [(name, human_bytes(sums["bytes_in"]), human_bytes(sums["bytes"])) for name, sums in route_top(lambda sums: sums["bytes"] + sums["bytes_in"])],
         "median": human_seconds(step_share(steps, 0.5)),
         "p95": human_seconds(step_share(steps, 0.95)),
+        "time_bars": bars(medians, lambda value: f"median {human_seconds(value)}" if value else "no requests"),
         "slow_routes": [(name, human_seconds(step_share(sums["steps"], 0.95))) for name, sums in route_top(lambda sums: step_share(sums["steps"], 0.95) or 0)],
-        "slow_paths": [(hosts.get(route, route), path, human_seconds(took / count)) for (route, path), (count, took) in slowest],
+        "slow_paths": [(hosts.get(route, route), path, human_seconds(took / number)) for (route, path), (number, took) in slowest],
         "visitors": f"{len(ips):,}",
         "visitors_detail": f"{len(agents):,} user agents",
-        "ips": [(address, f"{count:,}") for address, count in ips.most_common(STATS_TOP)],
-        "agents": [(agent, f"{count:,}") for agent, count in agents.most_common(STATS_TOP)],
+        "visitor_bars": bars(visitors, lambda value: f"{value:,} addresses"),
+        "ips": [(address, f"{number:,}") for address, number in ips.most_common(STATS_TOP)],
+        "agents": [(agent, f"{number:,}") for agent, number in agents.most_common(STATS_TOP)],
         "without_log": sum(1 for item in items if not item["route"].get("log")),
         "logged": len(hosts),
         "label": label,
