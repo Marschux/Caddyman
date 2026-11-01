@@ -667,6 +667,11 @@ class TestRoutes(RouteTest):
         self.client.post("/groups/delete", data={"name": "Films"})
         self.assertEqual(main.group_colors(), {})
 
+    def test_a_new_route_has_error_pages_and_access_log_ticked(self):
+        page = self.client.get("/routes/new").text
+        self.assertIn('name="errors" value="1" checked', page)
+        self.assertIn('name="log" value="1" checked', page)
+
     def test_groups_keep_the_order_they_are_given(self):
         self.create()
         for name in ("Media", "Tools", "Home"):

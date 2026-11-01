@@ -3072,7 +3072,8 @@ def index(request: Request):
 def route_new(request: Request, own: bool = False):
     current = the_host()
     tls = "acme_ca" if has_snippet(current, "tls_snippet") else "default"
-    route = {"type": "reverse_proxy", "tls": tls, "code": "308"}
+    # Error pages and access log are on for a new route (Max, 01.11.2026); untick to leave them out.
+    route = {"type": "reverse_proxy", "tls": tls, "code": "308", "errors": True, "log": True}
     if own:
         route.update(upstream=caddyman_upstream(current, request))
     return route_form_page(request, current, route)
