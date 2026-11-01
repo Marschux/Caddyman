@@ -1,6 +1,6 @@
 # Caddyman
 
-[![Version](https://img.shields.io/badge/version-1.3.5-blue)](https://github.com/Marschux/Caddyman/tags)
+[![Version](https://img.shields.io/badge/version-1.4.2-blue)](https://github.com/Marschux/Caddyman/tags)
 [![License: AGPL-3.0-or-later](https://img.shields.io/badge/license-AGPL--3.0--or--later-blue)](LICENSE)
 [![Docker image](https://img.shields.io/badge/docker-ghcr.io%2Fmarschux%2Fcaddyman-2496ED?logo=docker&logoColor=white)](https://github.com/Marschux/Caddyman/pkgs/container/caddyman)
 
@@ -10,7 +10,7 @@ A web interface for Caddy routes that works with your own ACME CA, such as
 ![Route list](assets/screenshot.png)
 
 - **Routes:** reverse proxy, redirect or static files, with several hostnames, wildcards and paths to other targets
-- **Route list:** groups that fold away, a search, filters for problems and for what is left to do, and pages of 25 to 200 routes
+- **Route list:** groups that fold away, in your own order and with a colour, a search, filters for problems and for what is left to do, and pages of 25 to 200 routes
 - **Access per route:** basic auth, allowed networks, or your single sign-on through a `forward_auth` snippet
 - **Error pages:** a page in a design you pick per error, where Caddy would send an empty one
 - **TLS per route:** your own ACME CA, Caddy's default, Let's Encrypt over DNS, Caddy's internal CA, or none
