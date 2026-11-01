@@ -2472,15 +2472,17 @@ GROUPS_LOCK = threading.Lock()
 
 
 def change_groups(change) -> None:
-    """Read, change and write the stored names in one go, so two changes at once both stay."""
+    """Read, change and write the stored names in one go, so two changes at once both stay.
+    The file keeps the order of the names: it is the order of the groups in the route list."""
     with GROUPS_LOCK:
-        write_json(GROUPS_FILE, sorted(set(change(stored_groups())), key=str.lower))
+        write_json(GROUPS_FILE, list(dict.fromkeys(change(stored_groups()))))
 
 
 def load_groups(host: dict) -> list[str]:
     """Every group: the ones created here and the ones a route file names, as after a restore."""
-    used = {route_group(item["route"]) for item in list_routes(host)} - {""}
-    return sorted({*stored_groups(), *used}, key=str.lower)
+    stored = stored_groups()
+    used = {route_group(item["route"]) for item in list_routes(host)} - {"", *stored}
+    return [*stored, *sorted(used, key=str.lower)]
 
 
 def regroup(host: dict, old: str, new: str) -> str | None:
@@ -3042,8 +3044,9 @@ def index(request: Request):
         item["alias_sites"] = [(alias, site_url(item["route"], alias)) for alias in (item["route"] or {}).get("aliases", [])]
         item["group"] = route_group(item["route"])
         item["own"] = own_route(item["route"], request)
-    # Groups in order, what has none at the end.
-    routes.sort(key=lambda item: (not item["group"], item["group"].lower()))
+    # Groups in their set order, what has none at the end.
+    order = {name: place for place, name in enumerate(load_groups(current))}
+    routes.sort(key=lambda item: (not item["group"], order.get(item["group"], 0)))
     return page(request, "index.html", host=current, routes=routes, own_port=OWN_PORT)
 
 
@@ -3283,6 +3286,19 @@ def group_add(name: str = Form("")):
         return redirect("/groups", "error", f"A group {name} already exists.")
     change_groups(lambda groups: [*groups, name])
     return redirect("/groups", "ok", f"{name} was added. Pick it in the form of a route.")
+
+
+@app.post("/groups/order")
+async def group_order(request: Request):
+    """The groups in the order dragged on the groups page. Names it does not know are dropped,
+    groups it leaves out keep their place after the others."""
+    current = pick_host()
+    if current is None:
+        return redirect("/groups", "error", "This group does not exist.")
+    known = load_groups(current)
+    asked = [name for name in (await request.form()).getlist("name") if name in known]
+    change_groups(lambda groups: [*asked, *known, *groups])
+    return redirect("/groups", "ok", "The order of the groups was saved.")
 
 
 @app.post("/groups/rename")

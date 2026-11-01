@@ -644,6 +644,21 @@ class TestRoutes(RouteTest):
         self.assertNotIn('colspan="7">', self.client.get("/").text)
         self.assertNotIn('name="flat"', self.client.get("/").text)
 
+    def test_groups_keep_the_order_they_are_given(self):
+        self.create()
+        for name in ("Media", "Tools", "Home"):
+            self.client.post("/groups", data={"name": name})
+        self.assertEqual(main.stored_groups(), ["Media", "Tools", "Home"])  # as added, not sorted
+        self.create(host="wiki.lab.test", group="Media")
+        self.create(host="nas.lab.test", group="Home")
+        # Unknown names are dropped, a group left out keeps its place after the others.
+        self.client.post("/groups/order", data={"name": ["Home", "nope", "Media"]})
+        self.assertEqual(main.stored_groups(), ["Home", "Media", "Tools"])
+        page = self.client.get("/").text
+        self.assertLess(page.index('colspan="7">Home<'), page.index('colspan="7">Media<'))
+        self.client.post("/groups/rename", data={"old": "Home", "new": "House"})
+        self.assertEqual(main.stored_groups(), ["House", "Media", "Tools"])  # a rename keeps the place
+
     def test_other_types_and_tls_modes(self):
         self.create(type="redirect", host="old.lab.test", target="https://new.lab.test/", code="301", tls="internal")
         self.assertIn("old.lab.test {\n\ttls internal\n\tredir https://new.lab.test{uri} 301\n}\n", self.read("old.caddy"))
@@ -2932,7 +2947,7 @@ class TestHardening(RouteTest):
                 post.start()
             for post in posts:
                 post.join()
-        self.assertEqual(main.stored_groups(), ["Media", "Tools"])
+        self.assertEqual(sorted(main.stored_groups()), ["Media", "Tools"])
 
     def test_two_saves_of_settings_or_error_pages_at_once_both_stay(self):
         settings, errors = main.load_settings, main.load_errors

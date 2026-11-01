@@ -260,6 +260,9 @@ td.nowrap { white-space: nowrap; }
 /* Not a flex container: a table cell has to stay a table cell or the row borders break. */
 /* A route that is switched off steps back; its buttons stay as they are. */
 tr.off td:not(.actions) { opacity: 0.5; }
+/* The handle that moves a group on the groups page. */
+.grip { cursor: grab; color: var(--ink-subtle); padding: 0 4px; user-select: none; }
+tr.dragged td { opacity: 0.5; }
 /* The row itself carries the colour too, or the faded cells would show only half of it. */
 tbody tr.off:hover { background: var(--surface-2); }
 .actions { white-space: nowrap; text-align: right; }

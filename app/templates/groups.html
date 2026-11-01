@@ -12,14 +12,15 @@
 	<button type="submit">Add group</button>
 </form>
 
-<table class="spaced">
+<form method="post" action="/groups/order" id="group-order" hidden></form>
+<table class="spaced groups">
 	<thead>
 		<tr><th>Group</th><th>Routes</th><th></th></tr>
 	</thead>
 	<tbody>
 		{% for name, count in groups %}
-		<tr>
-			<td><strong>{{ name }}</strong></td>
+		<tr data-name="{{ name }}">
+			<td><span class="grip" draggable="true" title="Drag to move">&#x2807;</span> <strong>{{ name }}</strong></td>
 			<td>{{ count }}</td>
 			<td class="actions">
 				<form method="post" action="/groups/rename">
@@ -39,5 +40,6 @@
 		{% endfor %}
 	</tbody>
 </table>
-<p class="empty">Renaming or deleting a group rewrites its route files and reloads Caddy.</p>
+<p class="empty">Drag a group by its handle to set its place in the route list. Renaming or deleting a group rewrites its route files and reloads Caddy.</p>
 {% endblock %}
+{% block scripts %}<script src="/static/groups.js?v={{ static_version }}" defer></script>{% endblock %}
