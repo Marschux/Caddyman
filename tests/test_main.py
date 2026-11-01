@@ -678,7 +678,7 @@ class TestRoutes(RouteTest):
         page = self.client.get("/").text
         self.assertIn("<code>10.0.0.9:8006</code>", page)
         self.assertIn("<code>https://10.0.0.7:443</code>", page)  # without the tag, https:// is what tells it
-        self.assertIn('class="tag opt allow" title="Only reachable from this network">10.0.0.0/8<', page)
+        self.assertIn('class="tag opt allow" title="Only reachable from 10.0.0.0/8">10.0.0.0/8<', page)
 
     def test_groups_keep_the_order_they_are_given(self):
         self.create()

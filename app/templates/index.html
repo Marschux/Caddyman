@@ -73,7 +73,7 @@
 			{% set nets = (route.allow or "").split() %}
 			<td class="access">{% if nets|length > 1 %}<details class="more"><summary title="{{ nets|join(', ') }}"><span class="tag opt allow">{{ nets|length }} networks</span></summary>
 					{% for net in nets %}<small>{{ net }}</small>{% endfor %}</details>
-				{% elif nets %}<span class="tag opt allow" title="Only reachable from this network">{{ nets[0] }}</span>
+				{% elif nets %}<span class="tag opt allow" title="Only reachable from {{ nets[0] }}">{{ nets[0] }}</span>
 				{% else %}<span class="empty" title="No allowed networks set: reachable from everywhere">Any</span>{% endif %}</td>
 			{# What is switched on for the route, always in the same place and order. The long name is the tooltip. #}
 			<td><div class="tags">

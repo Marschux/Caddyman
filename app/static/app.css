@@ -345,7 +345,7 @@ section > ol li { margin: 6px 0; }
 .tag.log { --c: var(--opt-log); }
 /* Access limited to some networks stands out; "Any" stays grey. */
 .tag.allow { --c: var(--product); }
-td.access .tag { margin-left: 0; }
+td.access .tag { max-width: 100%; margin-left: 0; padding: 2px 7px; overflow: hidden; text-overflow: ellipsis; vertical-align: bottom; }
 /* Something about a route that needs a look. The tooltip says what. */
 .tag.error { color: var(--error); background: color-mix(in srgb, var(--error) 15%, transparent); }
 
@@ -419,7 +419,7 @@ table.routes { table-layout: fixed; }
 table.routes col:nth-child(1) { width: 15%; }
 /* Sized so the target keeps about 170 px on a 1280 px screen. */
 table.routes col:nth-child(2) { width: 110px; }
-table.routes col:nth-child(4) { width: 115px; }
+table.routes col:nth-child(4) { width: 150px; }
 table.routes col:nth-child(5) { width: 250px; }
 table.routes col:nth-child(6) { width: 150px; }
 table.routes col:nth-child(7) { width: 250px; }
@@ -443,6 +443,8 @@ table.routes .tags { display: grid; grid-template-columns: repeat(4, max-content
 td details.more summary { display: inline-block; list-style: none; padding: 2px 10px; color: var(--ink-muted); background: var(--surface-2); border-radius: 9999px; font-size: 12px; font-weight: 400; line-height: 1.38; letter-spacing: 0.2px; }
 td details.more summary::-webkit-details-marker { display: none; }
 td details.more summary:hover, td details.more[open] summary { color: var(--ink); background: var(--surface-3); }
+/* The networks of a route are a tag of their own; their summary adds no second pill. */
+td.access details.more summary { padding: 0; background: none; }
 /* The unfolded names, quieter than the hostname above. */
 td details.more small { margin-top: 4px; font-weight: 400; }
 td details.more small a.out { color: var(--ink-muted); }
