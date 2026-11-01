@@ -1,5 +1,14 @@
 # Changelog
 
+## 2026-11-01 01:48
+- chore: version 1.4.2
+- feat: a new route has error pages and an access log ticked
+- style: a group's colour is only a thin bar at the left of its head
+- feat: a group can have a colour, picked under Groups, that tints its head in the route list
+- fix: the tag for an unchecked target certificate says Self-signed instead of No verify
+- feat: groups keep the order they are dragged into on the groups page, and the route list shows them that way
+
+
 ## 2026-10-26 19:19
 - chore: version 1.3.5
 - docs: README describes the statistics, Requests and the pages of the route list, with a screenshot of the Stats tab
