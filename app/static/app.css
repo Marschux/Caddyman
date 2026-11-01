@@ -343,9 +343,9 @@ section > ol li { margin: 6px 0; }
 .tag.hsts { --c: var(--opt-hsts); }
 .tag.errors { --c: var(--opt-errors); }
 .tag.log { --c: var(--opt-log); }
-/* Access limited to some networks stands out; "Any" stays grey. */
+/* Access limited to some networks stands out; "Any" stays grey. A long network wraps, so it can be copied whole. */
 .tag.allow { --c: var(--product); }
-td.access .tag { max-width: 100%; margin-left: 0; padding: 2px 7px; overflow: hidden; text-overflow: ellipsis; vertical-align: bottom; }
+td.access .tag { max-width: 100%; margin-left: 0; padding: 2px 7px; white-space: normal; overflow-wrap: anywhere; border-radius: 10px; }
 /* Something about a route that needs a look. The tooltip says what. */
 .tag.error { color: var(--error); background: color-mix(in srgb, var(--error) 15%, transparent); }
 
@@ -445,6 +445,7 @@ td details.more summary::-webkit-details-marker { display: none; }
 td details.more summary:hover, td details.more[open] summary { color: var(--ink); background: var(--surface-3); }
 /* The networks of a route are a tag of their own; their summary adds no second pill. */
 td.access details.more summary { padding: 0; background: none; }
+td.access details.more small { white-space: normal; overflow-wrap: anywhere; }
 /* The unfolded names, quieter than the hostname above. */
 td details.more small { margin-top: 4px; font-weight: 400; }
 td details.more small a.out { color: var(--ink-muted); }
