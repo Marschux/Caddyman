@@ -672,6 +672,14 @@ class TestRoutes(RouteTest):
         self.assertIn('name="errors" value="1" checked', page)
         self.assertIn('name="log" value="1" checked', page)
 
+    def test_the_route_list_leaves_out_https_beside_self_signed_and_marks_networks(self):
+        self.create(host="pve.lab.test", upstream="https://10.0.0.9:8006", skip_verify="1", allow="10.0.0.0/8")
+        self.create(host="web.lab.test", upstream="https://10.0.0.7:443")
+        page = self.client.get("/").text
+        self.assertIn("<code>10.0.0.9:8006</code>", page)
+        self.assertIn("<code>https://10.0.0.7:443</code>", page)  # without the tag, https:// is what tells it
+        self.assertIn('class="tag opt allow" title="Only reachable from this network">10.0.0.0/8<', page)
+
     def test_groups_keep_the_order_they_are_given(self):
         self.create()
         for name in ("Media", "Tools", "Home"):
@@ -2513,7 +2521,7 @@ class TestEdit(RouteTest):
             text,
         )
         # The list shows them in a column of their own, folded away behind their count.
-        self.assertIn('<summary title="10.0.1.0/24, private, 10.0.0.9">3 networks</summary>', self.client.get("/").text)
+        self.assertIn('<summary title="10.0.1.0/24, private, 10.0.0.9"><span class="tag opt allow">3 networks</span></summary>', self.client.get("/").text)
         form = self.client.get("/routes/pdf/edit").text
         for network in ("10.0.1.0/24", "private", "10.0.0.9"):
             self.assertIn(f'<input name="allow" value="{network}"', form)

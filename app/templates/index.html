@@ -61,17 +61,19 @@
 				{% else %}{{ name }}{% endif %}
 			</td>
 			<td class="nowrap">{{ {"reverse_proxy": "Reverse proxy", "redirect": "Redirect", "static": "Static files"}[route.type] }}</td>
-			{# A redirect can point at a long address and may wrap; host:port and a path stay on one line. #}
-			<td{% if route.type != "redirect" %} class="nowrap"{% endif %}>{% if item.link %}<a class="out" href="{{ item.link }}" target="_blank" rel="noopener noreferrer"><code>{{ route.upstream or route.target }}</code></a>
-				{% else %}<code>{{ route.upstream or route.target or route.root }}</code>{% endif %}
+			{# A redirect can point at a long address and may wrap; host:port and a path stay on one line.
+			   With the Self-signed tag, https:// says nothing more and is left out (Max, 01.11.2026). #}
+			{% set shown = route.upstream[8:] if route.skip_verify and (route.upstream or "").startswith("https://") else route.upstream or route.target or route.root %}
+			<td{% if route.type != "redirect" %} class="nowrap"{% endif %}>{% if item.link %}<a class="out" href="{{ item.link }}" target="_blank" rel="noopener noreferrer"><code>{{ shown }}</code></a>
+				{% else %}<code>{{ shown }}</code>{% endif %}
 				{% if item.target_down %}<span class="cert warn" title="No TCP connection from Caddyman to {{ item.target_down|join(', ') }}. Caddy may see it differently.">Not reachable</span>{% endif %}
 				{% if route.paths %}<details class="more"><summary>{{ route.paths|length }} path{{ "s" if route.paths|length != 1 }}</summary>
 					{% for path, target in route.paths %}<small><code>{{ path }}</code> to <code>{{ target }}</code></small>{% endfor %}</details>{% endif %}</td>
 			{# Who may reach the route at all. Several networks fold away behind their count, none of them comes first. #}
 			{% set nets = (route.allow or "").split() %}
-			<td class="access">{% if nets|length > 1 %}<details class="more"><summary title="{{ nets|join(', ') }}">{{ nets|length }} networks</summary>
+			<td class="access">{% if nets|length > 1 %}<details class="more"><summary title="{{ nets|join(', ') }}"><span class="tag opt allow">{{ nets|length }} networks</span></summary>
 					{% for net in nets %}<small>{{ net }}</small>{% endfor %}</details>
-				{% elif nets %}{{ nets[0] }}
+				{% elif nets %}<span class="tag opt allow" title="Only reachable from this network">{{ nets[0] }}</span>
 				{% else %}<span class="empty" title="No allowed networks set: reachable from everywhere">Any</span>{% endif %}</td>
 			{# What is switched on for the route, always in the same place and order. The long name is the tooltip. #}
 			<td><div class="tags">
