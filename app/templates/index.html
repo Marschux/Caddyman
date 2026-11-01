@@ -60,7 +60,9 @@
 					{% for alias, site in item.alias_sites %}<small>{% if site %}<a class="out" href="{{ site }}" target="_blank" rel="noopener noreferrer">{{ alias }}{{ ":" ~ route.port if route.port }}</a>{% else %}{{ alias }}{{ ":" ~ route.port if route.port }}{% endif %}</small>{% endfor %}</details>
 				{% else %}{{ name }}{% endif %}
 			</td>
-			<td class="nowrap">{{ {"reverse_proxy": "Reverse proxy", "redirect": "Redirect", "static": "Static files"}[route.type] }}</td>
+			{# A short tag per type, so the target gets the room; the long name is the tooltip. #}
+			{% set kind = {"reverse_proxy": ("Proxy", "Reverse proxy"), "redirect": ("Redirect", "Redirect"), "static": ("Files", "Static files")}[route.type] %}
+			<td class="type"><span class="tag" title="{{ kind[1] }}">{{ kind[0] }}</span></td>
 			{# A redirect can point at a long address and may wrap; host:port and a path stay on one line.
 			   With the Self-signed tag, https:// says nothing more and is left out (Max, 01.11.2026). #}
 			{% set shown = route.upstream[8:] if route.skip_verify and (route.upstream or "").startswith("https://") else route.upstream or route.target or route.root %}
