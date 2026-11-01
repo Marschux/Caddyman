@@ -1859,6 +1859,9 @@ ROUTE_NAME_RE = re.compile(r"^[A-Za-z0-9]([A-Za-z0-9._-]*[A-Za-z0-9])?\Z")
 GROUPS_FILE = DATA_DIR / "groups.json"
 GROUP_RE = re.compile(r"\w[\w .-]{0,39}")
 GROUP_HINT = "A group name is up to 40 letters, digits, spaces, '.', '_' and '-'."
+# The colour of a group's head in the route list. Apart from groups.json, whose format older installs read.
+GROUP_COLORS_FILE = DATA_DIR / "group_colors.json"
+COLOR_RE = re.compile(r"#[0-9a-f]{6}\Z")
 # Where a route with an access log has Caddy write it: the directory of Caddy's own log, as
 # Caddy sees it, so the Logs page shows both. The file is named after the route file.
 ACCESS_LOG_DIR, ACCESS_LOG_PREFIX = "/var/log/caddy", "access-"
@@ -2478,6 +2481,21 @@ def change_groups(change) -> None:
         write_json(GROUPS_FILE, list(dict.fromkeys(change(stored_groups()))))
 
 
+def group_colors() -> dict:
+    return {name: color for name, color in read_json(GROUP_COLORS_FILE, {}).items() if COLOR_RE.match(str(color))}
+
+
+def recolor(old: str, new: str = "", color: str = "") -> None:
+    """Give a group a colour, move it to the group's new name, or drop it ("" as colour or name)."""
+    with GROUPS_LOCK:
+        colors = group_colors()
+        kept = colors.pop(old, "")
+        color = kept if color is None else color.lower()
+        if new and COLOR_RE.match(color):
+            colors[new] = color
+        write_json(GROUP_COLORS_FILE, colors)
+
+
 def load_groups(host: dict) -> list[str]:
     """Every group: the ones created here and the ones a route file names, as after a restore."""
     stored = stored_groups()
@@ -3047,7 +3065,7 @@ def index(request: Request):
     # Groups in their set order, what has none at the end.
     order = {name: place for place, name in enumerate(load_groups(current))}
     routes.sort(key=lambda item: (not item["group"], order.get(item["group"], 0)))
-    return page(request, "index.html", host=current, routes=routes, own_port=OWN_PORT)
+    return page(request, "index.html", host=current, routes=routes, own_port=OWN_PORT, colors=group_colors())
 
 
 @app.get("/routes/new")
@@ -3269,7 +3287,7 @@ def route_adopt(name: str):
 def groups_page(request: Request):
     current = the_host()
     members = [route_group(item["route"]) for item in list_routes(current)]
-    return page(request, "groups.html", groups=[(name, members.count(name)) for name in load_groups(current)])
+    return page(request, "groups.html", groups=[(name, members.count(name)) for name in load_groups(current)], colors=group_colors())
 
 
 def taken(name: str, groups: list[str]) -> bool:
@@ -3301,6 +3319,17 @@ async def group_order(request: Request):
     return redirect("/groups", "ok", "The order of the groups was saved.")
 
 
+@app.post("/groups/color")
+def group_color(name: str = Form(""), color: str = Form(""), clear: str = Form("")):
+    """Only the look of the list: no route file is written, Caddy is not asked."""
+    current = pick_host()
+    if current is None or name not in load_groups(current):
+        return redirect("/groups", "error", "This group does not exist.")
+    color = "" if clear else color.lower()
+    recolor(name, name, color)
+    return redirect("/groups", "ok", f"{name} has its new colour." if COLOR_RE.match(color) else f"{name} has no colour now.")
+
+
 @app.post("/groups/rename")
 def group_rename(old: str = Form(""), new: str = Form("")):
     current = pick_host()
@@ -3319,6 +3348,7 @@ def group_rename(old: str = Form(""), new: str = Form("")):
     if error:
         return redirect("/groups", "error", f"Caddy rejected the reload, nothing was changed: {error}")
     change_groups(lambda groups: [new if group == old else group for group in [*groups, old]])
+    recolor(old, new, None)
     return redirect("/groups", "ok", f"{old} is now {new}.")
 
 
@@ -3334,6 +3364,7 @@ def group_delete(name: str = Form("")):
     if error:
         return redirect("/groups", "error", f"Caddy rejected the reload, nothing was changed: {error}")
     change_groups(lambda groups: [group for group in groups if group != name])
+    recolor(name)
     return redirect("/groups", "ok", f"{name} was removed. Its routes are kept, without a group.")
 
 

@@ -45,6 +45,7 @@ class AppTest(unittest.TestCase):
         main.MAIL_FILE.unlink(missing_ok=True)
         main.SETTINGS_FILE.unlink(missing_ok=True)
         main.GROUPS_FILE.unlink(missing_ok=True)
+        main.GROUP_COLORS_FILE.unlink(missing_ok=True)
         main.ERRORS_FILE.unlink(missing_ok=True)
         main.LOGIN_FAILS.clear()
         main.FAIL_SWEEP["next"] = 0.0
@@ -643,6 +644,28 @@ class TestRoutes(RouteTest):
         self.assertEqual(main.stored_groups(), [])
         self.assertNotIn('colspan="7">', self.client.get("/").text)
         self.assertNotIn('name="flat"', self.client.get("/").text)
+
+    def test_a_group_has_a_colour_that_follows_its_name(self):
+        self.client.post("/groups", data={"name": "Media"})
+        self.create(host="wiki", group="Media")
+        self.assertNotIn("--group:", self.client.get("/").text)
+        # Only the look: no file is written, Caddy is not asked.
+        loads = self.load.call_count
+        self.client.post("/groups/color", data={"name": "Media", "color": "#FF0000"})
+        self.assertEqual(self.load.call_count, loads)
+        self.assertIn('data-group="Media" style="--group: #ff0000"><th', self.client.get("/").text)
+        self.client.post("/groups/color", data={"name": "Media", "color": "red; x: y"})  # never lands in a style
+        self.assertEqual(main.group_colors(), {})
+        self.client.post("/groups/color", data={"name": "Nope", "color": "#00ff00"})
+        self.assertEqual(main.group_colors(), {})
+        self.client.post("/groups/color", data={"name": "Media", "color": "#00ff00"})
+        self.client.post("/groups/rename", data={"old": "Media", "new": "Films"})
+        self.assertEqual(main.group_colors(), {"Films": "#00ff00"})
+        self.client.post("/groups/color", data={"name": "Films", "color": "#00ff00", "clear": "1"})  # the x
+        self.assertEqual(main.group_colors(), {})
+        self.client.post("/groups/color", data={"name": "Films", "color": "#00ff00"})
+        self.client.post("/groups/delete", data={"name": "Films"})
+        self.assertEqual(main.group_colors(), {})
 
     def test_groups_keep_the_order_they_are_given(self):
         self.create()

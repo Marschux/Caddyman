@@ -19,10 +19,17 @@
 	</thead>
 	<tbody>
 		{% for name, count in groups %}
-		<tr data-name="{{ name }}">
+		<tr data-name="{{ name }}"{% if colors.get(name) %} style="--group: {{ colors[name] }}"{% endif %}>
 			<td><span class="grip" draggable="true" title="Drag to move">&#x2807;</span> <strong>{{ name }}</strong></td>
 			<td>{{ count }}</td>
 			<td class="actions">
+				{# Sent as soon as a colour is picked (groups.js); the x takes it away again. #}
+				<form method="post" action="/groups/color" class="color">
+					<input type="hidden" name="name" value="{{ name }}">
+					<input type="color" name="color" value="{{ colors.get(name, '#14c6cb') }}" aria-label="Colour of {{ name }}" title="Colour of its head in the route list">
+					{% if colors.get(name) %}<button type="submit" name="clear" value="1" class="remove" title="No colour" aria-label="No colour for {{ name }}">&times;</button>{% endif %}
+					<noscript><button type="submit">Set colour</button></noscript>
+				</form>
 				<form method="post" action="/groups/rename">
 					<input type="hidden" name="old" value="{{ name }}">
 					<input name="new" value="{{ name }}" required maxlength="40" aria-label="New name for {{ name }}">

@@ -45,7 +45,7 @@
 		{% for item in routes %}
 		{% set route = item.route %}
 		{% if grouped and loop.changed(item.group) %}
-		<tr class="group" data-group="{{ item.group }}"><th colspan="7">{{ item.group or "No group" }}</th></tr>
+		<tr class="group" data-group="{{ item.group }}"{% if colors.get(item.group) %} style="--group: {{ colors[item.group] }}"{% endif %}><th colspan="7">{{ item.group or "No group" }}</th></tr>
 		{% endif %}
 		{# A problem: the target does not answer, the certificate is not what it should be, or the TLS snippet is gone
 		   from the settings. To do: Caddy runs it fine, but something is left in Caddyman: a file to adopt or that cannot

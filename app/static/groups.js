@@ -1,3 +1,8 @@
+// A picked colour is saved at once ("change" comes when the picker closes, not on every move).
+document.addEventListener("change", (event) => {
+	if (event.target.matches("form.color input[type=color]")) event.target.form.submit();
+});
+
 // Drag a group by its handle to a new place; the new order is sent at once and the page comes back.
 const body = document.querySelector("table.groups tbody");
 const names = () => [...body.querySelectorAll("tr[data-name]")].map((row) => row.dataset.name);
