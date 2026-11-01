@@ -1,5 +1,13 @@
 # Changelog
 
+## 2026-11-01 02:41
+- chore: version 1.4.3
+- style: the type of a route is a short tag, Proxy, Redirect or Files, and its narrower column leaves the target more room
+- style: a long network in the route list wraps instead of ending in dots, so it can be copied whole
+- style: networks in the route list fit their wider column, a long one ends in dots with the whole in its tooltip
+- feat: the route list leaves out https:// next to Self-signed and marks routes limited to some networks
+
+
 ## 2026-11-01 01:48
 - chore: version 1.4.2
 - feat: a new route has error pages and an access log ticked
